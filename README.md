@@ -46,6 +46,9 @@ sudo ufw enable
 # Install Python dependencies
 pip3 install -r requirements.txt
 
+# Try the component demo (no root required)
+python3 demo.py
+
 # Run the firewall GUI (requires root)
 sudo python3 ufw_firewall_gui.py
 ```
