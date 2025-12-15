@@ -36,14 +36,10 @@ env/
 .DS_Store
 Thumbs.db
 
-# Logs
+# Douane specific
+*.db
 *.log
-logs/
 
 # Temporary files
 /tmp/
 *.tmp
-*.bak
-
-# Configuration overrides (keep default config.json)
-config.local.json
