@@ -1,0 +1,21 @@
+{
+  "log_decisions": true,
+  "cache_decisions": true,
+  "default_action": "prompt",
+  "timeout_seconds": 30,
+  "log_file": "/var/log/ufw_firewall_gui.log",
+  "gui": {
+    "window_timeout": 30,
+    "always_on_top": true,
+    "theme": "default"
+  },
+  "filtering": {
+    "monitor_protocols": ["tcp", "udp"],
+    "ignore_local": true,
+    "ignore_localhost": true
+  },
+  "ufw": {
+    "default_outbound_policy": "allow",
+    "enable_logging": true
+  }
+}
