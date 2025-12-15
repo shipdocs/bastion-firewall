@@ -1,0 +1,351 @@
+#!/usr/bin/env python3
+"""
+Douane Firewall Control Panel - Main GUI window
+"""
+
+import tkinter as tk
+from tkinter import ttk, messagebox, scrolledtext
+import json
+import subprocess
+from pathlib import Path
+
+
+class DouaneControlPanel:
+    """Main control panel window for Douane Firewall"""
+    
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("Douane Firewall Control Panel")
+        self.root.geometry("800x600")
+        self.root.resizable(True, True)
+        
+        # Load config and rules
+        self.config_file = Path('/etc/douane/config.json')
+        self.rules_file = Path('/etc/douane/rules.json')
+        self.config = self.load_config()
+        self.rules = self.load_rules()
+        
+        self.create_ui()
+        
+    def load_config(self):
+        """Load configuration"""
+        if self.config_file.exists():
+            try:
+                with open(self.config_file) as f:
+                    return json.load(f)
+            except:
+                pass
+        return {'mode': 'learning', 'timeout_seconds': 30}
+    
+    def load_rules(self):
+        """Load saved rules"""
+        if self.rules_file.exists():
+            try:
+                with open(self.rules_file) as f:
+                    return json.load(f)
+            except:
+                pass
+        return {}
+    
+    def save_config(self):
+        """Save configuration"""
+        try:
+            self.config_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.config_file, 'w') as f:
+                json.dump(self.config, f, indent=2)
+            messagebox.showinfo("Success", "Configuration saved! Restart firewall for changes to take effect.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save configuration: {e}")
+    
+    def create_ui(self):
+        """Create the user interface"""
+        # Create notebook (tabs)
+        notebook = ttk.Notebook(self.root)
+        notebook.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # Tab 1: Overview
+        overview_frame = ttk.Frame(notebook)
+        notebook.add(overview_frame, text='Overview')
+        self.create_overview_tab(overview_frame)
+        
+        # Tab 2: Settings
+        settings_frame = ttk.Frame(notebook)
+        notebook.add(settings_frame, text='Settings')
+        self.create_settings_tab(settings_frame)
+        
+        # Tab 3: Rules
+        rules_frame = ttk.Frame(notebook)
+        notebook.add(rules_frame, text='Rules')
+        self.create_rules_tab(rules_frame)
+        
+        # Tab 4: Logs
+        logs_frame = ttk.Frame(notebook)
+        notebook.add(logs_frame, text='Logs')
+        self.create_logs_tab(logs_frame)
+        
+        # Bottom buttons
+        button_frame = ttk.Frame(self.root)
+        button_frame.pack(fill='x', padx=10, pady=10)
+        
+        ttk.Button(button_frame, text="Start Firewall", command=self.start_firewall).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Stop Firewall", command=self.stop_firewall).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Restart Firewall", command=self.restart_firewall).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Close", command=self.root.quit).pack(side='right', padx=5)
+    
+    def create_overview_tab(self, parent):
+        """Create overview tab"""
+        # Status section
+        status_frame = ttk.LabelFrame(parent, text="Status", padding=10)
+        status_frame.pack(fill='x', padx=10, pady=10)
+        
+        self.status_label = ttk.Label(status_frame, text="Checking status...", font=('Ubuntu', 12))
+        self.status_label.pack()
+        
+        ttk.Button(status_frame, text="Refresh Status", command=self.update_status).pack(pady=5)
+        
+        # Statistics section
+        stats_frame = ttk.LabelFrame(parent, text="Statistics", padding=10)
+        stats_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        self.stats_text = scrolledtext.ScrolledText(stats_frame, height=10, wrap=tk.WORD)
+        self.stats_text.pack(fill='both', expand=True)
+        
+        self.update_status()
+        self.update_statistics()
+    
+    def create_settings_tab(self, parent):
+        """Create settings tab"""
+        # Mode selection
+        mode_frame = ttk.LabelFrame(parent, text="Operating Mode", padding=10)
+        mode_frame.pack(fill='x', padx=10, pady=10)
+        
+        self.mode_var = tk.StringVar(value=self.config.get('mode', 'learning'))
+        
+        ttk.Radiobutton(mode_frame, text="Learning Mode (shows popups, always allows)", 
+                       variable=self.mode_var, value='learning').pack(anchor='w', pady=5)
+        ttk.Radiobutton(mode_frame, text="Enforcement Mode (actually blocks traffic)", 
+                       variable=self.mode_var, value='enforcement').pack(anchor='w', pady=5)
+        
+        # Timeout setting
+        timeout_frame = ttk.LabelFrame(parent, text="Popup Timeout", padding=10)
+        timeout_frame.pack(fill='x', padx=10, pady=10)
+        
+        ttk.Label(timeout_frame, text="Auto-deny after (seconds):").pack(side='left', padx=5)
+        self.timeout_var = tk.IntVar(value=self.config.get('timeout_seconds', 30))
+        ttk.Spinbox(timeout_frame, from_=10, to=300, textvariable=self.timeout_var, width=10).pack(side='left', padx=5)
+        
+        # Save button
+        ttk.Button(parent, text="Save Settings", command=self.save_settings).pack(pady=20)
+
+    def create_rules_tab(self, parent):
+        """Create rules management tab"""
+        # Rules list
+        rules_frame = ttk.LabelFrame(parent, text="Active Rules", padding=10)
+        rules_frame.pack(fill='both', expand=True, padx=10, pady=10)
+
+        # Create treeview for rules
+        columns = ('Application', 'Port', 'Action')
+        self.rules_tree = ttk.Treeview(rules_frame, columns=columns, show='headings', height=15)
+
+        self.rules_tree.heading('Application', text='Application')
+        self.rules_tree.heading('Port', text='Port')
+        self.rules_tree.heading('Action', text='Action')
+
+        self.rules_tree.column('Application', width=400)
+        self.rules_tree.column('Port', width=100)
+        self.rules_tree.column('Action', width=100)
+
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(rules_frame, orient='vertical', command=self.rules_tree.yview)
+        self.rules_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.rules_tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        # Buttons
+        button_frame = ttk.Frame(parent)
+        button_frame.pack(fill='x', padx=10, pady=10)
+
+        ttk.Button(button_frame, text="Refresh Rules", command=self.update_rules_list).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Delete Selected", command=self.delete_rule).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Clear All Rules", command=self.clear_all_rules).pack(side='left', padx=5)
+
+        self.update_rules_list()
+
+    def create_logs_tab(self, parent):
+        """Create logs viewer tab"""
+        logs_frame = ttk.LabelFrame(parent, text="Daemon Logs", padding=10)
+        logs_frame.pack(fill='both', expand=True, padx=10, pady=10)
+
+        self.logs_text = scrolledtext.ScrolledText(logs_frame, height=20, wrap=tk.WORD, font=('Courier', 9))
+        self.logs_text.pack(fill='both', expand=True)
+
+        # Initial message
+        self.logs_text.insert('1.0', "Click 'Refresh Logs' to view daemon logs...")
+
+        button_frame = ttk.Frame(parent)
+        button_frame.pack(fill='x', padx=10, pady=10)
+
+        ttk.Button(button_frame, text="Refresh Logs", command=self.update_logs).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Clear Logs", command=self.clear_logs).pack(side='left', padx=5)
+
+    def update_status(self):
+        """Update firewall status"""
+        try:
+            result = subprocess.run(['pgrep', '-f', 'douane-daemon'], capture_output=True)
+            if result.returncode == 0:
+                self.status_label.config(text="✓ Firewall is RUNNING", foreground='green')
+            else:
+                self.status_label.config(text="✗ Firewall is STOPPED", foreground='red')
+        except:
+            self.status_label.config(text="✗ Status unknown", foreground='orange')
+
+    def update_statistics(self):
+        """Update statistics"""
+        stats = f"Total Rules: {len(self.rules)}\n\n"
+        stats += f"Operating Mode: {self.config.get('mode', 'learning').title()}\n"
+        stats += f"Popup Timeout: {self.config.get('timeout_seconds', 30)} seconds\n\n"
+
+        # Count allowed vs denied
+        allowed = sum(1 for v in self.rules.values() if v)
+        denied = sum(1 for v in self.rules.values() if not v)
+        stats += f"Allowed Rules: {allowed}\n"
+        stats += f"Denied Rules: {denied}\n"
+
+        self.stats_text.delete('1.0', tk.END)
+        self.stats_text.insert('1.0', stats)
+
+    def update_rules_list(self):
+        """Update rules list"""
+        # Clear existing items
+        for item in self.rules_tree.get_children():
+            self.rules_tree.delete(item)
+
+        # Reload rules
+        self.rules = self.load_rules()
+
+        # Add rules to tree
+        for cache_key, allow in self.rules.items():
+            try:
+                # Parse cache key: app_path:port
+                parts = cache_key.rsplit(':', 1)
+                if len(parts) == 2:
+                    app_path, port = parts
+                    action = "ALLOW" if allow else "DENY"
+                    self.rules_tree.insert('', 'end', values=(app_path, port, action))
+            except:
+                pass
+
+        self.update_statistics()
+
+    def update_logs(self):
+        """Update logs display"""
+        try:
+            # Try without sudo first (if log file is readable)
+            result = subprocess.run(['tail', '-100', '/var/log/douane-daemon.log'],
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                self.logs_text.delete('1.0', tk.END)
+                self.logs_text.insert('1.0', result.stdout)
+            else:
+                # Try with pkexec for GUI password prompt
+                result = subprocess.run(['pkexec', 'tail', '-100', '/var/log/douane-daemon.log'],
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    self.logs_text.delete('1.0', tk.END)
+                    self.logs_text.insert('1.0', result.stdout)
+                else:
+                    self.logs_text.delete('1.0', tk.END)
+                    self.logs_text.insert('1.0', "No logs available or permission denied")
+        except Exception as e:
+            self.logs_text.delete('1.0', tk.END)
+            self.logs_text.insert('1.0', f"Error reading logs: {e}")
+
+    def clear_logs(self):
+        """Clear daemon logs"""
+        if messagebox.askyesno("Confirm", "Clear all daemon logs?"):
+            try:
+                subprocess.run(['pkexec', 'truncate', '-s', '0', '/var/log/douane-daemon.log'])
+                self.update_logs()
+                messagebox.showinfo("Success", "Logs cleared")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to clear logs: {e}")
+
+    def save_settings(self):
+        """Save settings"""
+        self.config['mode'] = self.mode_var.get()
+        self.config['timeout_seconds'] = self.timeout_var.get()
+        self.save_config()
+
+    def delete_rule(self):
+        """Delete selected rule"""
+        selection = self.rules_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a rule to delete")
+            return
+
+        if messagebox.askyesno("Confirm", "Delete selected rule?"):
+            for item in selection:
+                values = self.rules_tree.item(item)['values']
+                app_path, port = values[0], values[1]
+                cache_key = f"{app_path}:{port}"
+
+                # Remove from rules
+                if cache_key in self.rules:
+                    del self.rules[cache_key]
+
+            # Save rules
+            try:
+                with open(self.rules_file, 'w') as f:
+                    json.dump(self.rules, f, indent=2)
+                self.update_rules_list()
+                messagebox.showinfo("Success", "Rule deleted")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to delete rule: {e}")
+
+    def clear_all_rules(self):
+        """Clear all rules"""
+        if messagebox.askyesno("Confirm", "Delete ALL rules? This cannot be undone!"):
+            try:
+                self.rules = {}
+                with open(self.rules_file, 'w') as f:
+                    json.dump(self.rules, f, indent=2)
+                self.update_rules_list()
+                messagebox.showinfo("Success", "All rules cleared")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to clear rules: {e}")
+
+    def start_firewall(self):
+        """Start the firewall"""
+        try:
+            subprocess.Popen(['/usr/local/bin/douane-gui-client'])
+            messagebox.showinfo("Success", "Firewall starting...")
+            self.root.after(2000, self.update_status)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start firewall: {e}")
+
+    def stop_firewall(self):
+        """Stop the firewall"""
+        if messagebox.askyesno("Confirm", "Stop the firewall?"):
+            try:
+                subprocess.run(['pkill', '-TERM', '-f', 'douane'])
+                messagebox.showinfo("Success", "Firewall stopped")
+                self.root.after(1000, self.update_status)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to stop firewall: {e}")
+
+    def restart_firewall(self):
+        """Restart the firewall"""
+        if messagebox.askyesno("Confirm", "Restart the firewall?"):
+            self.stop_firewall()
+            self.root.after(2000, self.start_firewall)
+
+    def run(self):
+        """Run the control panel"""
+        self.root.mainloop()
+
+
+if __name__ == '__main__':
+    app = DouaneControlPanel()
+    app.run()
+

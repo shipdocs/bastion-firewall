@@ -30,148 +30,144 @@ Douane Firewall:
 - **Real netfilter integration** - Intercepts actual packets using iptables NFQUEUE
 - **Application identification** - Matches packets to processes via /proc filesystem
 - **Fast decision engine** - Cached rules for instant decisions
-- **Safe defaults** - Fails closed (deny) on errors
+- **Two-process architecture** - Daemon (root) + GUI client (user) for proper privilege separation
 
 ### Beautiful, Informative GUI
 - **Enhanced dialogs** - Shows hostname, port description, process info, risk level
+- **Control Panel** - Full-featured GUI to manage settings, rules, and view logs
 - **System tray icon** - Statistics and quick access menu
-- **Timeout protection** - Auto-deny after 30 seconds
+- **Timeout protection** - Auto-deny after 30 seconds (configurable)
 - **Keyboard shortcuts** - Enter to allow, Escape to deny
-- **Rule management** - GUI to view and delete existing rules
+- **Rule management** - View, delete, and manage all firewall rules
 
 ### Smart Rule Management
-- **Per-application rules** - Allow/deny all connections from an app
-- **Per-connection rules** - Allow/deny specific destinations
+- **Per-application + port rules** - Firefox:443 allows all HTTPS, Firefox:80 separate for HTTP
+- **Persistent storage** - Rules saved to /etc/douane/rules.json
 - **UFW integration** - Permanent rules stored in UFW
 - **Decision caching** - Avoid repeated prompts for known connections
+- **Learning mode** - Shows popups but always allows (safe for testing)
+- **Enforcement mode** - Actually blocks based on decisions
 
 ### Safety First
-- **Rollback capability** - Easy restore if something goes wrong
-- **Essential services protected** - DNS, DHCP, NTP automatically allowed
+- **Learning mode default** - Won't break your internet while you configure
+- **Essential services protected** - DNS, DHCP, NTP, apt automatically allowed
 - **Localhost allowed** - Local connections work by default
-- **Comprehensive logging** - Full audit trail of all decisions
+- **Graceful shutdown** - Automatic iptables cleanup on exit
+- **Comprehensive logging** - Full audit trail at /var/log/douane-daemon.log
 
 ## 🏗️ Architecture
 
+### Two-Process Design
+
 ```
-Application → Outbound Connection
-                ↓
-        Linux Network Stack
-                ↓
-        iptables NFQUEUE ← [UFW: Default DENY outbound]
-                ↓
-    Douane Firewall (Python)
-                ↓
-    Identify Application (/proc)
-                ↓
-        Check Cached Rules
-                ↓
-    [No Rule] → GUI Dialog → User Decision
-                ↓
-        Accept or Drop Packet
-                ↓
-    [Optional] Store in UFW
+┌─────────────────────────────────────────────────────────────┐
+│  Application → Outbound Connection                          │
+│                      ↓                                       │
+│              Linux Network Stack                            │
+│                      ↓                                       │
+│              iptables NFQUEUE (queue 1)                     │
+│                      ↓                                       │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │  DOUANE DAEMON (runs as root)                        │  │
+│  │  - Intercepts packets via NetfilterQueue             │  │
+│  │  - Identifies application via /proc                  │  │
+│  │  - Checks whitelist & cached rules                   │  │
+│  │  - Sends request to GUI via Unix socket              │  │
+│  │  - Accepts/drops packet based on decision            │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                      ↕ (Unix socket)                        │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │  GUI CLIENT (runs as user)                           │  │
+│  │  - Shows popup dialogs (has DISPLAY access)          │  │
+│  │  - System tray icon with menu                        │  │
+│  │  - Sends decisions back to daemon                    │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                      ↓                                       │
+│              User Decision (Allow/Deny)                     │
+│                      ↓                                       │
+│          Save to /etc/douane/rules.json                     │
+│          Add to UFW (if permanent)                          │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### Core Components
 
-1. **firewall_core.py** - Packet interception engine
-   - NetfilterQueue integration for packet capture
-   - Application identification via /proc filesystem
-   - Packet accept/drop logic
+1. **douane-daemon.py** - Root daemon process
+   - NetfilterQueue packet interception
+   - Application identification via /proc and psutil
+   - Decision caching and rule persistence
+   - UFW integration for permanent rules
+   - Unix socket server for GUI communication
 
-2. **douane_firewall.py** - Main application
-   - Decision engine with intelligent caching
-   - UFW rule management
-   - Coordinates packet processing and GUI
+2. **douane-gui-client.py** - User GUI client
+   - Enhanced popup dialogs with detailed information
+   - System tray icon (pystray + AppIndicator3)
+   - Unix socket client to communicate with daemon
+   - Starts daemon with pkexec (GUI password prompt)
 
-3. **douane_gui_improved.py** - Enhanced user interface
-   - Beautiful, informative dialogs
-   - Rule management interface
-   - Timeout handling with countdown
+3. **douane_control_panel.py** - Control panel application
+   - Settings management (mode, timeout)
+   - Rule viewer and editor
+   - Log viewer with pkexec for privileged access
+   - Firewall start/stop/restart controls
 
-4. **setup_firewall.sh** - Safe UFW configuration
-   - Sets UFW to deny outbound by default
-   - Adds essential service rules
-   - Creates rollback script for safety
+4. **firewall_core.py** - Packet processing engine
+   - NetfilterQueue bindings
+   - Packet parsing with scapy
+   - Application identification logic
+
+5. **service_whitelist.py** - Smart whitelist
+   - Auto-allows essential services (DNS, NTP, DHCP, apt)
+   - Localhost connections always allowed
+   - Configurable trusted applications
 
 ## 📦 Installation
 
-### Method 1: Install from Package (Recommended)
-
-Download and install the pre-built package for your distribution:
-
-#### Debian/Ubuntu/Linux Mint
+### Prerequisites
 
 ```bash
-# Download the .deb package from releases
-wget https://github.com/shipdocs/Douane/releases/download/v2.0.0/douane-firewall_2.0.0_all.deb
+# Ubuntu/Debian - Install system dependencies
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip iptables gir1.2-ayatanaappindicator3-0.1
+```
+
+### Method 1: Install from .deb Package (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/shipdocs/Douane.git
+cd Douane
+
+# Build the package
+./build_deb.sh
 
 # Install
 sudo dpkg -i douane-firewall_2.0.0_all.deb
 
-# Install dependencies if needed
+# If there are dependency issues, fix them:
 sudo apt-get install -f
 ```
 
-#### Fedora/RHEL/CentOS
+The package installs:
+- `/usr/local/bin/douane-daemon` - Root daemon
+- `/usr/local/bin/douane-gui-client` - GUI client
+- `/usr/local/bin/douane-control-panel` - Control panel
+- `/etc/douane/config.json` - Configuration
+- `/usr/share/applications/douane-firewall.desktop` - Application menu entry
+- `/usr/share/applications/douane-control-panel.desktop` - Control panel menu entry
 
-```bash
-# Download the .rpm package from releases
-wget https://github.com/shipdocs/Douane/releases/download/v2.0.0/douane-firewall-2.0.0-1.noarch.rpm
-
-# Install
-sudo dnf install douane-firewall-2.0.0-1.noarch.rpm
-
-# Or with rpm
-sudo rpm -ivh douane-firewall-2.0.0-1.noarch.rpm
-```
-
-After installation:
-
-```bash
-# Configure UFW (IMPORTANT!)
-sudo douane-setup-firewall
-
-# Start the firewall
-sudo systemctl start douane-firewall
-
-# Enable on boot
-sudo systemctl enable douane-firewall
-```
-
-### Method 2: Quick Install from Source
+### Method 2: Build from Source
 
 ```bash
 # Clone the repository
 git clone https://github.com/shipdocs/Douane.git
 cd Douane
 
-# Run the complete installation script
-sudo ./install_douane.sh
+# Build the Debian package
+./build_deb.sh
 
-# Configure UFW (IMPORTANT: Read the warnings!)
-sudo ./setup_firewall.sh
-
-# Start the firewall
-sudo systemctl start douane-firewall
-
-# Check status
-sudo systemctl status douane-firewall
-```
-
-### Method 3: Build Your Own Package
-
-```bash
-# Clone the repository
-git clone https://github.com/shipdocs/Douane.git
-cd Douane
-
-# Build packages (interactive menu)
-./build_packages.sh
-
-# Or build specific package
-./build_deb.sh    # For Debian/Ubuntu
+# Install the package
+sudo dpkg -i douane-firewall_2.0.0_all.deb
 ./build_rpm.sh    # For Fedora/RHEL
 
 # Install the built package
@@ -225,69 +221,72 @@ sudo python3 douane_firewall.py
 
 ### Starting the Firewall
 
+**From Application Menu:**
+1. Search for "Douane Firewall" in your application menu
+2. Click to launch
+3. Enter your password when prompted (pkexec)
+4. System tray icon appears (green shield)
+5. Firewall is now active!
+
+**From Command Line:**
 ```bash
-# Start manually (foreground)
-sudo python3 douane_firewall.py
-
-# Or use systemd (background)
-sudo systemctl start douane-firewall
-
-# Enable on boot
-sudo systemctl enable douane-firewall
-
-# View logs
-sudo journalctl -u douane-firewall -f
-# Or
-tail -f ~/.config/douane/douane_firewall.log
+# Start the GUI client (recommended)
+/usr/local/bin/douane-gui-client
 ```
 
-### Using the GUI
+**Open Control Panel:**
+1. Search for "Douane Control Panel" in application menu, OR
+2. Right-click system tray icon → "Control Panel"
 
-When an application tries to connect to the internet:
+### Using the Popup Dialogs
 
-1. **A popup appears** showing:
-   - Application name and full path
-   - Destination IP address and port
-   - Protocol (TCP/UDP)
-   - Timestamp
+When an application tries to connect to the internet, a popup appears showing:
 
-2. **You decide**:
-   - Click **"Allow"** or press `Enter` to permit
-   - Click **"Deny"** or press `Escape` to block
-   - Check **"Remember this decision"** to make it permanent
+**Information Displayed:**
+- Application name and full path
+- Destination hostname (reverse DNS lookup)
+- Destination IP and port with description
+- Process information (PID, user, CPU%, memory%)
+- Risk assessment (Low/Medium/High)
 
-3. **What happens**:
-   - **Once**: Decision applies to this connection only
-   - **Always**: Decision stored for this application
-   - **Timeout**: Auto-deny after 30 seconds
+**Your Options:**
+- **Allow Once** - Allow this connection, ask again next time
+- **Allow Always** - Allow all connections from this app on this port (saved permanently)
+- **Deny** - Block this connection
+- **Auto-deny** - If you don't respond within timeout (default 30s), connection is denied
+
+**Keyboard Shortcuts:**
+- `Enter` or `A` - Allow Once
+- `Escape` - Deny
 
 ### Managing Rules
 
+**Via Control Panel:**
+1. Open Control Panel (from app menu or tray icon)
+2. Go to "Rules" tab
+3. View all saved rules (application:port → action)
+4. Delete individual rules or clear all
+
+**Via Command Line:**
 ```bash
-# View rule manager GUI
-python3 douane_gui_improved.py --rules
+# View saved rules
+cat /etc/douane/rules.json
 
 # View UFW rules
-sudo ufw status verbose
-
-# Delete a specific UFW rule
-sudo ufw delete [rule_number]
+sudo ufw status numbered
 
 # View logs
-tail -f ~/.config/douane/douane_firewall.log
+sudo tail -f /var/log/douane-daemon.log
 ```
 
-### Testing
+### Stopping the Firewall
 
 ```bash
-# Test all components
-python3 test_production.py
+# Graceful stop (recommended)
+pkill -TERM -f douane
 
-# Test GUI dialog
-python3 douane_gui_improved.py --test
-
-# Test rule manager
-python3 douane_gui_improved.py --rules
+# Or from system tray: Right-click → "Stop Firewall"
+# Or from control panel: Click "Stop Firewall" button
 ```
 
 ## 🔧 How It Works
@@ -527,6 +526,36 @@ python3 -c "import tkinter"
 ```
 
 See [PRODUCTION_GUIDE.md](PRODUCTION_GUIDE.md) for more troubleshooting.
+
+## 🗑️ Uninstallation
+
+### Complete Uninstallation
+
+```bash
+# Stop the firewall
+pkill -TERM -f douane
+sudo rm -f /tmp/douane-daemon.sock
+
+# Uninstall the package
+sudo dpkg --purge douane-firewall
+
+# Remove configuration and rules (optional)
+sudo rm -rf /etc/douane
+sudo rm -f /var/log/douane-daemon.log
+
+# Verify iptables rules are cleaned up
+sudo iptables -L OUTPUT -v -n | grep NFQUEUE
+# Should return nothing
+
+# Check UFW rules (optional cleanup)
+sudo ufw status numbered
+# Delete any Douane-related rules if needed
+```
+
+The package's `postrm` script automatically:
+- Removes iptables NFQUEUE rules
+- Cleans up the Unix socket
+- Removes installed files
 
 ## 📄 License
 
