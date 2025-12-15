@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Douane Application Firewall for Linux - Production-ready outbound firewall for Linux. Take control of your network connections.">
+    <title>Douane Application Firewall for Linux - Take Control of Your Outbound Connections</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="nav-brand">
+                <span class="shield-icon">🛡️</span>
+                <span class="brand-name">Douane Application Firewall for Linux</span>
+            </div>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#installation">Installation</a>
+                <a href="#docs">Documentation</a>
+                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux" target="_blank" class="github-link">
+                    <svg height="24" width="24" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+                    </svg>
+                    GitHub
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <h1 class="hero-title">
+                    <span class="gradient-text">Take Control</span> of Your Outbound Connections
+                </h1>
+                <p class="hero-subtitle">
+                    Production-ready application firewall that gives Linux users the same outbound connection control they had on Windows.
+                </p>
+                <div class="hero-buttons">
+                    <a href="#installation" class="btn btn-primary">Get Started</a>
+                    <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux" class="btn btn-secondary" target="_blank">View on GitHub</a>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat">
+                        <div class="stat-value">🔒</div>
+                        <div class="stat-label">Secure by Default</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">⚡</div>
+                        <div class="stat-label">Real-time Protection</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">🎯</div>
+                        <div class="stat-label">Per-App Control</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Problem/Solution Section -->
+    <section class="problem-solution">
+        <div class="container">
+            <div class="grid-2">
+                <div class="problem-card">
+                    <h3>🚨 The Problem</h3>
+                    <p>Linux by default <strong>allows ALL outbound connections</strong>. Any application can connect to any server without your knowledge or permission. This is a security risk.</p>
+                </div>
+                <div class="solution-card">
+                    <h3>✅ The Solution</h3>
+                    <p>Douane intercepts <strong>every outbound connection</strong> and shows you a GUI popup. You decide which applications can access the network - Allow or Deny, Once or Always.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <h2 class="section-title">Production-Ready Features</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🔌</div>
+                    <h3>Real Packet Interception</h3>
+                    <p>Integrates with netfilter/iptables NFQUEUE to intercept actual packets in real-time</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔍</div>
+                    <h3>Application Identification</h3>
+                    <p>Matches packets to processes via /proc filesystem for accurate app detection</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Fast Decision Engine</h3>
+                    <p>Cached rules provide instant decisions for known connections</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎨</div>
+                    <h3>Beautiful GUI</h3>
+                    <p>Enhanced dialogs show hostname, port description, process info, and risk level</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚙️</div>
+                    <h3>Control Panel</h3>
+                    <p>Full-featured GUI to manage settings, rules, and view logs</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>UFW Integration</h3>
+                    <p>Permanent rules stored in UFW for persistence across reboots</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⏱️</div>
+                    <h3>Timeout Protection</h3>
+                    <p>Auto-deny after 30 seconds (configurable) to prevent hanging connections</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔐</div>
+                    <h3>Learning Mode</h3>
+                    <p>Safe testing mode that shows popups but always allows connections</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Section -->
+    <section class="architecture">
+        <div class="container">
+            <h2 class="section-title">Two-Process Architecture</h2>
+            <div class="architecture-diagram">
+                <div class="arch-box daemon">
+                    <h4>🔧 Douane Daemon (Root)</h4>
+                    <ul>
+                        <li>Intercepts packets via NetfilterQueue</li>
+                        <li>Identifies applications via /proc</li>
+                        <li>Checks whitelist & cached rules</li>
+                        <li>Accepts/drops packets based on decisions</li>
+                    </ul>
+                </div>
+                <div class="arch-arrow">⬍</div>
+                <div class="arch-box gui">
+                    <h4>🖥️ GUI Client (User)</h4>
+                    <ul>
+                        <li>Shows popup dialogs with DISPLAY access</li>
+                        <li>System tray icon with menu</li>
+                        <li>Sends decisions back to daemon</li>
+                        <li>Control panel for management</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="arch-flow">
+                <div class="flow-step">
+                    <span class="step-number">1</span>
+                    <p>Application tries to connect</p>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">2</span>
+                    <p>Packet queued to NFQUEUE</p>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">3</span>
+                    <p>Daemon identifies app</p>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">4</span>
+                    <p>GUI shows popup</p>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">5</span>
+                    <p>User decides</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Installation Section -->
+    <section id="installation" class="installation">
+        <div class="container">
+            <h2 class="section-title">Quick Installation</h2>
+            <div class="install-methods">
+                <div class="install-card recommended">
+                    <div class="install-badge">Recommended</div>
+                    <h3>📦 Install from .deb Package</h3>
+                    <div class="code-block">
+                        <pre><code># Clone the repository
+git clone https://github.com/shipdocs/Douane-Application-firewall-for-Linux.git
+cd Douane-Application-firewall-for-Linux
+
+# Build the package
+./build_deb.sh
+
+# Install
+sudo dpkg -i douane-firewall_2.0.0_all.deb
+
+# Fix dependencies if needed
+sudo apt-get install -f</code></pre>
+                    </div>
+                </div>
+                <div class="install-card">
+                    <h3>🔧 Manual Installation</h3>
+                    <div class="code-block">
+                        <pre><code># Install system dependencies
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip \
+    python3-tk build-essential \
+    libnetfilter-queue-dev iptables ufw
+
+# Install Python dependencies
+pip3 install -r requirements.txt
+
+# Configure UFW
+sudo ./setup_firewall.sh
+
+# Run the firewall
+sudo python3 douane_firewall.py</code></pre>
+                    </div>
+                </div>
+            </div>
+            <div class="requirements">
+                <h3>System Requirements</h3>
+                <div class="req-grid">
+                    <div class="req-item">
+                        <strong>OS:</strong> Linux with kernel 3.0+
+                    </div>
+                    <div class="req-item">
+                        <strong>Python:</strong> 3.6 or higher
+                    </div>
+                    <div class="req-item">
+                        <strong>Display:</strong> X11 or Wayland
+                    </div>
+                    <div class="req-item">
+                        <strong>Privileges:</strong> Root/sudo access
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Usage Section -->
+    <section class="usage">
+        <div class="container">
+            <h2 class="section-title">How to Use</h2>
+            <div class="usage-steps">
+                <div class="usage-step">
+                    <div class="step-icon">1️⃣</div>
+                    <h3>Start the Firewall</h3>
+                    <p>Search for "Douane Firewall" in your application menu and click to launch. Enter your password when prompted.</p>
+                </div>
+                <div class="usage-step">
+                    <div class="step-icon">2️⃣</div>
+                    <h3>See Connection Requests</h3>
+                    <p>When an app tries to connect, a popup appears showing the application name, destination, and risk level.</p>
+                </div>
+                <div class="usage-step">
+                    <div class="step-icon">3️⃣</div>
+                    <h3>Make Your Decision</h3>
+                    <p>Choose "Allow Once", "Allow Always", or "Deny". Your decision is saved and applied instantly.</p>
+                </div>
+                <div class="usage-step">
+                    <div class="step-icon">4️⃣</div>
+                    <h3>Manage Rules</h3>
+                    <p>Open the Control Panel to view, edit, or delete saved rules. Monitor logs and adjust settings.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Documentation Section -->
+    <section id="docs" class="documentation">
+        <div class="container">
+            <h2 class="section-title">Documentation</h2>
+            <div class="docs-grid">
+                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/README.md" class="doc-card" target="_blank">
+                    <div class="doc-icon">📖</div>
+                    <h3>README</h3>
+                    <p>Complete overview and getting started guide</p>
+                </a>
+                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/PRODUCTION_GUIDE.md" class="doc-card" target="_blank">
+                    <div class="doc-icon">🚀</div>
+                    <h3>Production Guide</h3>
+                    <p>Complete production deployment guide</p>
+                </a>
+                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/IMPLEMENTATION.md" class="doc-card" target="_blank">
+                    <div class="doc-icon">🔧</div>
+                    <h3>Implementation</h3>
+                    <p>Technical implementation details</p>
+                </a>
+                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/FAQ.md" class="doc-card" target="_blank">
+                    <div class="doc-icon">❓</div>
+                    <h3>FAQ</h3>
+                    <p>Frequently asked questions</p>
+                </a>
+                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/INSTALLATION.md" class="doc-card" target="_blank">
+                    <div class="doc-icon">📦</div>
+                    <h3>Installation</h3>
+                    <p>Detailed installation instructions</p>
+                </a>
+                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/issues" class="doc-card" target="_blank">
+                    <div class="doc-icon">🐛</div>
+                    <h3>Issues</h3>
+                    <p>Report bugs or request features</p>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tested On Section -->
+    <section class="tested">
+        <div class="container">
+            <h2 class="section-title">Tested On</h2>
+            <div class="distro-badges">
+                <span class="badge">Ubuntu 20.04</span>
+                <span class="badge">Ubuntu 22.04</span>
+                <span class="badge">Ubuntu 24.04</span>
+                <span class="badge">Debian 11</span>
+                <span class="badge">Debian 12</span>
+                <span class="badge">Linux Mint 21</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta">
+        <div class="container">
+            <h2>Ready to Take Control?</h2>
+            <p>Start protecting your Linux system from unauthorized outbound connections today.</p>
+            <div class="cta-buttons">
+                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux" class="btn btn-primary btn-large" target="_blank">Get Started on GitHub</a>
+                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/releases" class="btn btn-secondary btn-large" target="_blank">Download Release</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>Douane Application Firewall for Linux</h4>
+                    <p>Production-ready outbound firewall for Linux</p>
+                </div>
+                <div class="footer-section">
+                    <h4>Links</h4>
+                    <ul>
+                        <li><a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux" target="_blank">GitHub</a></li>
+                        <li><a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/issues" target="_blank">Issues</a></li>
+                        <li><a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/releases" target="_blank">Releases</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Documentation</h4>
+                    <ul>
+                        <li><a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/README.md" target="_blank">README</a></li>
+                        <li><a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/FAQ.md" target="_blank">FAQ</a></li>
+                        <li><a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/PRODUCTION_GUIDE.md" target="_blank">Production Guide</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>Made with ❤️ for Linux users who want control over their outbound connections</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
+
