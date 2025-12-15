@@ -4,7 +4,7 @@
   </a>
 </p>
 
-# Douane
+# UFW Firewall GUI
 
 Douane is an intelligent application firewall that filters and limits outgoing network traffic **per application**, not per IP address.
 
