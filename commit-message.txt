@@ -1,0 +1,99 @@
+Complete rewrite: Production-ready outbound firewall with GUI and Debian packaging
+
+This is a complete rewrite of Douane Firewall from scratch, transforming it from
+a prototype into a production-ready Linux outbound firewall with proper packaging,
+GUI, and system integration.
+
+ARCHITECTURE CHANGES:
+- Redesigned to two-process architecture for proper privilege separation:
+  * douane-daemon.py: Root process for packet interception and firewall management
+  * douane-gui-client.py: User process for GUI dialogs and system tray
+  * Communication via Unix socket (/tmp/douane-daemon.sock)
+- Separated concerns: firewall_core.py, service_whitelist.py, douane_gui_improved.py
+
+CORE FEATURES:
+- NetfilterQueue-based packet interception in userspace
+- Per-application + port firewall rules (e.g., Firefox:443 allows all HTTPS)
+- Smart whitelist for essential system services (DNS, NTP, DHCP, apt)
+- Localhost connections auto-allowed
+- Two operating modes:
+  * Learning mode: Shows popups, always allows (safe for testing)
+  * Enforcement mode: Actually blocks based on decisions
+- Persistent rule storage in /etc/douane/rules.json
+- UFW integration for permanent firewall rules
+- Automatic cleanup of iptables rules on stop
+
+GUI IMPROVEMENTS:
+- Modern, enhanced popup dialogs with:
+  * Reverse DNS lookup (shows hostname instead of just IP)
+  * Port descriptions (e.g., "443 - HTTPS (Secure Web)")
+  * Process information (PID, user, CPU%, memory%)
+  * Risk assessment (low/medium/high with color indicators)
+  * Three-button interface: Allow Once, Allow Always, Deny
+  * Auto-deny timeout (30 seconds default)
+  * Keyboard shortcuts (Enter/A/Esc)
+- System tray icon support (requires pystray and AppIndicator3)
+- Window size: 900x750 for full visibility
+
+PERFORMANCE OPTIMIZATIONS:
+- Rate limiting: Same app+port won't show popup within 5 seconds
+- Pending request tracking to avoid duplicate popups
+- In learning mode: Notifications sent but packets immediately allowed (no blocking)
+- Decision caching: First popup per app+port, then cached
+
+DEBIAN PACKAGING:
+- Complete .deb package structure in debian/
+- Polkit policy for GUI password prompts (pkexec)
+- Desktop file for application menu integration
+- Post-install script handles dependencies and UFW setup
+- Post-remove script for clean uninstallation
+- Does NOT auto-start on installation (user must launch manually)
+
+INSTALLATION & DEPLOYMENT:
+- Build script: build_deb.sh
+- Package installs to:
+  * /usr/local/bin/douane-daemon
+  * /usr/local/bin/douane-gui-client
+  * /usr/lib/python3/dist-packages/douane/
+  * /etc/douane/config.json
+  * /usr/share/applications/douane-firewall.desktop
+- Dependencies auto-installed: psutil, tabulate, NetfilterQueue, scapy, pystray, pillow
+- System dependency: gir1.2-ayatanaappindicator3-0.1
+
+SAFETY FEATURES:
+- Graceful shutdown with signal handlers (SIGTERM, SIGINT)
+- Automatic iptables cleanup on exit
+- Learning mode prevents accidental network lockout
+- Localhost always allowed
+- Essential services whitelisted
+- Error handling defaults to allow (fail-open)
+
+DOCUMENTATION:
+- INSTALLATION.md: Complete installation guide
+- PRODUCTION_GUIDE.md: Production deployment guide
+- CLEAN_START_STOP.md: Safe start/stop procedures
+- Updated README.md with current architecture
+
+REMOVED:
+- Old prototype files (douane_daemon.py, douane_gui.py, douane_cli.py)
+- Demo files and test scripts
+- Old installation scripts
+- Outdated documentation (EXAMPLES.md, INSTALL.md, PROJECT_SUMMARY.md)
+
+TECHNICAL DETAILS:
+- Cache key format: {app_path}:{dest_port} (per-application + port)
+- UFW rules: Allow/deny outgoing on specific port with app comment
+- Socket permissions: 0666 (world-readable/writable)
+- Log file: /var/log/douane-daemon.log
+- Config file: /etc/douane/config.json
+- Rules file: /etc/douane/rules.json
+
+KNOWN LIMITATIONS:
+- System tray icon may not appear on all desktop environments
+- UFW rules are per-port, not per-application (daemon enforces per-app)
+- Requires root privileges for packet interception
+- Only works with iptables-based systems (not nftables)
+
+This version is ready for production use with proper packaging, installation,
+and uninstallation procedures.
+

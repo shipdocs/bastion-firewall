@@ -197,6 +197,7 @@ class DouaneGUIClient:
                 enabled=False
             ),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem('Control Panel', self.show_control_panel),
             pystray.MenuItem('Show Statistics', self.show_statistics),
             pystray.MenuItem('View Logs', self.view_logs),
             pystray.Menu.SEPARATOR,
@@ -220,6 +221,15 @@ class DouaneGUIClient:
         """Update tray icon color"""
         if self.tray_icon and TRAY_AVAILABLE:
             self.tray_icon.icon = create_tray_icon(color)
+
+    def show_control_panel(self):
+        """Show control panel window"""
+        try:
+            subprocess.Popen(['python3', '/usr/local/bin/douane-control-panel'])
+        except Exception as e:
+            print(f"Error opening control panel: {e}")
+            # Fallback to showing statistics
+            self.show_statistics()
 
     def show_statistics(self):
         """Show statistics window"""
