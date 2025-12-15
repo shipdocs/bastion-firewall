@@ -1,0 +1,14 @@
+# UFW Firewall GUI - Python Dependencies
+
+# Core dependencies
+# Note: Some dependencies require system packages to be installed first
+
+# For production use with actual packet filtering:
+# NetfilterQueue>=0.8.1  # Requires: sudo apt-get install libnetfilter-queue-dev
+# scapy>=2.4.5           # Packet manipulation
+
+# For process monitoring
+psutil>=5.8.0
+
+# Note: tkinter comes with Python but may need system package:
+# Ubuntu/Debian: sudo apt-get install python3-tk
