@@ -1,0 +1,27 @@
+Package: douane-firewall
+Version: 2.0.0
+Section: net
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.6), python3-pip, python3-tk, python3-dev, build-essential, libnetfilter-queue-dev, iptables, ufw, python3-psutil
+Recommends: python3-scapy
+Maintainer: Martin <shipdocs@users.noreply.github.com>
+Description: Outbound firewall with GUI for Linux
+ Douane Firewall provides Windows-like outbound connection control for Linux.
+ It intercepts all outbound connections and shows GUI dialogs to let users
+ decide which applications can access the network.
+ .
+ Features:
+  - Real-time packet interception using netfilter
+  - Application identification via /proc filesystem
+  - Beautiful GUI dialogs for user decisions
+  - UFW integration for persistent rules
+  - Decision caching for performance
+  - Comprehensive logging and audit trail
+  - Safe installation with rollback capability
+  - Interactive setup wizard during installation
+ .
+ The installer will guide you through the setup process and can automatically
+ configure UFW and start the firewall service.
+Homepage: https://github.com/shipdocs/Douane
+

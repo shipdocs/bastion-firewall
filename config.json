@@ -4,6 +4,7 @@
   "default_action": "prompt",
   "timeout_seconds": 30,
   "log_file": "/var/log/ufw_firewall_gui.log",
+  "mode": "learning",
   "gui": {
     "window_timeout": 30,
     "always_on_top": true,

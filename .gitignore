@@ -40,6 +40,25 @@ Thumbs.db
 *.db
 *.log
 
+# Package build artifacts
+*.deb
+*.rpm
+*.tar.gz
+debian/usr/
+debian/etc/
+debian/lib/
+debian/var/
+~/rpmbuild/
+
+# Backup files
+*.bak
+*.backup
+
+# Config (keep example)
+config.json
+!config.json.example
+
 # Temporary files
 /tmp/
 *.tmp
+temp/

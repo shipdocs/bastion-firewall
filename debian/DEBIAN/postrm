@@ -1,0 +1,24 @@
+#!/bin/bash
+#
+# Post-removal script for Douane Firewall
+#
+
+set -e
+
+if [ "$1" = "purge" ]; then
+    echo "Purging Douane Firewall configuration..."
+    
+    # Remove configuration
+    rm -rf /etc/douane
+    
+    # Remove logs
+    rm -rf /var/log/douane
+    
+    # Remove user config
+    rm -rf /root/.config/douane
+    
+    echo "Douane Firewall configuration purged"
+fi
+
+exit 0
+

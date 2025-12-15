@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""
+Douane Firewall - Production outbound firewall with GUI
+
+This is the main production application that:
+1. Intercepts outbound packets using netfilter
+2. Identifies the application making each connection
+3. Shows GUI dialogs for user decisions
+4. Caches decisions and integrates with UFW
+5. Provides a safe, user-friendly firewall experience
+
+Requires root privileges.
+"""
+
+import os
+import sys
+import json
+import logging
+import signal
+import threading
+from pathlib import Path
+from typing import Optional, Dict
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+# Check for root privileges
+if os.geteuid() != 0:
+    print("ERROR: This application must be run as root (use sudo)")
+    sys.exit(1)
+
+# Setup logging
+log_dir = Path.home() / '.config' / 'douane'
+log_dir.mkdir(parents=True, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_dir / 'douane_firewall.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Import our modules
+try:
+    # Try to import from installed package first
+    try:
+        from douane.firewall_core import PacketProcessor, PacketInfo, IPTablesManager, NETFILTER_AVAILABLE
+        from douane.ufw_manager import UFWManager, ConnectionInfo
+        from douane.gui_improved import ImprovedFirewallDialog
+    except ImportError:
+        # Fall back to local imports for development
+        from firewall_core import PacketProcessor, PacketInfo, IPTablesManager, NETFILTER_AVAILABLE
+        from ufw_firewall_gui import UFWManager, ConnectionInfo
+        from douane_gui_improved import ImprovedFirewallDialog
+except ImportError as e:
+    logger.error(f"Failed to import required modules: {e}")
+    print(f"ERROR: {e}")
+    print("Make sure all dependencies are installed: pip install -r requirements.txt")
+    sys.exit(1)
+
+
+class FirewallDecisionEngine:
+    """
+    Manages firewall decisions with caching and UFW integration.
+    
+    This is the brain of the firewall - it decides whether to allow or deny
+    each connection based on user rules, cached decisions, and user input.
+    """
+    
+    def __init__(self, config_path='config.json'):
+        self.config = self._load_config(config_path)
+        self.ufw_manager = UFWManager()
+        
+        # Decision cache: key = (app_path, dest_ip, dest_port), value = 'allow' or 'deny'
+        self.decision_cache = {}
+        
+        # Application-level rules: key = app_path, value = 'allow' or 'deny'
+        self.app_rules = {}
+        
+        # Pending decisions (for GUI thread coordination)
+        self.pending_decisions = {}
+        self.decision_lock = threading.Lock()
+        
+        logger.info("Firewall decision engine initialized")
+    
+    def _load_config(self, config_path):
+        """Load configuration"""
+        default_config = {
+            "cache_decisions": True,
+            "default_action": "deny",
+            "timeout_seconds": 30,
+            "allow_localhost": True,
+            "allow_lan": False
+        }
+        
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    return {**default_config, **json.load(f)}
+            except Exception as e:
+                logger.warning(f"Error loading config: {e}, using defaults")
+        
+        return default_config
+    
+    def should_allow_packet(self, pkt_info: PacketInfo) -> bool:
+        """
+        Decide whether to allow a packet.
+
+        This is called for every outbound packet and must be fast.
+        Returns True to allow, False to deny.
+        """
+        # Quick checks first
+        if self.config.get('allow_localhost') and pkt_info.dest_ip.startswith('127.'):
+            return True
+
+        if self.config.get('allow_lan') and self._is_lan_ip(pkt_info.dest_ip):
+            return True
+
+        # Check if we have an application-level rule
+        if pkt_info.app_path and pkt_info.app_path in self.app_rules:
+            decision = self.app_rules[pkt_info.app_path]
+            logger.debug(f"Using app rule for {pkt_info.app_name}: {decision}")
+
+            # In learning mode, always allow but still show popup for new connections
+            if self.config.get('mode') == 'learning':
+                return True
+
+            return decision == 'allow'
+
+        # Check decision cache
+        cache_key = self._get_cache_key(pkt_info)
+        if cache_key in self.decision_cache:
+            decision = self.decision_cache[cache_key]
+            logger.debug(f"Using cached decision for {pkt_info}: {decision}")
+
+            # In learning mode, always allow but still show popup for new connections
+            if self.config.get('mode') == 'learning':
+                return True
+
+            return decision == 'allow'
+
+        # No rule found - need to ask user
+        decision = self._prompt_user(pkt_info)
+
+        # In learning mode, ALWAYS allow (just learning user preferences)
+        if self.config.get('mode') == 'learning':
+            logger.info(f"Learning mode: Allowing {pkt_info.app_name} (user said: {decision})")
+            return True
+
+        # In enforcement mode, respect user decision
+        return decision == 'allow'
+    
+    def _get_cache_key(self, pkt_info: PacketInfo) -> str:
+        """Generate cache key for a packet"""
+        return f"{pkt_info.app_path}:{pkt_info.dest_ip}:{pkt_info.dest_port}"
+    
+    def _is_lan_ip(self, ip: str) -> bool:
+        """Check if IP is in private LAN range"""
+        return (ip.startswith('192.168.') or 
+                ip.startswith('10.') or 
+                ip.startswith('172.16.') or
+                ip.startswith('172.17.') or
+                ip.startswith('172.18.') or
+                ip.startswith('172.19.') or
+                ip.startswith('172.20.') or
+                ip.startswith('172.21.') or
+                ip.startswith('172.22.') or
+                ip.startswith('172.23.') or
+                ip.startswith('172.24.') or
+                ip.startswith('172.25.') or
+                ip.startswith('172.26.') or
+                ip.startswith('172.27.') or
+                ip.startswith('172.28.') or
+                ip.startswith('172.29.') or
+                ip.startswith('172.30.') or
+                ip.startswith('172.31.'))
+
+    def _prompt_user(self, pkt_info: PacketInfo) -> str:
+        """
+        Prompt user for decision via GUI.
+
+        This runs in the packet processing thread, so we need to be careful
+        about thread safety and timeouts.
+        """
+        if not pkt_info.app_name:
+            # Can't identify app, deny by default
+            logger.warning(f"Cannot identify application for {pkt_info}, denying")
+            return 'deny'
+
+        # Create connection info for GUI
+        conn_info = ConnectionInfo(
+            app_name=pkt_info.app_name,
+            app_path=pkt_info.app_path or 'unknown',
+            dest_ip=pkt_info.dest_ip,
+            dest_port=pkt_info.dest_port,
+            protocol=pkt_info.protocol
+        )
+
+        # Show dialog (this blocks until user responds or timeout)
+        try:
+            learning_mode = self.config.get('mode') == 'learning'
+            dialog = ImprovedFirewallDialog(
+                conn_info,
+                timeout=self.config.get('timeout_seconds', 30),
+                learning_mode=learning_mode
+            )
+            decision, permanent = dialog.show()
+
+            if decision is None:
+                decision = 'deny'  # Default to deny on timeout/close
+
+            logger.info(f"User decision for {pkt_info.app_name}: {decision} (permanent: {permanent})")
+
+            # Cache the decision
+            if permanent and pkt_info.app_path:
+                # Application-level rule
+                self.app_rules[pkt_info.app_path] = decision
+
+                # Add to UFW if requested
+                if decision == 'allow':
+                    self.ufw_manager.add_allow_rule(
+                        app_path=pkt_info.app_path,
+                        ip=pkt_info.dest_ip,
+                        port=pkt_info.dest_port,
+                        protocol=pkt_info.protocol
+                    )
+                else:
+                    self.ufw_manager.add_deny_rule(
+                        app_path=pkt_info.app_path,
+                        ip=pkt_info.dest_ip,
+                        port=pkt_info.dest_port,
+                        protocol=pkt_info.protocol
+                    )
+            else:
+                # Connection-specific rule
+                cache_key = self._get_cache_key(pkt_info)
+                self.decision_cache[cache_key] = decision
+
+            return decision
+
+        except Exception as e:
+            logger.error(f"Error prompting user: {e}", exc_info=True)
+            return 'deny'  # Fail closed
+
+
+class DouaneFirewall:
+    """Main firewall application"""
+
+    def __init__(self):
+        self.decision_engine = FirewallDecisionEngine()
+        self.packet_processor = None
+        self.running = False
+
+        # Setup signal handlers
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+
+    def _signal_handler(self, signum, frame):
+        """Handle shutdown signals"""
+        logger.info(f"Received signal {signum}, shutting down...")
+        self.stop()
+        sys.exit(0)
+
+    def start(self):
+        """Start the firewall"""
+        logger.info("=" * 60)
+        logger.info("Douane Firewall Starting")
+        logger.info("=" * 60)
+
+        # Check dependencies
+        if not NETFILTER_AVAILABLE:
+            logger.error("NetfilterQueue not available!")
+            print("\nERROR: NetfilterQueue library not installed.")
+            print("Install with: sudo apt-get install build-essential python3-dev libnetfilter-queue-dev")
+            print("Then: pip3 install NetfilterQueue")
+            return False
+
+        if not IPTablesManager.check_iptables_available():
+            logger.error("iptables not available!")
+            print("\nERROR: iptables not found on system")
+            return False
+
+        if not self.decision_engine.ufw_manager.check_ufw_installed():
+            logger.error("UFW not installed!")
+            print("\nERROR: UFW not installed. Install with: sudo apt-get install ufw")
+            return False
+
+        # Setup iptables rules
+        logger.info("Setting up iptables NFQUEUE rules...")
+        if not IPTablesManager.setup_nfqueue(queue_num=1):
+            logger.error("Failed to setup iptables rules")
+            return False
+
+        # Create packet processor
+        self.packet_processor = PacketProcessor(
+            decision_callback=self.decision_engine.should_allow_packet
+        )
+
+        # Start processing
+        self.running = True
+        logger.info("Firewall is now active and monitoring outbound connections")
+        logger.info("Press Ctrl+C to stop")
+
+        try:
+            self.packet_processor.start(queue_num=1)
+        except KeyboardInterrupt:
+            logger.info("Interrupted by user")
+        except Exception as e:
+            logger.error(f"Error running firewall: {e}", exc_info=True)
+        finally:
+            self.stop()
+
+        return True
+
+    def stop(self):
+        """Stop the firewall"""
+        if not self.running:
+            return
+
+        logger.info("Stopping firewall...")
+        self.running = False
+
+        # Remove iptables rules
+        IPTablesManager.remove_nfqueue(queue_num=1)
+
+        # Stop packet processor
+        if self.packet_processor:
+            self.packet_processor.stop()
+
+        logger.info("Firewall stopped")
+
+
+def main():
+    """Main entry point"""
+    print("\n" + "=" * 60)
+    print("Douane Firewall - Outbound Connection Control")
+    print("=" * 60)
+    print()
+
+    # Create and start firewall
+    firewall = DouaneFirewall()
+    firewall.start()
+
+
+if __name__ == '__main__':
+    main()
+

@@ -1,0 +1,19 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Douane Firewall
+GenericName=Outbound Firewall
+Comment=Control which applications can access the network
+Exec=/usr/local/bin/douane-gui-client
+Icon=security-high
+Terminal=false
+Categories=System;Security;Network;
+Keywords=firewall;security;network;outbound;
+StartupNotify=true
+X-GNOME-Autostart-enabled=false
+Actions=Stop;
+
+[Desktop Action Stop]
+Name=Stop Firewall
+Exec=pkexec killall douane-daemon douane-gui-client
+
