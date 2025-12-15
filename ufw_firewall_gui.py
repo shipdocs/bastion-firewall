@@ -13,14 +13,9 @@ import sys
 import json
 import logging
 import subprocess
-import socket
-import struct
 from datetime import datetime
-from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
-import threading
-import queue
 
 # Check for root privileges
 if os.geteuid() != 0:
@@ -71,16 +66,13 @@ class UFWManager:
     def add_allow_rule(app_path=None, ip=None, port=None, protocol='tcp'):
         """Add an allow rule to UFW"""
         try:
-            if app_path:
-                # Application-based rule
-                cmd = ['ufw', 'allow', 'from', 'any', 'to', 'any', 'app', 
-                       os.path.basename(app_path)]
-            elif ip and port:
-                # IP and port-based rule
+            if ip and port:
+                # IP and port-based rule (primary method)
                 cmd = ['ufw', 'allow', 'out', 'to', ip, 'port', str(port), 
                        'proto', protocol]
+                comment = f"Allow {os.path.basename(app_path) if app_path else 'app'}"
             else:
-                logger.warning("Insufficient information to add rule")
+                logger.warning("Insufficient information to add allow rule")
                 return False
             
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -96,12 +88,17 @@ class UFWManager:
     
     @staticmethod
     def add_deny_rule(app_path=None, ip=None, port=None, protocol='tcp'):
-        """Add a deny rule to UFW"""
+        """Add a deny rule to UFW
+        
+        Note: UFW deny rules are IP/port-based. Application-based deny rules
+        are not consistently supported across UFW versions.
+        """
         try:
             if ip and port:
                 # IP and port-based rule
                 cmd = ['ufw', 'deny', 'out', 'to', ip, 'port', str(port), 
                        'proto', protocol]
+                comment = f"Deny {os.path.basename(app_path) if app_path else 'app'}"
             else:
                 logger.warning("Insufficient information to add deny rule")
                 return False
