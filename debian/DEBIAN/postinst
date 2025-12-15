@@ -1,0 +1,74 @@
+#!/bin/bash
+#
+# Post-installation script for Douane Firewall
+#
+
+set -e
+
+echo ""
+echo "============================================================"
+echo "Douane Firewall - Post Installation"
+echo "============================================================"
+echo ""
+
+# Install system dependencies for system tray
+echo "Installing system dependencies..."
+apt-get install -y gir1.2-ayatanaappindicator3-0.1 >/dev/null 2>&1 || true
+
+# Install Python dependencies
+echo "Installing Python dependencies..."
+pip3 install --break-system-packages psutil tabulate NetfilterQueue scapy pystray pillow 2>/dev/null || \
+pip3 install psutil tabulate NetfilterQueue scapy pystray pillow 2>/dev/null || true
+
+# Create config directory
+mkdir -p /etc/douane
+
+# Copy default config if it doesn't exist
+if [ ! -f /etc/douane/config.json ]; then
+    cat > /etc/douane/config.json << 'EOF'
+{
+  "mode": "learning",
+  "cache_decisions": true,
+  "default_action": "deny",
+  "timeout_seconds": 30,
+  "allow_localhost": true,
+  "allow_lan": false,
+  "log_decisions": true,
+  "filtering": {
+    "monitor_protocols": ["tcp", "udp"],
+    "ignore_local": true,
+    "ignore_localhost": true
+  },
+  "ufw": {
+    "default_outbound_policy": "allow",
+    "enable_logging": true
+  }
+}
+EOF
+    echo "✓ Created default configuration (learning mode)"
+fi
+
+# Create log directory
+mkdir -p /var/log
+touch /var/log/douane-daemon.log
+chmod 644 /var/log/douane-daemon.log
+
+# Reload systemd
+systemctl daemon-reload 2>/dev/null || true
+
+echo ""
+echo "============================================================"
+echo "✓ Douane Firewall Installed"
+echo "============================================================"
+echo ""
+echo "The firewall is NOT started automatically."
+echo ""
+echo "To start manually:"
+echo "  /usr/local/bin/douane-gui-client"
+echo ""
+echo "Or from the application menu:"
+echo "  Search for 'Douane Firewall'"
+echo ""
+echo "Documentation: /usr/share/doc/douane-firewall/"
+exit 0
+

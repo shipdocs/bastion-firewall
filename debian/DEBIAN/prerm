@@ -1,0 +1,30 @@
+#!/bin/bash
+#
+# Pre-removal script for Douane Firewall
+#
+
+set -e
+
+echo "Stopping Douane Firewall..."
+
+# Stop and disable the service
+systemctl stop douane-firewall 2>/dev/null || true
+systemctl disable douane-firewall 2>/dev/null || true
+
+# Remove iptables NFQUEUE rules
+iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || true
+
+echo ""
+echo "============================================================"
+echo "Douane Firewall service stopped"
+echo "============================================================"
+echo ""
+echo "IMPORTANT: Your UFW outbound policy is still set to DENY."
+echo ""
+echo "To restore normal outbound access, run:"
+echo "  sudo ufw default allow outgoing"
+echo "  sudo ufw reload"
+echo ""
+
+exit 0
+
