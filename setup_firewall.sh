@@ -22,7 +22,7 @@ fi
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}ERROR: This script must be run as root (use sudo)${NC}"
+    echo -e "${RED}ERROR: This script must be run as root (use pkexec or sudo)${NC}"
     exit 1
 fi
 
@@ -168,12 +168,12 @@ echo ""
 print_info "Setup complete!"
 echo ""
 print_warning "IMPORTANT NEXT STEPS:"
-echo "  1. Start the Douane Firewall: sudo python3 douane_firewall.py"
+echo "  1. Start the Douane Firewall: /usr/local/bin/douane-gui-client"
 echo "  2. Test your connection by opening a web browser"
 echo "  3. You should see popup dialogs for each connection"
 echo ""
 print_info "If something goes wrong, run the rollback script:"
-echo "  sudo $ROLLBACK_SCRIPT"
+echo "  pkexec $ROLLBACK_SCRIPT"
 echo ""
 print_info "Backup location: $BACKUP_DIR"
 echo ""

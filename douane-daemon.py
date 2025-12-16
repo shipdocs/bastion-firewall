@@ -118,7 +118,8 @@ class DouaneDaemon:
             # This matches our cache key: app_path:port
             # Note: UFW doesn't support per-application rules, so this allows ANY app on this port
             # Our daemon will still enforce per-app rules via the cache
-            cmd = ['ufw', action, 'out', 'port', str(pkt_info.dest_port), 'proto', pkt_info.protocol, 'comment', f'{pkt_info.app_name}:{pkt_info.dest_port}']
+            # Daemon already runs as root via pkexec, so no need for sudo/pkexec here
+            cmd = ['ufw', action, 'out', str(pkt_info.dest_port) + '/' + pkt_info.protocol, 'comment', f'{pkt_info.app_name}:{pkt_info.dest_port}']
 
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode == 0:
@@ -259,6 +260,8 @@ class DouaneDaemon:
                 logger.info(f"Learning mode: Auto-allowing {app_name}:{pkt_info.dest_port} (cached for future)")
                 # Save rules to disk in learning mode too
                 self.save_rules()
+                # Add UFW rule in learning mode too (so rules appear in firewall manager)
+                self.add_ufw_rule(pkt_info, True)
                 return True
 
             # Enforcement mode: send and wait for response
@@ -280,8 +283,9 @@ class DouaneDaemon:
                 logger.info(f"Cached decision for {cache_key}: {allow}")
                 # Save rules to disk
                 self.save_rules()
-                # Add UFW rule
-                self.add_ufw_rule(pkt_info, allow)
+
+            # Always add UFW rule (even for "Allow Once") so rules appear in firewall manager
+            self.add_ufw_rule(pkt_info, allow)
 
             return allow
 
