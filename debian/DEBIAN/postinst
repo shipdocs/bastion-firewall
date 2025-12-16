@@ -13,7 +13,7 @@ echo ""
 
 # Install system dependencies for system tray
 echo "Installing system dependencies..."
-apt-get install -y gir1.2-ayatanaappindicator3-0.1 >/dev/null 2>&1 || true
+apt-get install -y gir1.2-ayatanaappindicator3-0.1 whiptail >/dev/null 2>&1 || true
 
 # Install Python dependencies
 echo "Installing Python dependencies..."
@@ -23,11 +23,76 @@ pip3 install psutil tabulate NetfilterQueue scapy pystray pillow 2>/dev/null || 
 # Create config directory
 mkdir -p /etc/douane
 
-# Copy default config if it doesn't exist
+# Check if this is a fresh install (no existing config)
+FRESH_INSTALL=false
 if [ ! -f /etc/douane/config.json ]; then
-    cat > /etc/douane/config.json << 'EOF'
+    FRESH_INSTALL=true
+fi
+
+# Interactive configuration for fresh installs
+if [ "$FRESH_INSTALL" = true ]; then
+    echo ""
+    echo "============================================================"
+    echo "Initial Configuration"
+    echo "============================================================"
+    echo ""
+
+    # Ask about starting mode
+    if whiptail --title "Douane Firewall Setup" --yesno \
+"Welcome to Douane Application Firewall!
+
+Choose your initial mode:
+
+LEARNING MODE (Recommended for first-time users):
+- Shows popups for all connections
+- Automatically allows all connections
+- Builds your rule set safely
+- No risk of blocking important services
+
+ENFORCEMENT MODE (For experienced users):
+- Actually blocks connections based on your decisions
+- Requires careful configuration
+- May block critical services if misconfigured
+
+Do you want to start in LEARNING MODE?" 20 70; then
+        MODE="learning"
+        echo "✓ Selected: Learning Mode (safe)"
+    else
+        MODE="enforcement"
+        echo "✓ Selected: Enforcement Mode (blocking enabled)"
+    fi
+
+    # Ask about autostart
+    if whiptail --title "Douane Firewall Setup" --yesno \
+"Do you want Douane Firewall to start automatically at boot?
+
+YES: Firewall will start when you log in
+NO: You'll need to start it manually from the application menu
+
+Recommended: YES" 12 70; then
+        AUTOSTART=true
+        echo "✓ Autostart: Enabled"
+    else
+        AUTOSTART=false
+        echo "✓ Autostart: Disabled"
+    fi
+
+    # Ask about starting now
+    if whiptail --title "Douane Firewall Setup" --yesno \
+"Do you want to start Douane Firewall now?
+
+This will launch the firewall GUI client." 10 70; then
+        START_NOW=true
+        echo "✓ Will start firewall after installation"
+    else
+        START_NOW=false
+        echo "✓ Will not start firewall now"
+    fi
+
+    # Create config file
+    cat > /etc/douane/config.json << EOF
 {
-  "mode": "learning",
+  "mode": "$MODE",
   "cache_decisions": true,
   "default_action": "deny",
   "timeout_seconds": 30,
@@ -45,7 +110,33 @@ if [ ! -f /etc/douane/config.json ]; then
   }
 }
 EOF
-    echo "✓ Created default configuration (learning mode)"
+    echo "✓ Created configuration file"
+
+    # Setup autostart if requested
+    if [ "$AUTOSTART" = true ]; then
+        # Create autostart directory for all users
+        mkdir -p /etc/xdg/autostart
+        cat > /etc/xdg/autostart/douane-firewall.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Douane Firewall
+Comment=Start Douane Application Firewall
+Exec=/usr/local/bin/douane-gui-client
+Icon=security-high
+Terminal=false
+Categories=System;Security;
+X-GNOME-Autostart-enabled=true
+Hidden=false
+NoDisplay=false
+EOF
+        chmod 644 /etc/xdg/autostart/douane-firewall.desktop
+        echo "✓ Autostart enabled"
+    fi
+
+else
+    echo "✓ Existing configuration preserved"
+    AUTOSTART=false
+    START_NOW=false
 fi
 
 # Create log directory
@@ -61,13 +152,27 @@ echo "============================================================"
 echo "✓ Douane Firewall Installed"
 echo "============================================================"
 echo ""
-echo "The firewall is NOT started automatically."
-echo ""
-echo "To start manually:"
-echo "  /usr/local/bin/douane-gui-client"
-echo ""
-echo "Or from the application menu:"
-echo "  Search for 'Douane Firewall'"
+
+if [ "$START_NOW" = true ]; then
+    # Get the user who invoked sudo (if any)
+    REAL_USER="${SUDO_USER:-$USER}"
+    if [ "$REAL_USER" != "root" ] && [ -n "$REAL_USER" ]; then
+        echo "Starting Douane Firewall for user $REAL_USER..."
+        # Start as the real user, not root
+        su - "$REAL_USER" -c "DISPLAY=:0 /usr/local/bin/douane-gui-client &" 2>/dev/null || true
+        echo "✓ Firewall started"
+    else
+        echo "⚠ Cannot auto-start (no user session detected)"
+        echo "  Please start manually from the application menu"
+    fi
+else
+    echo "To start manually:"
+    echo "  /usr/local/bin/douane-gui-client"
+    echo ""
+    echo "Or from the application menu:"
+    echo "  Search for 'Douane Firewall'"
+fi
+
 echo ""
 echo "Documentation: /usr/share/doc/douane-firewall/"
 exit 0
