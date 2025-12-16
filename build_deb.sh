@@ -31,6 +31,7 @@ print_step "Cleaning previous build..."
 rm -rf debian/usr/local/bin/*
 rm -rf debian/usr/lib/python3/dist-packages/douane/*.py
 rm -rf debian/usr/share/doc/douane-firewall/*
+rm -rf debian/etc
 rm -f douane-firewall_*.deb
 
 # Ensure directory structure exists
@@ -41,9 +42,9 @@ mkdir -p debian/usr/share/doc/douane-firewall
 mkdir -p debian/usr/share/applications
 mkdir -p debian/usr/share/metainfo
 mkdir -p debian/lib/systemd/system
-mkdir -p debian/etc/douane
 mkdir -p debian/usr/share/polkit-1/actions
 mkdir -p debian/DEBIAN
+# Note: /etc/douane is created by postinst, not in package
 
 # Copy executables
 print_step "Copying executables..."
@@ -125,9 +126,8 @@ WantedBy=graphical.target
 EOF
 fi
 
-# Copy configuration
-print_step "Copying configuration..."
-cp config.json debian/etc/douane/config.json
+# Note: config.json is NOT copied to /etc/douane/ in the package
+# It will be created by postinst script during installation with user prompts
 
 # Copy desktop entries
 print_step "Copying desktop entries..."
