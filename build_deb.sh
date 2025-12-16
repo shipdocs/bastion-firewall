@@ -33,6 +33,14 @@ rm -rf debian/usr/lib/python3/dist-packages/douane/*.py
 rm -rf debian/usr/share/doc/douane-firewall/*
 rm -f douane-firewall_*.deb
 
+# Ensure directory structure exists
+print_step "Creating directory structure..."
+mkdir -p debian/usr/local/bin
+mkdir -p debian/usr/lib/python3/dist-packages/douane
+mkdir -p debian/usr/share/doc/douane-firewall
+mkdir -p debian/usr/share/applications
+mkdir -p debian/DEBIAN
+
 # Copy executables
 print_step "Copying executables..."
 cp douane_firewall.py debian/usr/local/bin/douane-firewall
