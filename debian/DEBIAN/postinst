@@ -38,23 +38,21 @@ if [ "$FRESH_INSTALL" = true ]; then
     echo ""
 
     # Ask about starting mode
-    if whiptail --title "Douane Firewall Setup" --yesno \
+    if whiptail --title "Douane Firewall Setup" --yes-button "Learning Mode" --no-button "Enforcement Mode" --yesno \
 "Welcome to Douane Application Firewall!
 
-Choose your initial mode:
+LEARNING MODE (Recommended):
+  • Shows popups for all connections
+  • Automatically allows all connections
+  • Builds your rule set safely
+  • No risk of blocking important services
 
-LEARNING MODE (Recommended for first-time users):
-- Shows popups for all connections
-- Automatically allows all connections
-- Builds your rule set safely
-- No risk of blocking important services
+ENFORCEMENT MODE (Advanced):
+  • Actually blocks connections
+  • Requires careful configuration
+  • May block critical services if misconfigured
 
-ENFORCEMENT MODE (For experienced users):
-- Actually blocks connections based on your decisions
-- Requires careful configuration
-- May block critical services if misconfigured
-
-Do you want to start in LEARNING MODE?" 20 70; then
+Choose your initial mode:" 18 70; then
         MODE="learning"
         echo "✓ Selected: Learning Mode (safe)"
     else
@@ -63,13 +61,16 @@ Do you want to start in LEARNING MODE?" 20 70; then
     fi
 
     # Ask about autostart
-    if whiptail --title "Douane Firewall Setup" --yesno \
-"Do you want Douane Firewall to start automatically at boot?
+    if whiptail --title "Douane Firewall Setup" --yes-button "Enable Autostart" --no-button "Manual Start" --yesno \
+"Start Douane Firewall automatically at login?
 
-YES: Firewall will start when you log in
-NO: You'll need to start it manually from the application menu
+ENABLE AUTOSTART (Recommended):
+  • Firewall starts when you log in
+  • Always protected
 
-Recommended: YES" 12 70; then
+MANUAL START:
+  • Start from application menu when needed
+  • You control when it runs" 14 70; then
         AUTOSTART=true
         echo "✓ Autostart: Enabled"
     else
@@ -78,10 +79,10 @@ Recommended: YES" 12 70; then
     fi
 
     # Ask about starting now
-    if whiptail --title "Douane Firewall Setup" --yesno \
-"Do you want to start Douane Firewall now?
+    if whiptail --title "Douane Firewall Setup" --yes-button "Start Now" --no-button "Start Later" --yesno \
+"Start Douane Firewall now?
 
-This will launch the firewall GUI client." 10 70; then
+This will launch the firewall GUI client immediately." 10 70; then
         START_NOW=true
         echo "✓ Will start firewall after installation"
     else
