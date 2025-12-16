@@ -39,6 +39,7 @@ mkdir -p debian/usr/local/bin
 mkdir -p debian/usr/lib/python3/dist-packages/douane
 mkdir -p debian/usr/share/doc/douane-firewall
 mkdir -p debian/usr/share/applications
+mkdir -p debian/usr/share/metainfo
 mkdir -p debian/lib/systemd/system
 mkdir -p debian/etc/douane
 mkdir -p debian/usr/share/polkit-1/actions
@@ -128,10 +129,83 @@ fi
 print_step "Copying configuration..."
 cp config.json debian/etc/douane/config.json
 
-# Copy desktop entry
-print_step "Copying desktop entry..."
+# Copy desktop entries
+print_step "Copying desktop entries..."
 cp douane-firewall.desktop debian/usr/share/applications/douane-firewall.desktop
 chmod 644 debian/usr/share/applications/douane-firewall.desktop
+# Control panel desktop file already exists in debian/usr/share/applications/
+chmod 644 debian/usr/share/applications/douane-control-panel.desktop
+
+# Create AppStream metadata for Software Center
+print_step "Creating AppStream metadata..."
+cat > debian/usr/share/metainfo/com.douane.firewall.metainfo.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.douane.firewall</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0+</project_license>
+  <name>Douane Application Firewall</name>
+  <summary>Control which applications can access the network</summary>
+  <description>
+    <p>
+      Douane is an outbound application firewall for Linux that gives you control over which
+      applications can access the network. Similar to Little Snitch on macOS or Windows Firewall,
+      Douane shows a popup whenever an application tries to make a network connection, allowing
+      you to allow or deny it.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Real-time packet interception using NetfilterQueue</li>
+      <li>Learning mode for safe testing (shows popups but allows all connections)</li>
+      <li>Enforcement mode for actual blocking</li>
+      <li>Per-application, per-port rules</li>
+      <li>Automatic rule persistence</li>
+      <li>UFW integration - rules visible in system firewall manager</li>
+      <li>Control panel for managing settings and rules</li>
+      <li>System tray integration</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">douane-firewall.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Firewall connection request dialog</caption>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://shipdocs.github.io/Douane-Application-firewall-for-Linux/</url>
+  <url type="bugtracker">https://github.com/shipdocs/Douane-Application-firewall-for-Linux/issues</url>
+  <url type="help">https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/FAQ.md</url>
+  <developer_name>Martin</developer_name>
+  <update_contact>shipdocs@users.noreply.github.com</update_contact>
+  <categories>
+    <category>System</category>
+    <category>Security</category>
+    <category>Network</category>
+  </categories>
+  <keywords>
+    <keyword>firewall</keyword>
+    <keyword>security</keyword>
+    <keyword>network</keyword>
+    <keyword>outbound</keyword>
+    <keyword>application</keyword>
+  </keywords>
+  <releases>
+    <release version="2.0.0" date="2024-12-15">
+      <description>
+        <p>Production-ready release with real packet interception</p>
+        <ul>
+          <li>NetfilterQueue integration for packet capture</li>
+          <li>Enhanced GUI with timeout protection</li>
+          <li>UFW integration for persistent rules</li>
+          <li>Decision caching for performance</li>
+          <li>Control panel for managing settings</li>
+          <li>Automatic rule persistence in learning mode</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>
+EOF
+chmod 644 debian/usr/share/metainfo/com.douane.firewall.metainfo.xml
 
 # Copy documentation
 print_step "Copying documentation..."
