@@ -137,6 +137,30 @@ class DouaneDaemon:
         new_count = len(self.decision_cache)
         logger.info(f"Rules reloaded: {old_count} -> {new_count} rules")
 
+    def check_nfqueue_rule(self):
+        """Check if NFQUEUE rule exists, re-add if missing (watchdog)"""
+        import subprocess
+        try:
+            # Check if NFQUEUE rule exists
+            result = subprocess.run(
+                ['iptables', '-S', 'OUTPUT'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if 'NFQUEUE' not in result.stdout:
+                logger.warning("NFQUEUE rule missing! Re-adding...")
+                # Re-add the rule
+                subprocess.run(
+                    ['iptables', '-I', 'OUTPUT', '1', '-m', 'state', '--state', 'NEW', '-j', 'NFQUEUE', '--queue-num', '1'],
+                    check=True,
+                    timeout=5
+                )
+                logger.info("NFQUEUE rule re-added successfully")
+        except Exception as e:
+            logger.error(f"Error checking/adding NFQUEUE rule: {e}")
+
     def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown and reload"""
         def handle_sighup(signum, frame):
@@ -191,12 +215,18 @@ class DouaneDaemon:
         self.packet_processor.start(queue_num=1)
         
         logger.info("Daemon running")
-        
-        # Keep running
+
+        # Keep running with watchdog
+        watchdog_counter = 0
         try:
             while self.running:
-                import time
                 time.sleep(1)
+
+                # Check NFQUEUE rule every 30 seconds
+                watchdog_counter += 1
+                if watchdog_counter >= 30:
+                    watchdog_counter = 0
+                    self.check_nfqueue_rule()
         except KeyboardInterrupt:
             self.stop()
     
