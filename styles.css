@@ -135,7 +135,33 @@ body {
     font-size: 1.25rem;
     color: var(--text-secondary);
     max-width: 700px;
+    margin: 0 auto 1rem;
+}
+
+.hero-updates {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
     margin: 0 auto 2rem;
+    max-width: 800px;
+}
+
+.update-badge {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    padding: 0.5rem 1rem;
+    border-radius: 2rem;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.update-badge:hover {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2));
+    border-color: rgba(99, 102, 241, 0.5);
+    transform: translateY(-2px);
 }
 
 .hero-buttons {

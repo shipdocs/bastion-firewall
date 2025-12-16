@@ -4,11 +4,17 @@
   </a>
 </p>
 
-# Douane Firewall - Production Outbound Firewall for Linux
+# Douane Application Firewall for Linux
 
 **🔒 Take Control of Your Outbound Connections**
 
 Douane is a **production-ready** application firewall that gives Linux users the same outbound connection control they had on Windows. It intercepts **every** outbound connection attempt and lets you decide which applications can access the network.
+
+> **Latest Updates:**
+> - ✅ Rules now persist automatically in learning mode
+> - ✅ Control panel stays open when stopping/restarting firewall
+> - ✅ Real-time mode updates in status display
+> - ✅ Full-featured control panel for managing all aspects of the firewall
 
 ## 🎯 The Problem
 
@@ -35,18 +41,23 @@ Douane Firewall:
 ### Beautiful, Informative GUI
 - **Enhanced dialogs** - Shows hostname, port description, process info, risk level
 - **Control Panel** - Full-featured GUI to manage settings, rules, and view logs
+  - Real-time status monitoring
+  - Rule management (view, delete, clear all)
+  - Mode switching (Learning ↔ Enforcement)
+  - Live log viewing
+  - Firewall start/stop/restart controls
 - **System tray icon** - Statistics and quick access menu
 - **Timeout protection** - Auto-deny after 30 seconds (configurable)
 - **Keyboard shortcuts** - Enter to allow, Escape to deny
-- **Rule management** - View, delete, and manage all firewall rules
 
 ### Smart Rule Management
 - **Per-application + port rules** - Firefox:443 allows all HTTPS, Firefox:80 separate for HTTP
-- **Persistent storage** - Rules saved to /etc/douane/rules.json
+- **Persistent storage** - Rules automatically saved to /etc/douane/rules.json (even in learning mode!)
 - **UFW integration** - Permanent rules stored in UFW
 - **Decision caching** - Avoid repeated prompts for known connections
-- **Learning mode** - Shows popups but always allows (safe for testing)
+- **Learning mode** - Shows popups but always allows (safe for testing, rules are saved)
 - **Enforcement mode** - Actually blocks based on decisions
+- **Automatic rule persistence** - All decisions are saved immediately, no data loss on restart
 
 ### Safety First
 - **Learning mode default** - Won't break your internet while you configure
@@ -238,6 +249,39 @@ sudo python3 douane_firewall.py
 1. Search for "Douane Control Panel" in application menu, OR
 2. Right-click system tray icon → "Control Panel"
 
+### Using the Control Panel
+
+The Control Panel provides complete management of the firewall:
+
+**Status Tab:**
+- View firewall running status (Running/Stopped)
+- See statistics: total rules, allowed/denied counts
+- Current operating mode (Learning/Enforcement)
+- Popup timeout setting
+- Refresh button to update all information
+
+**Settings Tab:**
+- Switch between Learning and Enforcement modes
+- Adjust popup timeout (seconds)
+- Save settings (automatically updates status display)
+
+**Rules Tab:**
+- View all saved rules (application:port → Allow/Deny)
+- Delete individual rules
+- Clear all rules
+- Refresh rules list
+
+**Logs Tab:**
+- View real-time daemon logs
+- See all connection attempts and decisions
+- Clear logs
+- Refresh to see latest entries
+
+**Control Buttons:**
+- Start Firewall - Launch the daemon and GUI client
+- Stop Firewall - Stop daemon and GUI (Control Panel stays open!)
+- Restart Firewall - Stop and restart (Control Panel stays open!)
+
 ### Using the Popup Dialogs
 
 When an application tries to connect to the internet, a popup appears showing:
@@ -281,12 +325,19 @@ sudo tail -f /var/log/douane-daemon.log
 
 ### Stopping the Firewall
 
-```bash
-# Graceful stop (recommended)
-pkill -TERM -f douane
+**From Control Panel (Recommended):**
+- Click "Stop Firewall" button
+- Control Panel stays open for management
+- Can restart anytime with "Start Firewall" button
 
-# Or from system tray: Right-click → "Stop Firewall"
-# Or from control panel: Click "Stop Firewall" button
+**From System Tray:**
+- Right-click tray icon → "Stop Firewall"
+
+**From Command Line:**
+```bash
+# Stop daemon and GUI client
+pkill -TERM -f douane-daemon
+pkill -TERM -f douane-gui-client
 ```
 
 ## 🔧 How It Works

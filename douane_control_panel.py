@@ -101,7 +101,7 @@ class DouaneControlPanel:
         self.status_label = ttk.Label(status_frame, text="Checking status...", font=('Ubuntu', 12))
         self.status_label.pack()
         
-        ttk.Button(status_frame, text="Refresh Status", command=self.update_status).pack(pady=5)
+        ttk.Button(status_frame, text="Refresh Status", command=self.refresh_all).pack(pady=5)
         
         # Statistics section
         stats_frame = ttk.LabelFrame(parent, text="Statistics", padding=10)
@@ -200,6 +200,15 @@ class DouaneControlPanel:
         except:
             self.status_label.config(text="✗ Status unknown", foreground='orange')
 
+    def refresh_all(self):
+        """Refresh all status information"""
+        # Reload config from disk to get latest settings
+        self.config = self.load_config()
+        # Update all displays
+        self.update_status()
+        self.update_statistics()
+        self.update_rules_list()
+
     def update_statistics(self):
         """Update statistics"""
         stats = f"Total Rules: {len(self.rules)}\n\n"
@@ -276,6 +285,8 @@ class DouaneControlPanel:
         self.config['mode'] = self.mode_var.get()
         self.config['timeout_seconds'] = self.timeout_var.get()
         self.save_config()
+        # Immediately update the statistics display to show new mode
+        self.update_statistics()
 
     def delete_rule(self):
         """Delete selected rule"""
@@ -328,7 +339,9 @@ class DouaneControlPanel:
         """Stop the firewall"""
         if messagebox.askyesno("Confirm", "Stop the firewall?"):
             try:
-                subprocess.run(['pkill', '-TERM', '-f', 'douane'])
+                # Kill daemon and GUI client, but NOT the control panel
+                subprocess.run(['pkill', '-TERM', '-f', 'douane-daemon'])
+                subprocess.run(['pkill', '-TERM', '-f', 'douane-gui-client'])
                 messagebox.showinfo("Success", "Firewall stopped")
                 self.root.after(1000, self.update_status)
             except Exception as e:
@@ -337,8 +350,14 @@ class DouaneControlPanel:
     def restart_firewall(self):
         """Restart the firewall"""
         if messagebox.askyesno("Confirm", "Restart the firewall?"):
-            self.stop_firewall()
-            self.root.after(2000, self.start_firewall)
+            try:
+                # Kill daemon and GUI client, but NOT the control panel
+                subprocess.run(['pkill', '-TERM', '-f', 'douane-daemon'])
+                subprocess.run(['pkill', '-TERM', '-f', 'douane-gui-client'])
+                # Wait a bit then start again
+                self.root.after(2000, self.start_firewall)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to restart firewall: {e}")
 
     def run(self):
         """Run the control panel"""

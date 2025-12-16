@@ -257,6 +257,8 @@ class DouaneDaemon:
                 # Cache this decision so we don't show popup again for same app+port
                 self.decision_cache[cache_key] = True
                 logger.info(f"Learning mode: Auto-allowing {app_name}:{pkt_info.dest_port} (cached for future)")
+                # Save rules to disk in learning mode too
+                self.save_rules()
                 return True
 
             # Enforcement mode: send and wait for response
