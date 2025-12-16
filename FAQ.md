@@ -1,14 +1,20 @@
-# UFW Firewall GUI - Frequently Asked Questions
+# Douane Application Firewall for Linux - Frequently Asked Questions
 
 ## General Questions
 
 ### What is this tool?
 
-UFW Firewall GUI is a graphical application that monitors outbound network connections on Linux and allows you to interactively allow or deny them. It integrates with UFW (Uncomplicated Firewall) to store your decisions as persistent firewall rules.
+Douane Application Firewall is a production-ready outbound firewall for Linux that gives you Windows-like control over which applications can access the network. It monitors all outbound network connections and shows GUI popups allowing you to interactively allow or deny them. It integrates with UFW (Uncomplicated Firewall) to store your decisions as persistent firewall rules.
 
 ### How is this different from the original Douane?
 
-The original Douane project has moved to GitLab (https://gitlab.com/douaneapp/Douane). This is a new implementation specifically designed to work with UFW, making it easier to integrate with Ubuntu and other Debian-based systems that use UFW by default.
+The original Douane project has moved to GitLab (https://gitlab.com/douaneapp/Douane). This is a modernized implementation with:
+- Full UFW integration for persistent rules
+- Enhanced GUI with control panel
+- Automatic rule persistence (even in learning mode)
+- Better privilege separation (daemon + GUI client)
+- Production-ready packet interception
+- Comprehensive logging and management features
 
 ### Do I need this if I already have UFW?
 
@@ -57,46 +63,112 @@ No, this tool requires a display server (X11 or Wayland) because it shows GUI di
 
 ### How do I start the application?
 
+**From Application Menu (Recommended):**
+1. Search for "Douane Firewall" in your application menu
+2. Click to launch
+3. Enter password when prompted (uses pkexec for GUI password dialog)
+4. System tray icon appears - firewall is active!
+
+**From Command Line:**
 ```bash
-sudo python3 ufw_firewall_gui.py
+/usr/local/bin/douane-gui-client
 ```
 
-The application runs in the background and shows popups when applications attempt new outbound connections.
+The application runs in the background with a system tray icon and shows popups when applications attempt new outbound connections.
+
+### How do I open the Control Panel?
+
+**From Application Menu:**
+- Search for "Douane Control Panel"
+
+**From System Tray:**
+- Right-click the tray icon → "Control Panel"
+
+**From Command Line:**
+```bash
+/usr/local/bin/douane-control-panel
+```
+
+### What can I do in the Control Panel?
+
+The Control Panel provides complete firewall management:
+
+- **Status Tab**: View firewall status, statistics, current mode
+- **Settings Tab**: Switch between Learning/Enforcement modes, adjust timeout
+- **Rules Tab**: View all rules, delete individual rules, clear all rules
+- **Logs Tab**: View daemon logs, see all connection attempts
+- **Control Buttons**: Start, Stop, or Restart the firewall
+
+**Important**: The Control Panel stays open when you stop or restart the firewall, so you can manage it easily!
+
+### What's the difference between Learning Mode and Enforcement Mode?
+
+**Learning Mode (Default):**
+- Shows popups for new connections
+- **Always allows** the connection (won't break your internet)
+- Saves your decisions to rules.json automatically
+- Safe for initial setup and testing
+- Perfect for building your rule set without risk
+
+**Enforcement Mode:**
+- Shows popups for new connections
+- **Actually blocks** connections you deny
+- Saves decisions to both rules.json and UFW
+- Use after you've built your initial rule set
+- Production mode for real security
+
+**Important**: In both modes, rules are saved automatically! You won't lose your decisions when restarting.
 
 ### What happens when I click "Allow Once"?
 
-The specific connection is permitted, but no UFW rule is added. If the same application tries to connect to the same destination again, you'll be prompted again.
+The specific connection is permitted, but the decision is cached only for this session. If the same application tries to connect to the same port again during this session, it's allowed automatically. After restart, you'll be prompted again.
 
 ### What happens when I click "Allow Always"?
 
-An UFW rule is added to permanently allow connections matching this pattern (destination IP and port). You won't be prompted for similar connections in the future.
+The decision is saved permanently to `/etc/douane/rules.json`. The application can always connect to this port. In Enforcement Mode, a UFW rule is also added. You won't be prompted for this app+port combination again.
 
-### What happens when I click "Deny Once"?
+### What happens when I click "Deny"?
 
-The connection is blocked this time, but you'll be prompted again for similar future connections.
-
-### What happens when I click "Deny Always"?
-
-An UFW rule is added to permanently block connections to this destination IP and port.
+In Learning Mode: Connection is allowed anyway (learning mode never blocks), but you see the popup.
+In Enforcement Mode: Connection is blocked immediately.
 
 ### Can I see what rules have been added?
 
-Yes, use standard UFW commands:
+**Via Control Panel (Easiest):**
+1. Open Control Panel
+2. Go to "Rules" tab
+3. See all saved rules with application names and ports
 
+**Via Command Line:**
 ```bash
+# View Douane rules
+cat /etc/douane/rules.json
+
+# View UFW rules (Enforcement mode only)
 sudo ufw status verbose
 sudo ufw status numbered
 ```
 
 ### How do I remove a rule?
 
-```bash
-# List rules with numbers
-sudo ufw status numbered
+**Via Control Panel (Recommended):**
+1. Open Control Panel → Rules tab
+2. Select the rule you want to delete
+3. Click "Delete Selected" or "Clear All Rules"
 
-# Delete by number
+**Via Command Line:**
+```bash
+# Remove from Douane
+# Edit /etc/douane/rules.json and remove the line
+
+# Remove from UFW (if in Enforcement mode)
+sudo ufw status numbered
 sudo ufw delete [number]
 ```
+
+### Do my rules persist after restarting?
+
+**Yes!** All rules are automatically saved to `/etc/douane/rules.json` immediately when you make a decision, even in Learning Mode. When you restart the firewall or reboot your computer, all your rules are loaded automatically.
 
 ## Troubleshooting
 

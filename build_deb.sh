@@ -39,10 +39,12 @@ cp douane_firewall.py debian/usr/local/bin/douane-firewall
 cp setup_firewall.sh debian/usr/local/bin/douane-setup-firewall
 cp douane-daemon.py debian/usr/local/bin/douane-daemon
 cp douane-gui-client.py debian/usr/local/bin/douane-gui-client
+cp douane_control_panel.py debian/usr/local/bin/douane-control-panel
 chmod +x debian/usr/local/bin/douane-firewall
 chmod +x debian/usr/local/bin/douane-setup-firewall
 chmod +x debian/usr/local/bin/douane-daemon
 chmod +x debian/usr/local/bin/douane-gui-client
+chmod +x debian/usr/local/bin/douane-control-panel
 
 # Copy Python modules
 print_step "Copying Python modules..."
