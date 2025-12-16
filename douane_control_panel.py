@@ -8,6 +8,7 @@ from tkinter import ttk, messagebox, scrolledtext
 import json
 import subprocess
 import os
+import time
 from pathlib import Path
 
 
@@ -397,37 +398,241 @@ class DouaneControlPanel:
                 messagebox.showerror("Error", f"Failed to clear rules: {e}")
 
     def start_firewall(self):
-        """Start the firewall"""
-        try:
-            subprocess.Popen(['/usr/local/bin/douane-gui-client'])
-            messagebox.showinfo("Success", "Firewall starting...")
-            self.root.after(2000, self.update_status)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to start firewall: {e}")
+        """Start the firewall with visual feedback"""
+        # Create progress dialog
+        progress_dialog = tk.Toplevel(self.root)
+        progress_dialog.title("Starting Firewall")
+        progress_dialog.geometry("350x150")
+        progress_dialog.transient(self.root)
+        progress_dialog.grab_set()
+
+        # Center the dialog
+        progress_dialog.update_idletasks()
+        x = (progress_dialog.winfo_screenwidth() // 2) - (350 // 2)
+        y = (progress_dialog.winfo_screenheight() // 2) - (150 // 2)
+        progress_dialog.geometry(f"350x150+{x}+{y}")
+
+        # Status label
+        status_label = tk.Label(
+            progress_dialog,
+            text="Starting Douane Firewall...",
+            font=('Arial', 11),
+            pady=20
+        )
+        status_label.pack()
+
+        # Progress bar
+        progress = ttk.Progressbar(
+            progress_dialog,
+            mode='indeterminate',
+            length=250
+        )
+        progress.pack(pady=10)
+        progress.start(10)
+
+        def do_start():
+            """Perform the start"""
+            try:
+                subprocess.Popen(['/usr/local/bin/douane-gui-client'],
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL)
+                time.sleep(2)
+
+                # Verify it's running
+                result = subprocess.run(['pgrep', '-f', 'douane-daemon'],
+                                      capture_output=True, text=True)
+
+                progress.stop()
+                if result.returncode == 0:
+                    status_label.config(text="✓ Firewall started successfully!")
+                    progress.config(mode='determinate', value=100)
+                else:
+                    status_label.config(text="✗ Failed to start firewall")
+
+                progress_dialog.after(1500, lambda: [progress_dialog.destroy(), self.update_status()])
+
+            except Exception as e:
+                progress.stop()
+                progress_dialog.destroy()
+                messagebox.showerror("Error", f"Failed to start firewall: {e}")
+
+        # Start in background
+        progress_dialog.after(500, do_start)
+        progress_dialog.wait_window()
 
     def stop_firewall(self):
-        """Stop the firewall"""
-        if messagebox.askyesno("Confirm", "Stop the firewall?"):
-            try:
-                # Kill daemon and GUI client, but NOT the control panel
-                subprocess.run(['pkill', '-TERM', '-f', 'douane-daemon'])
-                subprocess.run(['pkill', '-TERM', '-f', 'douane-gui-client'])
-                messagebox.showinfo("Success", "Firewall stopped")
-                self.root.after(1000, self.update_status)
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to stop firewall: {e}")
+        """Stop the firewall with visual feedback"""
+        if messagebox.askyesno("Confirm", "Stop the firewall?\n\nYour system will be unprotected."):
+            # Create progress dialog
+            progress_dialog = tk.Toplevel(self.root)
+            progress_dialog.title("Stopping Firewall")
+            progress_dialog.geometry("350x150")
+            progress_dialog.transient(self.root)
+            progress_dialog.grab_set()
+
+            # Center the dialog
+            progress_dialog.update_idletasks()
+            x = (progress_dialog.winfo_screenwidth() // 2) - (350 // 2)
+            y = (progress_dialog.winfo_screenheight() // 2) - (150 // 2)
+            progress_dialog.geometry(f"350x150+{x}+{y}")
+
+            # Status label
+            status_label = tk.Label(
+                progress_dialog,
+                text="Stopping Douane Firewall...",
+                font=('Arial', 11),
+                pady=20
+            )
+            status_label.pack()
+
+            # Progress bar
+            progress = ttk.Progressbar(
+                progress_dialog,
+                mode='indeterminate',
+                length=250
+            )
+            progress.pack(pady=10)
+            progress.start(10)
+
+            def do_stop():
+                """Perform the stop"""
+                try:
+                    # Kill daemon and GUI client, but NOT the control panel
+                    subprocess.run(['pkill', '-TERM', '-f', 'douane-daemon'],
+                                 capture_output=True, timeout=2)
+                    subprocess.run(['pkill', '-TERM', '-f', 'douane-gui-client'],
+                                 capture_output=True, timeout=2)
+                    time.sleep(1)
+
+                    progress.stop()
+                    status_label.config(text="✓ Firewall stopped")
+                    progress.config(mode='determinate', value=100)
+
+                    progress_dialog.after(1500, lambda: [progress_dialog.destroy(), self.update_status()])
+
+                except Exception as e:
+                    progress.stop()
+                    progress_dialog.destroy()
+                    messagebox.showerror("Error", f"Failed to stop firewall: {e}")
+
+            # Start in background
+            progress_dialog.after(500, do_stop)
+            progress_dialog.wait_window()
 
     def restart_firewall(self):
-        """Restart the firewall"""
-        if messagebox.askyesno("Confirm", "Restart the firewall?"):
-            try:
-                # Kill daemon and GUI client, but NOT the control panel
-                subprocess.run(['pkill', '-TERM', '-f', 'douane-daemon'])
-                subprocess.run(['pkill', '-TERM', '-f', 'douane-gui-client'])
-                # Wait a bit then start again
-                self.root.after(2000, self.start_firewall)
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to restart firewall: {e}")
+        """Restart the firewall with visual progress"""
+        if messagebox.askyesno("Confirm", "Restart the firewall?\n\nThis will reload all configuration and rules."):
+            # Create progress dialog
+            progress_dialog = tk.Toplevel(self.root)
+            progress_dialog.title("Restarting Firewall")
+            progress_dialog.geometry("400x200")
+            progress_dialog.transient(self.root)
+            progress_dialog.grab_set()
+
+            # Center the dialog
+            progress_dialog.update_idletasks()
+            x = (progress_dialog.winfo_screenwidth() // 2) - (400 // 2)
+            y = (progress_dialog.winfo_screenheight() // 2) - (200 // 2)
+            progress_dialog.geometry(f"400x200+{x}+{y}")
+
+            # Status label
+            status_label = tk.Label(
+                progress_dialog,
+                text="Preparing to restart...",
+                font=('Arial', 11),
+                pady=20
+            )
+            status_label.pack()
+
+            # Progress bar
+            progress = ttk.Progressbar(
+                progress_dialog,
+                mode='indeterminate',
+                length=300
+            )
+            progress.pack(pady=10)
+            progress.start(10)
+
+            # Details text
+            details_text = scrolledtext.ScrolledText(
+                progress_dialog,
+                height=6,
+                width=45,
+                font=('Courier', 9)
+            )
+            details_text.pack(pady=10, padx=10)
+
+            def update_status(message, append=True):
+                """Update status message"""
+                status_label.config(text=message)
+                if append:
+                    details_text.insert(tk.END, f"✓ {message}\n")
+                    details_text.see(tk.END)
+                progress_dialog.update()
+
+            def do_restart():
+                """Perform the restart steps"""
+                try:
+                    # Step 1: Stop daemon
+                    update_status("Stopping daemon...")
+                    subprocess.run(['pkill', '-TERM', '-f', 'douane-daemon'],
+                                 capture_output=True, timeout=2)
+
+                    # Step 2: Stop GUI client
+                    update_status("Stopping GUI client...")
+                    subprocess.run(['pkill', '-TERM', '-f', 'douane-gui-client'],
+                                 capture_output=True, timeout=2)
+
+                    # Step 3: Wait for processes to stop
+                    update_status("Waiting for processes to stop...")
+                    time.sleep(1.5)
+
+                    # Step 4: Clean up socket
+                    update_status("Cleaning up socket...")
+                    subprocess.run(['sudo', 'rm', '-f', '/tmp/douane-daemon.sock'],
+                                 capture_output=True, timeout=2)
+
+                    # Step 5: Start GUI client (which starts daemon)
+                    update_status("Starting firewall...")
+                    subprocess.Popen(['/usr/local/bin/douane-gui-client'],
+                                   stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL)
+
+                    # Step 6: Wait for startup
+                    update_status("Waiting for startup...")
+                    time.sleep(2)
+
+                    # Step 7: Verify it's running
+                    update_status("Verifying firewall status...")
+                    result = subprocess.run(['pgrep', '-f', 'douane-daemon'],
+                                          capture_output=True, text=True)
+
+                    if result.returncode == 0:
+                        update_status("✓ Firewall restarted successfully!", append=False)
+                        progress.stop()
+                        progress.config(mode='determinate', value=100)
+
+                        # Close button
+                        close_btn = ttk.Button(
+                            progress_dialog,
+                            text="Close",
+                            command=lambda: [progress_dialog.destroy(), self.update_status()]
+                        )
+                        close_btn.pack(pady=10)
+                    else:
+                        raise Exception("Daemon did not start")
+
+                except Exception as e:
+                    progress.stop()
+                    update_status(f"✗ Error: {e}", append=False)
+                    messagebox.showerror("Error", f"Failed to restart firewall: {e}")
+                    progress_dialog.destroy()
+
+            # Start restart in background
+            progress_dialog.after(500, do_restart)
+
+            # Show dialog
+            progress_dialog.wait_window()
 
     def run(self):
         """Run the control panel"""
