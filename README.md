@@ -10,11 +10,15 @@
 
 Douane is a **production-ready** application firewall that gives Linux users the same outbound connection control they had on Windows. It intercepts **every** outbound connection attempt and lets you decide which applications can access the network.
 
-> **Latest Updates:**
-> - ✅ Rules now persist automatically in learning mode
+> **Latest Updates (v2.0.0):**
+> - ✅ **Interactive installation** - Choose learning/enforcement mode, autostart, and start now
+> - ✅ **Beautiful progress dialogs** - Visual feedback for start/stop/restart operations
+> - ✅ **Automatic rule reload** - Delete rules and they take effect immediately (SIGHUP)
+> - ✅ **pkexec integration** - Proper permission handling for editing rules and settings
+> - ✅ **AppStream metadata** - Shows up in Software Center and Settings > Apps
+> - ✅ Rules persist automatically in learning mode
 > - ✅ Control panel stays open when stopping/restarting firewall
 > - ✅ Real-time mode updates in status display
-> - ✅ Full-featured control panel for managing all aspects of the firewall
 
 ## 🎯 The Problem
 
@@ -42,12 +46,14 @@ Douane Firewall:
 - **Enhanced dialogs** - Shows hostname, port description, process info, risk level
 - **Control Panel** - Full-featured GUI to manage settings, rules, and view logs
   - Real-time status monitoring
-  - Rule management (view, delete, clear all)
+  - Rule management (view, delete, clear all) with pkexec for proper permissions
   - Mode switching (Learning ↔ Enforcement)
   - Live log viewing
-  - Firewall start/stop/restart controls
+  - Beautiful progress dialogs for start/stop/restart operations
+  - Automatic rule reload (no restart needed when deleting rules)
 - **System tray icon** - Statistics and quick access menu
 - **Timeout protection** - Auto-deny after 30 seconds (configurable)
+- **Interactive installation** - Guided setup with whiptail dialogs
 - **Keyboard shortcuts** - Enter to allow, Escape to deny
 
 ### Smart Rule Management
@@ -574,6 +580,39 @@ echo $DISPLAY
 
 # Check tkinter
 python3 -c "import tkinter"
+```
+
+### No Popups Appearing
+
+If the firewall is running but you're not seeing popups:
+
+```bash
+# Check if NFQUEUE rule is active
+sudo iptables -S OUTPUT | grep NFQUEUE
+
+# If missing, restart the firewall
+# Use the Control Panel: Firewall > Restart
+# Or manually:
+sudo pkill -TERM -f douane-daemon
+sudo pkill -TERM -f douane-gui-client
+/usr/local/bin/douane-gui-client
+
+# Check daemon logs
+sudo tail -f /var/log/douane-daemon.log
+```
+
+**Note:** The NFQUEUE rule can be removed if UFW is reloaded. If this happens frequently, restart the Douane firewall after any UFW changes.
+
+### Permission Errors in Control Panel
+
+If you get permission errors when deleting rules or changing settings:
+
+```bash
+# Make sure pkexec is installed
+which pkexec
+
+# The control panel uses pkexec to modify root-owned files
+# You'll be prompted for your password - this is normal
 ```
 
 See [PRODUCTION_GUIDE.md](PRODUCTION_GUIDE.md) for more troubleshooting.
