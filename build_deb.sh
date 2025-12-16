@@ -166,16 +166,14 @@ cat > debian/usr/share/metainfo/com.douane.firewall.metainfo.xml << 'EOF'
     </ul>
   </description>
   <launchable type="desktop-id">douane-firewall.desktop</launchable>
-  <screenshots>
-    <screenshot type="default">
-      <caption>Firewall connection request dialog</caption>
-    </screenshot>
-  </screenshots>
   <url type="homepage">https://shipdocs.github.io/Douane-Application-firewall-for-Linux/</url>
   <url type="bugtracker">https://github.com/shipdocs/Douane-Application-firewall-for-Linux/issues</url>
   <url type="help">https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/FAQ.md</url>
-  <developer_name>Martin</developer_name>
+  <developer id="com.douane">
+    <name>Martin</name>
+  </developer>
   <update_contact>shipdocs@users.noreply.github.com</update_contact>
+  <content_rating type="oars-1.1" />
   <categories>
     <category>System</category>
     <category>Security</category>
