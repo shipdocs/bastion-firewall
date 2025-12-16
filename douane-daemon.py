@@ -129,37 +129,64 @@ class DouaneDaemon:
         except Exception as e:
             logger.error(f"Error adding UFW rule: {e}")
         
+    def reload_rules(self):
+        """Reload rules from disk (called by SIGHUP signal)"""
+        logger.info("Reloading rules from disk...")
+        old_count = len(self.decision_cache)
+        self.decision_cache = self.load_rules()
+        new_count = len(self.decision_cache)
+        logger.info(f"Rules reloaded: {old_count} -> {new_count} rules")
+
+    def setup_signal_handlers(self):
+        """Setup signal handlers for graceful shutdown and reload"""
+        def handle_sighup(signum, frame):
+            """Handle SIGHUP - reload rules"""
+            self.reload_rules()
+
+        def handle_sigterm(signum, frame):
+            """Handle SIGTERM - graceful shutdown"""
+            logger.info("Received SIGTERM, shutting down...")
+            self.stop()
+            sys.exit(0)
+
+        signal.signal(signal.SIGHUP, handle_sighup)
+        signal.signal(signal.SIGTERM, handle_sigterm)
+        signal.signal(signal.SIGINT, handle_sigterm)
+
     def start(self):
         """Start the daemon"""
         logger.info("Starting Douane Daemon...")
-        
+
+        # Setup signal handlers
+        self.setup_signal_handlers()
+
         # Remove old socket if exists
         if os.path.exists(self.socket_path):
             os.remove(self.socket_path)
-        
+
         # Create Unix socket for GUI communication
         self.server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server_socket.bind(self.socket_path)
         os.chmod(self.socket_path, 0o666)  # Allow user to connect
         self.server_socket.listen(1)
-        
+
         logger.info(f"Listening on {self.socket_path}")
-        
+
         # Setup iptables
         if not IPTablesManager.setup_nfqueue(queue_num=1):
             logger.error("Failed to setup iptables")
             return False
-        
+
         # Wait for GUI to connect
         logger.info("Waiting for GUI to connect...")
         self.gui_socket, addr = self.server_socket.accept()
         logger.info("GUI connected!")
-        
+
         # Start packet processor
         self.packet_processor = PacketProcessor(
             decision_callback=self.handle_packet
         )
-        
+
         self.running = True
         self.packet_processor.start(queue_num=1)
         

@@ -345,8 +345,14 @@ class DouaneControlPanel:
                 os.unlink(tmp_path)
 
                 if result.returncode == 0:
+                    # Send SIGHUP to daemon to reload rules
+                    try:
+                        subprocess.run(['pkill', '-HUP', '-f', 'douane-daemon'], check=False)
+                    except:
+                        pass
+
                     self.update_rules_list()
-                    messagebox.showinfo("Success", "Rule deleted. Restart firewall for changes to take effect.")
+                    messagebox.showinfo("Success", "Rule deleted and firewall reloaded!")
                 else:
                     messagebox.showerror("Error", f"Failed to save rules: {result.stderr}")
             except Exception as e:
@@ -377,8 +383,14 @@ class DouaneControlPanel:
                 os.unlink(tmp_path)
 
                 if result.returncode == 0:
+                    # Send SIGHUP to daemon to reload rules
+                    try:
+                        subprocess.run(['pkill', '-HUP', '-f', 'douane-daemon'], check=False)
+                    except:
+                        pass
+
                     self.update_rules_list()
-                    messagebox.showinfo("Success", "All rules cleared. Restart firewall for changes to take effect.")
+                    messagebox.showinfo("Success", "All rules cleared and firewall reloaded!")
                 else:
                     messagebox.showerror("Error", f"Failed to clear rules: {result.stderr}")
             except Exception as e:
