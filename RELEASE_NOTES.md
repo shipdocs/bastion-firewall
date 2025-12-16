@@ -88,6 +88,10 @@
   - SIGHUP: Reload rules from disk
   - SIGTERM: Graceful shutdown
   - SIGINT: Graceful shutdown
+- **NFQUEUE watchdog** - Monitors and auto-recovers NFQUEUE rule:
+  - Checks every 30 seconds if NFQUEUE rule exists
+  - Automatically re-adds rule if missing (e.g., after UFW reload)
+  - Logs warnings and recovery actions
 - **Better logging** for rule reload operations
 - **Rule count tracking** in logs (old count → new count)
 
@@ -122,9 +126,10 @@ If upgrading from v1.x:
 
 ### ⚠️ Known Issues
 
-- **NFQUEUE rule can disappear** if UFW is reloaded
-  - **Workaround**: Restart Douane firewall after UFW changes
-  - **Future fix**: Add watchdog to monitor and re-add NFQUEUE rule
+- ~~**NFQUEUE rule can disappear** if UFW is reloaded~~ **FIXED**
+  - ✅ **Watchdog added**: Daemon now checks NFQUEUE rule every 30 seconds
+  - ✅ **Auto-recovery**: Rule is automatically re-added if missing
+  - ✅ **Logging**: Warns when rule is missing, confirms when re-added
 
 ### 🙏 Credits
 
