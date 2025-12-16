@@ -39,6 +39,7 @@ mkdir -p debian/usr/local/bin
 mkdir -p debian/usr/lib/python3/dist-packages/douane
 mkdir -p debian/usr/share/doc/douane-firewall
 mkdir -p debian/usr/share/applications
+mkdir -p debian/lib/systemd/system
 mkdir -p debian/DEBIAN
 
 # Copy executables
