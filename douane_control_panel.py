@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 import json
 import subprocess
+import os
 from pathlib import Path
 
 
@@ -48,12 +49,30 @@ class DouaneControlPanel:
         return {}
     
     def save_config(self):
-        """Save configuration"""
+        """Save configuration using pkexec (config file is owned by root)"""
         try:
-            self.config_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.config_file, 'w') as f:
-                json.dump(self.config, f, indent=2)
-            messagebox.showinfo("Success", "Configuration saved! Restart firewall for changes to take effect.")
+            import tempfile
+            import subprocess
+
+            # Write to temporary file
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as tmp:
+                json.dump(self.config, tmp, indent=2)
+                tmp_path = tmp.name
+
+            # Use pkexec to copy temp file to /etc/douane/config.json
+            result = subprocess.run(
+                ['pkexec', 'cp', tmp_path, str(self.config_file)],
+                capture_output=True,
+                text=True
+            )
+
+            # Clean up temp file
+            os.unlink(tmp_path)
+
+            if result.returncode == 0:
+                messagebox.showinfo("Success", "Configuration saved! Restart firewall for changes to take effect.")
+            else:
+                messagebox.showerror("Error", f"Failed to save configuration: {result.stderr}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save configuration: {e}")
     
@@ -305,12 +324,31 @@ class DouaneControlPanel:
                 if cache_key in self.rules:
                     del self.rules[cache_key]
 
-            # Save rules
+            # Save rules using pkexec (rules file is owned by root)
             try:
-                with open(self.rules_file, 'w') as f:
-                    json.dump(self.rules, f, indent=2)
-                self.update_rules_list()
-                messagebox.showinfo("Success", "Rule deleted")
+                import tempfile
+                import subprocess
+
+                # Write to temporary file
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as tmp:
+                    json.dump(self.rules, tmp, indent=2)
+                    tmp_path = tmp.name
+
+                # Use pkexec to copy temp file to /etc/douane/rules.json
+                result = subprocess.run(
+                    ['pkexec', 'cp', tmp_path, str(self.rules_file)],
+                    capture_output=True,
+                    text=True
+                )
+
+                # Clean up temp file
+                os.unlink(tmp_path)
+
+                if result.returncode == 0:
+                    self.update_rules_list()
+                    messagebox.showinfo("Success", "Rule deleted. Restart firewall for changes to take effect.")
+                else:
+                    messagebox.showerror("Error", f"Failed to save rules: {result.stderr}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete rule: {e}")
 
@@ -318,11 +356,31 @@ class DouaneControlPanel:
         """Clear all rules"""
         if messagebox.askyesno("Confirm", "Delete ALL rules? This cannot be undone!"):
             try:
+                import tempfile
+                import subprocess
+
                 self.rules = {}
-                with open(self.rules_file, 'w') as f:
-                    json.dump(self.rules, f, indent=2)
-                self.update_rules_list()
-                messagebox.showinfo("Success", "All rules cleared")
+
+                # Write to temporary file
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as tmp:
+                    json.dump(self.rules, tmp, indent=2)
+                    tmp_path = tmp.name
+
+                # Use pkexec to copy temp file to /etc/douane/rules.json
+                result = subprocess.run(
+                    ['pkexec', 'cp', tmp_path, str(self.rules_file)],
+                    capture_output=True,
+                    text=True
+                )
+
+                # Clean up temp file
+                os.unlink(tmp_path)
+
+                if result.returncode == 0:
+                    self.update_rules_list()
+                    messagebox.showinfo("Success", "All rules cleared. Restart firewall for changes to take effect.")
+                else:
+                    messagebox.showerror("Error", f"Failed to clear rules: {result.stderr}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to clear rules: {e}")
 
