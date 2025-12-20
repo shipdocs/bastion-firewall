@@ -1,5 +1,22 @@
 # Release Notes
 
+## v2.0.9 - Universal Support & Decoupled Architecture
+**Release Date:** 2025-12-20
+
+### 🌍 Universal Linux Support
+- **Decoupled Architecture**: Douane no longer messes with your system firewall rules.
+- **Pass-Through Logic**: UFW/Firewalld are set to "Allow Outbound", and Douane handles filtering internally via NFQUEUE.
+- **Multi-Distro Support**: Added installation scripts and docs for Fedora, RHEL, CentOS, and Arch Linux.
+- **RPM Packaging**: Added `build_rpm.sh` and `douane.spec` used by CI/CD.
+
+### 🐛 Improvements & Fixes
+- **Instant Reload**: Daemon now reloads configuration instantly on SIGHUP (no restart).
+- **Tray Icon**: Fixed tray icon support for modern GNOME/Zorin OS (AppIndicator3).
+- **Setup Script**: `setup_firewall.sh` now auto-detects UFW, Firewalld, or raw iptables.
+
+---
+
+
 ## Version 2.0.0 (2025-12-16)
 
 ### 🎉 Major Features
