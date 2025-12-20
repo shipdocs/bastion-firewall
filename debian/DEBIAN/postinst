@@ -136,6 +136,19 @@ EOF
 
 else
     echo "✓ Existing configuration preserved"
+    # Upgrade scenario
+    if [ "$1" = "configure" ] && [ -n "$2" ]; then
+        # This is an upgrade
+        echo "Restarting Douane Firewall service..."
+        systemctl restart douane-firewall || true
+        
+        # Try to restart GUI for the active user
+        REAL_USER="${SUDO_USER:-$USER}"
+        if [ "$REAL_USER" != "root" ] && [ -n "$REAL_USER" ]; then
+             echo "Restarting GUI for $REAL_USER..."
+             su - "$REAL_USER" -c "DISPLAY=:0 /usr/local/bin/douane-gui-client &" 2>/dev/null || true
+        fi
+    fi
     AUTOSTART=false
     START_NOW=false
 fi

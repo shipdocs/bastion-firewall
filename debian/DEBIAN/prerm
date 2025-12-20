@@ -9,7 +9,11 @@ echo "Stopping Douane Firewall..."
 
 # Stop and disable the service
 systemctl stop douane-firewall 2>/dev/null || true
-systemctl disable douane-firewall 2>/dev/null || true
+
+# Ensure all processes are killed (including user GUIs)
+pkill -f douane-daemon 2>/dev/null || true
+pkill -f douane-gui-client 2>/dev/null || true
+pkill -f douane_gui_improved 2>/dev/null || true
 
 # Remove iptables NFQUEUE rules
 iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || true

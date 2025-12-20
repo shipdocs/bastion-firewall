@@ -53,18 +53,17 @@ cp setup_firewall.sh debian/usr/local/bin/douane-setup-firewall
 cp douane-daemon.py debian/usr/local/bin/douane-daemon
 cp douane-gui-client.py debian/usr/local/bin/douane-gui-client
 cp douane_control_panel.py debian/usr/local/bin/douane-control-panel
+cp launch_douane.sh debian/usr/local/bin/douane-launch
 chmod +x debian/usr/local/bin/douane-firewall
 chmod +x debian/usr/local/bin/douane-setup-firewall
 chmod +x debian/usr/local/bin/douane-daemon
 chmod +x debian/usr/local/bin/douane-gui-client
 chmod +x debian/usr/local/bin/douane-control-panel
+chmod +x debian/usr/local/bin/douane-launch
 
 # Copy Python modules
 print_step "Copying Python modules..."
-cp firewall_core.py debian/usr/lib/python3/dist-packages/douane/
-cp douane_gui_improved.py debian/usr/lib/python3/dist-packages/douane/gui_improved.py
-cp ufw_firewall_gui.py debian/usr/lib/python3/dist-packages/douane/ufw_manager.py
-cp service_whitelist.py debian/usr/lib/python3/dist-packages/douane/service_whitelist.py
+cp -r douane/* debian/usr/lib/python3/dist-packages/douane/
 
 # Make modules importable
 cat > debian/usr/lib/python3/dist-packages/douane/__main__.py << 'EOF'
@@ -91,40 +90,9 @@ if __name__ == '__main__':
         print("  python3 -m douane --rules  # Manage rules")
 EOF
 
-# Copy systemd service file
+# Copy systemd service
 print_step "Copying systemd service..."
-if [ -f "debian/lib/systemd/system/douane-firewall.service" ]; then
-    # Service file already exists in debian directory
-    echo "  Using existing service file"
-else
-    # Create service file
-    cat > debian/lib/systemd/system/douane-firewall.service << 'EOF'
-[Unit]
-Description=Douane Firewall - Outbound Connection Control
-Documentation=https://github.com/shipdocs/Douane
-After=network.target ufw.service graphical.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/douane-firewall
-Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-# GUI access - needed for popup dialogs
-Environment="DISPLAY=:0"
-Environment="WAYLAND_DISPLAY=wayland-0"
-Environment="XDG_RUNTIME_DIR=/run/user/1000"
-
-# Security settings
-NoNewPrivileges=false
-PrivateTmp=false
-
-[Install]
-WantedBy=graphical.target
-EOF
-fi
+cp douane-firewall.service debian/lib/systemd/system/
 
 # Note: config.json is NOT copied to /etc/douane/ in the package
 # It will be created by postinst script during installation with user prompts
@@ -222,14 +190,16 @@ Source: https://github.com/shipdocs/Douane
 
 Files: *
 Copyright: 2024 Martin
-License: See LICENSE file in source repository
+License: GPL-3.0+
 EOF
 
 # Create changelog
 cat > debian/usr/share/doc/douane-firewall/changelog << 'EOF'
-douane-firewall (2.0.0) stable; urgency=medium
+douane-firewall (2.0.7) stable; urgency=medium
 
-  * Production-ready release with real packet interception
+  * Systemd Integration: Migrated daemon management to strict systemd service
+  * Fix: Resolves issue with multiple daemon instances preventing Stop
+  * Fix: Improved Control Panel responsiveness and status accuracy
   * NetfilterQueue integration for packet capture
   * Enhanced GUI with timeout protection
   * UFW integration for persistent rules
@@ -259,25 +229,34 @@ chmod +x debian/DEBIAN/postinst
 chmod +x debian/DEBIAN/prerm
 chmod +x debian/DEBIAN/postrm
 
+# Calculate installed size (in KB)
+INSTALLED_SIZE=$(du -s debian/usr | cut -f1)
+# Add Installed-Size to control file (insert after Architecture)
+if grep -q "^Installed-Size:" debian/DEBIAN/control; then
+    sed -i "s/^Installed-Size: .*/Installed-Size: $INSTALLED_SIZE/" debian/DEBIAN/control
+else
+    sed -i "/^Architecture:/a Installed-Size: $INSTALLED_SIZE" debian/DEBIAN/control
+fi
+
 # Build package
 print_step "Building package..."
-dpkg-deb --build debian douane-firewall_2.0.0_all.deb
+dpkg-deb --build debian douane-firewall_2.0.7_all.deb
 
 # Check package
 print_step "Checking package..."
-dpkg-deb --info douane-firewall_2.0.0_all.deb
+dpkg-deb --info douane-firewall_2.0.7_all.deb
 echo ""
-dpkg-deb --contents douane-firewall_2.0.0_all.deb
+dpkg-deb --contents douane-firewall_2.0.7_all.deb
 
 echo ""
-print_info "Package built successfully: douane-firewall_2.0.0_all.deb"
+print_info "Package built successfully: douane-firewall_2.0.7_all.deb"
 echo ""
 print_info "To install:"
-echo "  sudo dpkg -i douane-firewall_2.0.0_all.deb"
+echo "  sudo dpkg -i douane-firewall_2.0.7_all.deb"
 echo "  sudo apt-get install -f  # Install dependencies if needed"
 echo ""
 print_info "To test:"
-echo "  dpkg-deb --contents douane-firewall_2.0.0_all.deb"
-echo "  dpkg-deb --info douane-firewall_2.0.0_all.deb"
+echo "  dpkg-deb --contents douane-firewall_2.0.7_all.deb"
+echo "  dpkg-deb --info douane-firewall_2.0.7_all.deb"
 echo ""
 
