@@ -21,6 +21,10 @@ from tkinter import messagebox
 from pathlib import Path
 import threading
 
+# Force AppIndicator backend for Gnome/Zorin
+import os
+os.environ['PYSTRAY_BACKEND'] = 'appindicator'
+
 # Try to import system tray support
 try:
     import pystray
@@ -28,8 +32,19 @@ try:
     TRAY_AVAILABLE = True
 except ImportError:
     TRAY_AVAILABLE = False
-    print("Note: Install 'pystray' and 'pillow' for system tray support:")
-    print("  pip install pystray pillow")
+    print("Note: Install 'pystray' and 'pillow' for system tray support")
+    try:
+        import tkinter
+        import tkinter.messagebox
+        root = tkinter.Tk()
+        root.withdraw()
+        tkinter.messagebox.showwarning(
+            "Missing Dependencies",
+            "System tray icon will not be available.\n\nPlease install 'pystray' and 'Pillow' to enable it."
+        )
+        root.destroy()
+    except:
+        pass
 
 
 def create_tray_icon(color='green'):
@@ -84,14 +99,14 @@ class ConnectionInfo:
 
 # Import GUI module
 try:
-    from douane.gui_improved import ImprovedFirewallDialog
+    from douane.gui import ImprovedFirewallDialog
 except ImportError:
-    # Try local import
+    # Try local import if package structure is different
     try:
-        sys.path.insert(0, os.path.dirname(__file__))
-        from douane_gui_improved import ImprovedFirewallDialog
-    except ImportError:
-        print("ERROR: Could not import GUI module")
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from douane.gui import ImprovedFirewallDialog
+    except ImportError as e:
+        print(f"ERROR: Could not import GUI module: {e}")
         sys.exit(1)
 
 
@@ -213,9 +228,12 @@ class DouaneGUIClient:
         )
 
         # Run tray icon in separate thread
-        tray_thread = threading.Thread(target=self.tray_icon.run, daemon=True)
-        tray_thread.start()
-        print("✓ System tray icon created")
+        try:
+            tray_thread = threading.Thread(target=self.tray_icon.run, daemon=True)
+            tray_thread.start()
+            print("✓ System tray icon created (AppIndicator)")
+        except Exception as e:
+            print(f"ERROR creating tray icon: {e}")
 
     def update_tray_icon(self, color='green'):
         """Update tray icon color"""
