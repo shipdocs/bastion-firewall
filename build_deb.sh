@@ -195,6 +195,16 @@ EOF
 
 # Create changelog
 cat > debian/usr/share/doc/douane-firewall/changelog << 'EOF'
+douane-firewall (2.0.9) stable; urgency=high
+
+  * Fix: Decoupled UFW logic (Douane now manages filtering internally)
+  * Fix: Daemon now reloads configuration instantly on mode switch
+  * Change: UFW set to "Allow Outgoing" (Pass-through mode)
+
+ -- Martin <shipdocs@users.noreply.github.com>  Sat, 20 Dec 2024 13:00:00 +0000
+
+douane-firewall (2.0.8) stable; urgency=high
+
 douane-firewall (2.0.7) stable; urgency=medium
 
   * Systemd Integration: Migrated daemon management to strict systemd service
@@ -240,23 +250,23 @@ fi
 
 # Build package
 print_step "Building package..."
-dpkg-deb --build debian douane-firewall_2.0.7_all.deb
+dpkg-deb --build debian douane-firewall_2.0.9_all.deb
 
 # Check package
 print_step "Checking package..."
-dpkg-deb --info douane-firewall_2.0.7_all.deb
+dpkg-deb --info douane-firewall_2.0.9_all.deb
 echo ""
-dpkg-deb --contents douane-firewall_2.0.7_all.deb
+dpkg-deb --contents douane-firewall_2.0.9_all.deb
 
 echo ""
-print_info "Package built successfully: douane-firewall_2.0.7_all.deb"
+print_info "Package built successfully: douane-firewall_2.0.9_all.deb"
 echo ""
 print_info "To install:"
-echo "  sudo dpkg -i douane-firewall_2.0.7_all.deb"
+echo "  sudo dpkg -i douane-firewall_2.0.9_all.deb"
 echo "  sudo apt-get install -f  # Install dependencies if needed"
 echo ""
 print_info "To test:"
-echo "  dpkg-deb --contents douane-firewall_2.0.7_all.deb"
-echo "  dpkg-deb --info douane-firewall_2.0.7_all.deb"
+echo "  dpkg-deb --contents douane-firewall_2.0.9_all.deb"
+echo "  dpkg-deb --info douane-firewall_2.0.9_all.deb"
 echo ""
 
