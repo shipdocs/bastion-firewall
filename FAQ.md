@@ -4,12 +4,12 @@
 
 ### What is this tool?
 
-Douane Application Firewall is a production-ready outbound firewall for Linux that gives you Windows-like control over which applications can access the network. It monitors all outbound network connections and shows GUI popups allowing you to interactively allow or deny them. It integrates with UFW (Uncomplicated Firewall) to store your decisions as persistent firewall rules.
+Douane Application Firewall is a production-ready outbound firewall for Linux that gives you Windows-like control over which applications can access the network. It monitors all outbound network connections and shows GUI popups allowing you to interactively allow or deny them. It uses a robust internal rule engine to store your decisions reliably.
 
 ### How is this different from the original Douane?
 
 The original Douane project has moved to GitLab (https://gitlab.com/douaneapp/Douane). This is a modernized implementation with:
-- Full UFW integration for persistent rules
+- Internal persistent rule storage (Decoupled from UFW)
 - Enhanced GUI with control panel
 - Automatic rule persistence (even in learning mode)
 - Better privilege separation (daemon + GUI client)
@@ -113,7 +113,7 @@ The Control Panel provides complete firewall management:
 **Enforcement Mode:**
 - Shows popups for new connections
 - **Actually blocks** connections you deny
-- Saves decisions to both rules.json and UFW
+- Saves decisions to rules.json
 - Use after you've built your initial rule set
 - Production mode for real security
 
@@ -125,7 +125,7 @@ The specific connection is permitted, but the decision is cached only for this s
 
 ### What happens when I click "Allow Always"?
 
-The decision is saved permanently to `/etc/douane/rules.json`. The application can always connect to this port. In Enforcement Mode, a UFW rule is also added. You won't be prompted for this app+port combination again.
+The decision is saved permanently to `/etc/douane/rules.json`. The application can always connect to this port. You won't be prompted for this app+port combination again.
 
 ### What happens when I click "Deny"?
 
@@ -143,10 +143,6 @@ In Enforcement Mode: Connection is blocked immediately.
 ```bash
 # View Douane rules
 cat /etc/douane/rules.json
-
-# View UFW rules (Enforcement mode only)
-sudo ufw status verbose
-sudo ufw status numbered
 ```
 
 ### How do I remove a rule?
