@@ -16,7 +16,7 @@ The Douane Firewall package has been installed cleanly without breaking your int
 - `firewall_core.py` - Packet processing with clean shutdown
 - `gui_improved.py` - Modern GUI dialogs
 - `service_whitelist.py` - Restrictive whitelist (server-like)
-- `ufw_manager.py` - UFW integration
+- `service_whitelist.py` - Restrictive whitelist (server-like)
 
 ### Configuration
 - `/etc/douane/config.json` - Learning mode by default
