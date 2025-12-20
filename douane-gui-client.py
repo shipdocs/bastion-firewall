@@ -16,86 +16,23 @@ import json
 import socket
 import subprocess
 import time
-import tkinter as tk
-from tkinter import messagebox
-from pathlib import Path
 import threading
+import signal
+from pathlib import Path
+from tkinter import messagebox
+import tkinter as tk
 
-# Force AppIndicator backend for Gnome/Zorin
-import os
-os.environ['PYSTRAY_BACKEND'] = 'appindicator'
-
-# Try to import system tray support
+# Application Indicator Support (Zorin 18 / GNOME)
+TRAY_AVAILABLE = False
 try:
-    import pystray
-    from PIL import Image, ImageDraw
+    import gi
+    gi.require_version('Gtk', '3.0')
+    gi.require_version('AyatanaAppIndicator3', '0.1')
+    from gi.repository import Gtk, AyatanaAppIndicator3, GLib
     TRAY_AVAILABLE = True
-except ImportError:
-    TRAY_AVAILABLE = False
-    print("Note: Install 'pystray' and 'pillow' for system tray support")
-    try:
-        import tkinter
-        import tkinter.messagebox
-        root = tkinter.Tk()
-        root.withdraw()
-        tkinter.messagebox.showwarning(
-            "Missing Dependencies",
-            "System tray icon will not be available.\n\nPlease install 'pystray' and 'Pillow' to enable it."
-        )
-        root.destroy()
-    except:
-        pass
-
-
-def create_tray_icon(color='green'):
-    """Create a simple shield icon for system tray"""
-    if not TRAY_AVAILABLE:
-        return None
-
-    # Create a 64x64 image
-    width = 64
-    height = 64
-    image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-
-    # Color mapping
-    colors = {
-        'green': (39, 174, 96, 255),    # Active/Safe
-        'red': (231, 76, 60, 255),      # Blocked
-        'orange': (230, 126, 34, 255),  # Warning
-        'gray': (149, 165, 166, 255),   # Inactive
-    }
-
-    fill_color = colors.get(color, colors['green'])
-
-    # Draw shield shape
-    # Top part (rectangle)
-    draw.rectangle([16, 8, 48, 32], fill=fill_color, outline=(0, 0, 0, 255), width=2)
-    # Bottom part (triangle)
-    draw.polygon([16, 32, 32, 56, 48, 32], fill=fill_color, outline=(0, 0, 0, 255))
-
-    # Draw a checkmark or X
-    if color == 'green':
-        # Checkmark
-        draw.line([24, 28, 28, 34], fill='white', width=3)
-        draw.line([28, 34, 40, 18], fill='white', width=3)
-    elif color == 'red':
-        # X mark
-        draw.line([24, 20, 40, 36], fill='white', width=3)
-        draw.line([40, 20, 24, 36], fill='white', width=3)
-
-    return image
-
-
-# Simple ConnectionInfo class (avoid importing modules that require root)
-class ConnectionInfo:
-    def __init__(self, app_name, app_path, dest_ip, dest_port, protocol, app_category=None):
-        self.app_name = app_name
-        self.app_path = app_path
-        self.dest_ip = dest_ip
-        self.dest_port = dest_port
-        self.protocol = protocol
-        self.app_category = app_category
+except (ImportError, ValueError):
+    print("Warning: AyatanaAppIndicator3 not found. Tray icon will be disabled.")
+    print("Install with: sudo apt install libayatana-appindicator3-1 gir1.2-ayatanaappindicator3-0.1 python3-gi")
 
 # Import GUI module
 try:
@@ -110,6 +47,17 @@ except ImportError:
         sys.exit(1)
 
 
+# Simple ConnectionInfo class (avoid importing modules that require root)
+class ConnectionInfo:
+    def __init__(self, app_name, app_path, dest_ip, dest_port, protocol, app_category=None):
+        self.app_name = app_name
+        self.app_path = app_path
+        self.dest_ip = dest_ip
+        self.dest_port = dest_port
+        self.protocol = protocol
+        self.app_category = app_category
+
+
 class DouaneGUIClient:
     """GUI client that shows popups and communicates with daemon"""
 
@@ -118,10 +66,11 @@ class DouaneGUIClient:
         self.daemon_socket = None
         self.running = False
         self.config = self.load_config()
-        self.tray_icon = None
+        self.indicator = None
         self.connection_count = 0
         self.blocked_count = 0
         self.allowed_count = 0
+        self.tray_thread = None
         
     def load_config(self):
         """Load configuration"""
@@ -181,8 +130,8 @@ class DouaneGUIClient:
             # pkexec not available, try sudo
             try:
                 subprocess.Popen(['sudo', 'python3', daemon_path],
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
                 print("Daemon started with sudo")
                 # Give daemon time to start and create socket
                 time.sleep(2)
@@ -192,53 +141,85 @@ class DouaneGUIClient:
                 return False
     
     def setup_system_tray(self):
-        """Setup system tray icon"""
+        """Setup system tray icon using AppIndicator3"""
         if not TRAY_AVAILABLE:
-            print("System tray not available (install pystray and pillow)")
+            print("System tray not available")
             return
 
-        icon_image = create_tray_icon('green')
-
-        # Create menu
-        menu = pystray.Menu(
-            pystray.MenuItem(
-                lambda: f"Douane Firewall - {self.config.get('mode', 'learning').title()} Mode",
-                lambda: None,
-                enabled=False
-            ),
-            pystray.MenuItem(
-                lambda: f"Connections: {self.connection_count} (✓{self.allowed_count} ✗{self.blocked_count})",
-                lambda: None,
-                enabled=False
-            ),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem('Control Panel', self.show_control_panel),
-            pystray.MenuItem('Show Statistics', self.show_statistics),
-            pystray.MenuItem('View Logs', self.view_logs),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem('Stop Firewall', self.stop_firewall),
-            pystray.MenuItem('Quit', self.quit_application)
-        )
-
-        self.tray_icon = pystray.Icon(
+        # Create Indicator
+        # ID, Icon Name, Category
+        self.indicator = AyatanaAppIndicator3.Indicator.new(
             "douane-firewall",
-            icon_image,
-            "Douane Firewall",
-            menu
+            "security-high",  # Standard icon name (usually a shield or lock)
+            AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS
         )
+        self.indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
+        self.indicator.set_title("Douane Firewall")
 
-        # Run tray icon in separate thread
-        try:
-            tray_thread = threading.Thread(target=self.tray_icon.run, daemon=True)
-            tray_thread.start()
-            print("✓ System tray icon created (AppIndicator)")
-        except Exception as e:
-            print(f"ERROR creating tray icon: {e}")
+        # Create Menu
+        menu = Gtk.Menu()
+
+        # Connections Item (Disabled/Info)
+        self.stats_item = Gtk.MenuItem(label=f"Connections: {self.connection_count}")
+        self.stats_item.set_sensitive(False)
+        menu.append(self.stats_item)
+        
+        # Separator
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Control Panel
+        item_cp = Gtk.MenuItem(label="Control Panel")
+        item_cp.connect("activate", lambda _: self.show_control_panel())
+        menu.append(item_cp)
+
+        # Statistics
+        item_stats = Gtk.MenuItem(label="Show Statistics")
+        item_stats.connect("activate", lambda _: self.show_statistics())
+        menu.append(item_stats)
+
+        # Logs
+        item_logs = Gtk.MenuItem(label="View Logs")
+        item_logs.connect("activate", lambda _: self.view_logs())
+        menu.append(item_logs)
+
+        # Separator
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Stop
+        item_stop = Gtk.MenuItem(label="Stop Firewall")
+        item_stop.connect("activate", lambda _: self.stop_firewall())
+        menu.append(item_stop)
+
+        # Quit
+        item_quit = Gtk.MenuItem(label="Quit")
+        item_quit.connect("activate", lambda _: self.quit_application())
+        menu.append(item_quit)
+
+        menu.show_all()
+        self.indicator.set_menu(menu)
+        
+        print("✓ System tray icon created (AyatanaAppIndicator3)")
+
+        # Run Gtk main loop in a separate thread
+        self.tray_thread = threading.Thread(target=Gtk.main, daemon=True)
+        self.tray_thread.start()
 
     def update_tray_icon(self, color='green'):
-        """Update tray icon color"""
-        if self.tray_icon and TRAY_AVAILABLE:
-            self.tray_icon.icon = create_tray_icon(color)
+        """Update tray icon"""
+        if self.indicator and TRAY_AVAILABLE:
+            # Update icon based on status
+            icon_name = "security-high"
+            if color == 'red':
+                icon_name = "security-low" # Or security-medium, or dialog-warning
+            elif color == 'orange':
+                icon_name = "security-medium"
+            
+            # Update GUI in main thread
+            GLib.idle_add(self.indicator.set_icon, icon_name)
+            
+            # Update stats text
+            stats_text = f"Conn: {self.connection_count} (✓{self.allowed_count} ✗{self.blocked_count})"
+            GLib.idle_add(self.stats_item.set_label, stats_text)
 
     def show_control_panel(self):
         """Show control panel window"""
@@ -251,7 +232,15 @@ class DouaneGUIClient:
 
     def show_statistics(self):
         """Show statistics window"""
-        stats_msg = f"""Douane Firewall Statistics
+        # We need to run tkinter in the main thread or a thread that isn't the Gtk thread
+        # Since this method might be called from Gtk thread, we use a simple subprocess or just print for now
+        # But we can use tkinter here carefully as long as we create a new root
+        
+        def _show():
+            try:
+                root = tk.Tk()
+                root.withdraw() # Hide main window
+                stats_msg = f"""Douane Firewall Statistics
 
 Mode: {self.config.get('mode', 'learning').title()}
 Total Connections: {self.connection_count}
@@ -261,21 +250,29 @@ Blocked: {self.blocked_count}
 Learning Mode: Connections are always allowed
 Enforcement Mode: Connections can be blocked
 """
-        messagebox.showinfo("Douane Firewall Statistics", stats_msg)
+                messagebox.showinfo("Douane Firewall Statistics", stats_msg)
+                root.destroy()
+            except Exception as e:
+                print(f"Error showing stats: {e}")
+
+        # Run in a separate thread to avoid blocking Gtk
+        threading.Thread(target=_show).start()
 
     def view_logs(self):
         """Open log file"""
         try:
             subprocess.Popen(['xdg-open', '/var/log/douane-daemon.log'])
         except:
-            messagebox.showerror("Error", "Could not open log file")
+            print("Error opening logs")
 
     def stop_firewall(self):
         """Stop the firewall"""
         print("\nStopping firewall...")
         self.running = False
-        if self.tray_icon:
-            self.tray_icon.stop()
+        
+        if TRAY_AVAILABLE:
+            GLib.idle_add(Gtk.main_quit)
+            
         # Send SIGTERM to daemon for proper cleanup
         subprocess.run(['pkill', '-TERM', '-f', 'douane-daemon'])
         time.sleep(1)  # Give daemon time to cleanup
@@ -291,7 +288,6 @@ Enforcement Mode: Connections can be blocked
         print("Connecting to daemon...")
 
         # Wait for socket to appear
-        import time
         for i in range(10):
             if os.path.exists(self.socket_path):
                 break
@@ -360,6 +356,9 @@ Enforcement Mode: Connections can be blocked
     
     def show_dialog(self, request):
         """Show GUI dialog and return decision (decision, permanent)"""
+        # If showing statistics overlaps with this, we might have tkinter threading issues
+        # But ImprovedFirewallDialog creates its own Tk instance which is ... risky but worked before
+        
         conn_info = ConnectionInfo(
             app_name=request['app_name'],
             app_path=request['app_path'],
@@ -371,6 +370,7 @@ Enforcement Mode: Connections can be blocked
 
         learning_mode = self.config.get('mode') == 'learning'
 
+        # Run dialog in main thread (this function is called from handle_requests which is main thread)
         dialog = ImprovedFirewallDialog(
             conn_info,
             timeout=self.config.get('timeout_seconds', 30),
@@ -405,7 +405,10 @@ Enforcement Mode: Connections can be blocked
 
         # Handle requests
         self.running = True
-        self.handle_requests()
+        try:
+            self.handle_requests()
+        except KeyboardInterrupt:
+            self.stop()
 
         return True
     
@@ -415,6 +418,9 @@ Enforcement Mode: Connections can be blocked
         self.running = False
         if self.daemon_socket:
             self.daemon_socket.close()
+            
+        if TRAY_AVAILABLE:
+            GLib.idle_add(Gtk.main_quit)
 
         # Send SIGTERM to daemon for proper cleanup
         print("Stopping daemon...")
@@ -424,13 +430,14 @@ Enforcement Mode: Connections can be blocked
 
 
 if __name__ == '__main__':
+    # Add signal handler for Ctrl+C
+    signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
+    
     client = DouaneGUIClient()
     try:
         client.start()
-    except KeyboardInterrupt:
-        print("\nStopping...")
-        client.stop()
     except Exception as e:
         print(f"\nError: {e}")
         client.stop()
+
 

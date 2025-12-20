@@ -318,6 +318,13 @@ class DouaneControlPanel:
         self.config['mode'] = self.mode_var.get()
         self.config['timeout_seconds'] = self.timeout_var.get()
         self.save_config()
+        
+        # Signal daemon to reload config
+        try:
+            subprocess.run(['pkill', '-HUP', '-f', 'douane-daemon'], check=False)
+        except:
+            pass
+            
         # Immediately update the statistics display to show new mode
         self.update_statistics()
 

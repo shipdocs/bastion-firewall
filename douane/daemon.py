@@ -62,12 +62,21 @@ class DouaneDaemon:
         
         logger.info("Waiting for GUI to connect...")
         try:
-            self.gui_socket, addr = self.server_socket.accept()
-            logger.info(f"GUI connected from {addr}")
+            self.server_socket.settimeout(1.0) # Check signals/running flag periodically
+            while self.running and not self.gui_socket:
+                try:
+                    self.gui_socket, addr = self.server_socket.accept()
+                    logger.info(f"GUI connected from {addr}")
+                except socket.timeout:
+                    continue
         except Exception as e:
             logger.error(f"Error accepting GUI connection: {e}")
             self.stop()
             return
+        
+        if not self.running:
+             self.stop()
+             return
 
         # Start processor
         processor_thread = threading.Thread(target=self._run_processor)
@@ -116,8 +125,18 @@ class DouaneDaemon:
         os.chmod(self.SOCKET_PATH, 0o666)
         self.server_socket.listen(1)
 
+    def reload_config(self):
+        """Reload configuration and rules"""
+        logger.info("Reloading configuration and rules...")
+        try:
+            self.config = ConfigManager.load_config()
+            self.rule_manager.reload_rules()
+            logger.info(f"Config reloaded. Mode: {self.config.get('mode', 'learning')}")
+        except Exception as e:
+            logger.error(f"Error reloading config: {e}")
+
     def _setup_signals(self):
-        signal.signal(signal.SIGHUP, lambda s, f: self.rule_manager.reload_rules())
+        signal.signal(signal.SIGHUP, lambda s, f: self.reload_config())
         signal.signal(signal.SIGTERM, lambda s, f: self.stop())
         signal.signal(signal.SIGINT, lambda s, f: self.stop())
 
@@ -131,6 +150,7 @@ class DouaneDaemon:
 
     def _handle_packet(self, pkt_info: PacketInfo) -> bool:
         """Handle a packet decision"""
+        # Always use current config
         learning_mode = self.config.get('mode') == 'learning'
         
         # APP INFO
@@ -140,7 +160,15 @@ class DouaneDaemon:
         # CACHE CHECK
         cached_decision = self.rule_manager.get_decision(app_path, pkt_info.dest_port)
         if cached_decision is not None:
-            if learning_mode: return True
+            # If we have a decision (Allow or Deny), we obey it.
+            # In learning mode, we obey Allow, but what about Deny?
+            # Usually learning mode shouldn't block even if rule says deny?
+            # But the user might want to test "what happens if I block".
+            # Standard logic: Learning mode = Log/Prompt but always ALLOW traffic in the end?
+            # Or just "Don't create Deny rules automatically?"
+            # Let's stick to: Learning Mode = Always Allow in the end, but maybe prompt.
+            if learning_mode:
+                 return True
             return cached_decision
 
         # RATE LIMITING / PENDING
@@ -149,7 +177,7 @@ class DouaneDaemon:
         
         with self.request_lock:
             if cache_key in self.pending_requests:
-                return True # Auto-allow if already asking
+                return True # Auto-allow if already asking to prevent blocking
             
             if cache_key in self.last_request_time:
                 if now - self.last_request_time[cache_key] < 5.0:
@@ -159,17 +187,12 @@ class DouaneDaemon:
         auto_allow, reason = should_auto_allow(app_name, app_path, pkt_info.dest_port, pkt_info.dest_ip)
         if auto_allow:
             logger.info(f"Auto-allowing {app_name} ({reason})")
-            # We don't necessarily save this unless we want to pollute rules
-            # But the original code saved it to cache.
-            # self.rule_manager.add_rule(app_path, pkt_info.dest_port, True) 
-            # Ideally WL is dynamic, so maybe don't persist? Original persisted it in cache.
-            # Let's persist it in memory for this run at least?
-            # Actually simplest is just return True.
             return True
 
-        if not pkt_info.app_name and learning_mode:
-            return True
-
+        # In learning mode, if we don't know the app, we log/notify but ALLOW.
+        # But we still want to show the popup so the user can "Learn" (create a rule).
+        # So we proceed to _ask_gui.
+        
         # ASK GUI
         return self._ask_gui(pkt_info, app_name, app_path, cache_key, learning_mode)
 
@@ -198,23 +221,43 @@ class DouaneDaemon:
             self.gui_socket.sendall(json.dumps(request).encode() + b'\n')
             
             if learning_mode:
-                # Don't wait for response in learning mode
-                with self.request_lock:
-                    self.pending_requests.pop(cache_key, None)
+                # In learning mode, we essentially "Allow Temporary" immediately
+                # The GUI might show a notification or a non-blocking dialog (handled by client)
+                # But here in the daemon, we can't block the packet too long or timeout.
+                # Actually, the GUI client shows the dialog. If we return True immediately here,
+                # the packet goes through. The GUI event is just "informational".
+                # BUT: If we return True immediately, the "pending_requests" logic might need adjustment.
                 
-                # Auto-add temporary rule to suppress further popups for this session
-                # Or just rely on rate limits.
-                # Original code: self.decision_cache[cache_key] = True
-                self.rule_manager._rules[cache_key] = True # Hacky access or add method
-                # Correct way:
-                # self.rule_manager.add_rule(app_path, pkt_info.dest_port, True) # But this persists!
-                # Maybe add a volatile cache method? For now stick to original behavior: save it.
-                self.rule_manager.add_rule(app_path, pkt_info.dest_port, True)
-                self._add_ufw_rule(pkt_info, True)
-                return True
+                # Simpler: We wait for the "Okay" from GUI? 
+                # If we want Learning Mode to be "Non-Blocking", we should return True immediately.
+                # But then the user can't "Deny" it in the GUI to create a Deny rule.
+                
+                # Hybrid approach:
+                # Learning Mode = We wait for user input, BUT if it times out, we Allow.
+                # AND: The GUI shows "Allow / Deny" buttons.
+                # If user clicks Deny, we save Deny rule.
+                # BUT the packet that triggered it is... well, if we waited, we drop it.
+                # IF we truly want "Never block connectivity in Learning Mode", we should return True immediately
+                # and handle the rule creation asynchronously.
+                # Given existing architecture, let's treat Learning Mode as:
+                # "Show Popup, Wait for User. If User Denies -> Save Rule, Block Packet (for testing). Timeout -> Allow."
+                
+                # WAIT, existing code logic for learning mode int `_handle_packet` was:
+                # if learning_mode: return True (if cached decision exists)
+                
+                pass # Proceed to wait for response
 
             # Wait for response
-            response = self.gui_socket.recv(4096).decode().strip()
+            # Set a timeout on recv?
+            self.gui_socket.settimeout(60.0) # 1 min timeout for user response
+            try:
+                response = self.gui_socket.recv(4096).decode().strip()
+            except socket.timeout:
+                logger.warning("GUI socket timeout waiting for user decision")
+                return True if learning_mode else False
+            finally:
+                self.gui_socket.settimeout(None)
+
             if not response:
                 return False
                 
@@ -228,7 +271,8 @@ class DouaneDaemon:
             if permanent:
                 self.rule_manager.add_rule(app_path, pkt_info.dest_port, allow)
             
-            self._add_ufw_rule(pkt_info, allow)
+            # NO UFW calls here anymore.
+            
             return allow
 
         except Exception as e:
@@ -236,16 +280,6 @@ class DouaneDaemon:
             with self.request_lock:
                 self.pending_requests.pop(cache_key, None)
             return True if learning_mode else False
-
-    def _add_ufw_rule(self, pkt_info, allow):
-        """Add UFW rule"""
-        action = "allow" if allow else "deny"
-        cmd = ['ufw', action, 'out', str(pkt_info.dest_port) + '/' + pkt_info.protocol, 
-               'comment', f'{pkt_info.app_name}:{pkt_info.dest_port}']
-        try:
-             subprocess.run(cmd, capture_output=True)
-        except Exception:
-            pass
 
     def stop(self):
         """Stop daemon"""

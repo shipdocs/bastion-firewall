@@ -74,13 +74,13 @@ print_info "Backup saved to: $BACKUP_DIR"
 # Warning message
 if [ "$AUTO_MODE" = false ]; then
     echo ""
-    print_warning "IMPORTANT: This script will configure UFW to DENY outbound connections by default."
-    print_warning "The Douane Firewall application must be running to allow connections."
+    print_warning "IMPORTANT: This script will configure UFW to ALLOW outbound connections by default."
+    print_warning "The Douane Firewall daemon will intercept traffic and block unapproved apps."
     echo ""
     echo "This means:"
-    echo "  - All outbound connections will be blocked by default"
-    echo "  - You will be prompted for each new connection"
-    echo "  - SSH and existing connections will be preserved"
+    echo "  - UFW will act as pass-through for outbound traffic"
+    echo "  - Douane provides the actual filtering"
+    echo "  - Inbound traffic is still blocked by UFW (except SSH/basics)"
     echo ""
     read -p "Do you want to continue? (yes/no): " -r
     echo ""
@@ -133,9 +133,10 @@ print_info "Established connections will be allowed automatically by UFW"
 print_info "Current UFW default policies:"
 ufw status verbose | grep "Default:" || true
 
-# In learning mode, we keep outbound as ALLOW
-print_info "Keeping default outbound policy as ALLOW (Learning Mode)"
-print_info "The firewall will show popups but won't block connections"
+# In Learning Mode, we keep outbound as ALLOW
+# In Enforcement Mode, Douane intercepts via NFQUEUE, so we still set UFW default to ALLOW.
+# Douane is an Application Firewall that sits on top.
+print_info "Setting default outbound policy as ALLOW (Pass-through for Douane)"
 ufw default allow outgoing
 
 # Keep default inbound as deny
@@ -145,7 +146,12 @@ ufw default deny incoming
 ufw allow in on lo
 ufw allow out on lo
 
-print_info "UFW configuration updated"
+# Ensure NFQUEUE rule exists for Douane interception
+# This is usually done by the daemon, but good to check here or ensure dependencies
+print_info "Ensuring iptables NFQUEUE support..."
+if ! iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null; then
+    print_info "Note: NFQUEUE iptables rule will be managed by the Douane daemon."
+fi
 
 # Show new status
 echo ""
