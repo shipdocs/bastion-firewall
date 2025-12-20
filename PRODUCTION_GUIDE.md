@@ -12,7 +12,8 @@ Douane Firewall is a production-ready outbound firewall for Linux that provides 
 - No visibility into what's connecting where
 
 **After Douane:**
-- UFW default outbound policy set to DENY
+- UFW configuration set to "Allow Outbound" (Pass-through)
+- Douane blocks unauthorized traffic internally
 - Every new outbound connection triggers a popup dialog
 - You decide which applications can access the network
 - Decisions are cached and can be made permanent
@@ -37,7 +38,7 @@ Application → Outbound Connection Attempt
                     ↓
             Accept or Drop Packet
                     ↓
-    [Optional] Store in UFW Rules
+    [Optional] Store in Internal Rules (rules.json)
 ```
 
 ## Components
@@ -49,7 +50,7 @@ Application → Outbound Connection Attempt
 
 2. **douane_firewall.py** - Main application
    - Decision engine with caching
-   - UFW integration
+   - Internal Rule Engine (Decoupled from UFW)
    - Coordinates packet processing and GUI
 
 3. **douane_gui_improved.py** - User interface

@@ -10,8 +10,10 @@
 
 Douane is a **production-ready** application firewall that gives Linux users the same outbound connection control they had on Windows. It intercepts **every** outbound connection attempt and lets you decide which applications can access the network.
 
-> **Latest Updates (v2.0.0):**
-> - ✅ **Interactive installation** - Choose learning/enforcement mode, autostart, and start now
+> **Latest Updates (v2.0.9):**
+> - ✅ **Decoupled Architecture** - UFW is now "Pass-through" (Allow Out), Douane manages all blocking internally
+> - ✅ **Instant Mode Switch** - Daemon reloads config instantly without restart
+> - ✅ **Tray Icon Fix** - Switched to Ayatana AppIndicator3 for GNOME/Zorin support
 > - ✅ **Beautiful progress dialogs** - Visual feedback for start/stop/restart operations
 > - ✅ **Automatic rule reload** - Delete rules and they take effect immediately (SIGHUP)
 > - ✅ **pkexec integration** - Proper permission handling for editing rules and settings
@@ -27,12 +29,13 @@ Linux by default **allows ALL outbound connections**. Any application can connec
 ## ✅ The Solution
 
 Douane Firewall:
-- **Blocks all outbound connections by default** (via UFW)
+- **Blocks unapproved connections** (via internal engine)
 - **Intercepts packets in real-time** using netfilter/iptables
 - **Shows GUI popups** for each new connection attempt
 - **Identifies the application** making the connection
 - **Lets you decide** - Allow or Deny, Once or Always
-- **Integrates with UFW** to persist your rules
+- **Persists rules internally** (`rules.json`) independant of UFW
+
 
 ## ✨ Features
 
@@ -51,15 +54,15 @@ Douane Firewall:
   - Live log viewing
   - Beautiful progress dialogs for start/stop/restart operations
   - Automatic rule reload (no restart needed when deleting rules)
-- **System tray icon** - Statistics and quick access menu
+- **System tray icon** - Statistics and quick access menu (AppIndicator3 support)
 - **Timeout protection** - Auto-deny after 30 seconds (configurable)
 - **Interactive installation** - Guided setup with whiptail dialogs
 - **Keyboard shortcuts** - Enter to allow, Escape to deny
 
 ### Smart Rule Management
 - **Per-application + port rules** - Firefox:443 allows all HTTPS, Firefox:80 separate for HTTP
-- **Persistent storage** - Rules automatically saved to /etc/douane/rules.json (even in learning mode!)
-- **UFW integration** - Permanent rules stored in UFW
+- **Persistent storage** - Rules automatically saved to `/etc/douane/rules.json`
+- **Decoupled Architecture** - Douane manages filtering internally; UFW is set to "Allow Outbound" to prevent conflicts
 - **Decision caching** - Avoid repeated prompts for known connections
 - **Learning mode** - Shows popups but always allows (safe for testing, rules are saved)
 - **Enforcement mode** - Actually blocks based on decisions
@@ -103,7 +106,7 @@ Douane Firewall:
 │              User Decision (Allow/Deny)                     │
 │                      ↓                                       │
 │          Save to /etc/douane/rules.json                     │
-│          Add to UFW (if permanent)                          │
+│          (Internal Enforcement)                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -113,7 +116,6 @@ Douane Firewall:
    - NetfilterQueue packet interception
    - Application identification via /proc and psutil
    - Decision caching and rule persistence
-   - UFW integration for permanent rules
    - Unix socket server for GUI communication
 
 2. **douane-gui-client.py** - User GUI client

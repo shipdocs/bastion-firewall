@@ -21,12 +21,17 @@ Linux by default allows all outbound connections, which can be a security risk. 
    - Identifies the application making the connection
    - Presents GUI dialogs for user decision
 
-2. **UFW Integration**
-   - Reads existing UFW rules
-   - Adds new rules based on user decisions
-   - Supports both allow and deny rules
+3. **Internal Rule Engine**
+   - Manages whitelist and blacklist internally
+   - Persists rules to JSON storage
+   - Decoupled from UFW (avoids port conflicts)
 
-3. **GUI System**
+2. **UFW Coexistence**
+   - UFW handles Inbound traffic
+   - UFW set to "Allow Outbound" (Pass-through)
+   - Douane handles Outbound filtering via NFQUEUE
+
+4. **GUI System**
    - Tkinter-based popup dialogs
    - Shows application name, destination IP, and port
    - Options to allow/deny temporarily or permanently
@@ -38,10 +43,11 @@ Linux by default allows all outbound connections, which can be a security risk. 
 - Python `NetfilterQueue` library to process queued packets
 - `/proc/net/tcp` and `/proc/<pid>/cmdline` to identify applications
 
-#### UFW Rule Management
-- UFW commands executed via subprocess
-- Rules support application-based and IP/port-based filtering
-- Persistent storage through UFW's configuration
+#### Internal Rule Management
+- Rules stored in `/etc/douane/rules.json`
+- In-memory caching for performance
+- Application-based matching (Path + Port)
+- No dependency on system firewall rule syntax
 
 ## System Requirements
 
