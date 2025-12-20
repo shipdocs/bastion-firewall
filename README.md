@@ -10,6 +10,8 @@
 
 Douane is a **production-ready** application firewall that gives Linux users the same outbound connection control they had on Windows. It intercepts **every** outbound connection attempt and lets you decide which applications can access the network.
 
+![Debian](https://img.shields.io/badge/Debian%2FUbuntu-Supported-green) ![Fedora](https://img.shields.io/badge/Fedora%2FRHEL-Supported-blue) ![Generic](https://img.shields.io/badge/Generic%20Linux-Works-orange)
+
 > **Latest Updates (v2.0.9):**
 > - ✅ **Decoupled Architecture** - UFW is now "Pass-through" (Allow Out), Douane manages all blocking internally
 > - ✅ **Instant Mode Switch** - Daemon reloads config instantly without restart
@@ -175,7 +177,15 @@ The package installs:
 - `/usr/share/applications/douane-firewall.desktop` - Application menu entry
 - `/usr/share/applications/douane-control-panel.desktop` - Control panel menu entry
 
-### Method 2: Build from Source
+### Method 2: RPM Package (Fedora/RHEL/CentOS)
+
+1. Download the latest `.rpm` from the [Releases Page](https://github.com/shipdocs/Douane/releases).
+2. Install with dnf/rpm:
+```bash
+sudo dnf install ./douane-firewall-2.0.9-1.noarch.rpm
+```
+
+### Method 3: Build from Source (Universal)
 
 ```bash
 # Clone the repository

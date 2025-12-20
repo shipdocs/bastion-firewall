@@ -65,6 +65,29 @@ sudo iptables -F OUTPUT
 sudo ufw reload
 ```
 
+## Installation on Other Distributions
+
+### Fedora / RHEL / CentOS
+Prerequisites:
+```bash
+sudo dnf install python3 python3-gobject gtk3 libappindicator-gtk3 iptables libnetfilter_queue
+```
+Install RPM:
+```bash
+sudo dnf install ./douane-firewall-2.0.9-1.noarch.rpm
+```
+
+### Arch Linux / Manjaro (Generic)
+Prerequisites:
+```bash
+sudo pacman -S python python-psutil python-scapy libnetfilter_queue iptables tk
+# libappindicator-gtk3 might be in AUR
+```
+Manual Install:
+```bash
+sudo ./install_douane.sh
+```
+
 ## Testing
 
 ### 1. Start the Firewall
