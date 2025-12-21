@@ -145,8 +145,22 @@ else
         # Try to restart GUI for the active user
         REAL_USER="${SUDO_USER:-$USER}"
         if [ "$REAL_USER" != "root" ] && [ -n "$REAL_USER" ]; then
-             echo "Restarting GUI for $REAL_USER..."
-             su - "$REAL_USER" -c "DISPLAY=:0 /usr/local/bin/bastion-gui &" 2>/dev/null || true
+            echo "Restarting GUI for $REAL_USER..."
+
+            # Get the user's UID and GID
+            USER_UID=$(id -u "$REAL_USER" 2>/dev/null || echo "")
+            USER_GID=$(id -g "$REAL_USER" 2>/dev/null || echo "")
+
+            if [ -n "$USER_UID" ] && [ -n "$USER_GID" ]; then
+                # Find the user's DISPLAY
+                USER_DISPLAY=$(ps aux | grep -E "Xorg|X11" | grep "$REAL_USER" | grep -oP ':\d+' | head -1 || echo ":0")
+
+                # Start GUI as the user with proper environment
+                sudo -u "$REAL_USER" DISPLAY="$USER_DISPLAY" /usr/local/bin/bastion-gui >/dev/null 2>&1 &
+                echo "✓ GUI restarted"
+            else
+                echo "⚠ Could not determine user session"
+            fi
         fi
     fi
     AUTOSTART=false
@@ -172,8 +186,12 @@ if [ "$START_NOW" = true ]; then
     REAL_USER="${SUDO_USER:-$USER}"
     if [ "$REAL_USER" != "root" ] && [ -n "$REAL_USER" ]; then
         echo "Starting Bastion Firewall for user $REAL_USER..."
-        # Start as the real user, not root
-        su - "$REAL_USER" -c "DISPLAY=:0 /usr/local/bin/bastion-gui &" 2>/dev/null || true
+
+        # Find the user's DISPLAY
+        USER_DISPLAY=$(ps aux | grep -E "Xorg|X11" | grep "$REAL_USER" | grep -oP ':\d+' | head -1 || echo ":0")
+
+        # Start GUI as the user with proper environment
+        sudo -u "$REAL_USER" DISPLAY="$USER_DISPLAY" /usr/local/bin/bastion-gui >/dev/null 2>&1 &
         echo "✓ Firewall started"
     else
         echo "⚠ Cannot auto-start (no user session detected)"

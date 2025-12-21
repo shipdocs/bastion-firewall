@@ -1,0 +1,85 @@
+#!/bin/bash
+#
+# Pre-installation script for Bastion Firewall
+# This runs BEFORE package files are unpacked
+#
+
+set -e
+
+case "$1" in
+    install|upgrade)
+        echo ""
+        echo "============================================================"
+        echo "🏰 Bastion Firewall - Pre-Installation Cleanup"
+        echo "============================================================"
+        echo ""
+
+        # Stop any running systemd services (both old and new)
+        if systemctl is-active --quiet bastion-firewall 2>/dev/null; then
+            echo "Stopping bastion-firewall service..."
+            systemctl stop bastion-firewall 2>/dev/null || true
+            echo "✓ Bastion service stopped"
+        fi
+
+        if systemctl is-active --quiet douane 2>/dev/null; then
+            echo "Stopping old douane service..."
+            systemctl stop douane 2>/dev/null || true
+            echo "✓ Old Douane service stopped"
+        fi
+
+        # Kill ALL Bastion processes (daemon and GUIs)
+        echo "Terminating all Bastion processes..."
+        pkill -f bastion-daemon 2>/dev/null || true
+        pkill -f bastion-gui 2>/dev/null || true
+        pkill -f bastion-control-panel 2>/dev/null || true
+        pkill -f bastion-tray 2>/dev/null || true
+        sleep 0.5
+        
+        # Force kill if still running
+        pkill -9 -f bastion-daemon 2>/dev/null || true
+        pkill -9 -f bastion-gui 2>/dev/null || true
+        echo "✓ Bastion processes terminated"
+
+        # Kill ALL old Douane processes
+        echo "Terminating all old Douane processes..."
+        pkill -f douane-daemon 2>/dev/null || true
+        pkill -f douane-gui 2>/dev/null || true
+        pkill -f douane-control-panel 2>/dev/null || true
+        pkill -f douane-tray 2>/dev/null || true
+        sleep 0.5
+        
+        # Force kill if still running
+        pkill -9 -f douane-daemon 2>/dev/null || true
+        pkill -9 -f douane-gui 2>/dev/null || true
+        echo "✓ Old Douane processes terminated"
+
+        # Remove socket files (both old and new)
+        echo "Removing socket files..."
+        rm -f /tmp/bastion-daemon.sock 2>/dev/null || true
+        rm -f /var/run/douane.sock 2>/dev/null || true
+        rm -f /tmp/douane-daemon.sock 2>/dev/null || true
+        echo "✓ Socket files removed"
+
+        # Remove old iptables rules (both old and new)
+        echo "Removing iptables NFQUEUE rules..."
+        iptables -D OUTPUT -j NFQUEUE --queue-num 0 2>/dev/null || true
+        iptables -D OUTPUT -j NFQUEUE --queue-num 1 2>/dev/null || true
+        echo "✓ Firewall rules removed"
+
+        echo ""
+        echo "✓ System ready for installation"
+        echo ""
+        ;;
+
+    abort-upgrade)
+        # Do nothing
+        ;;
+
+    *)
+        echo "preinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0
+
