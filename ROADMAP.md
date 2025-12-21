@@ -4,17 +4,42 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
 
 ## 📊 Current Status
 
-- **Version**: 2.0.18
+- **Version**: 1.0.0 (Initial Release)
 - **Quality Score**: 9.0/10
 - **Production Ready**: ✅ Yes
 - **Documentation**: ✅ Comprehensive
 - **Security**: ✅ Hardened (2/10 risk score)
+- **Platform**: Zorin OS 18 (Ubuntu 24.04 LTS base)
+- **Package Management**: ✅ Robust install/upgrade/uninstall
+- **Software Centre**: ✅ Full integration
 
 ---
 
-## 🎯 Short-Term Goals (3-6 months)
+## 🎯 Short-Term Goals (Q1 2025)
 
-### 1. Performance Optimization
+### 1. Package Management & Distribution ✅ COMPLETED
+
+**Goal**: Robust installation and Software Centre integration
+
+**Completed Tasks**:
+- ✅ Complete rebranding from Douane to Bastion Firewall
+- ✅ Robust process cleanup (preinst/prerm/postrm scripts)
+- ✅ Handle legacy Douane installations gracefully
+- ✅ Software Centre integration with AppStream metadata
+- ✅ Auto-cleanup of old processes during install/upgrade
+- ✅ Proper socket and iptables rule cleanup
+- ✅ GitHub release with .deb package
+- ✅ GitHub Pages documentation site
+
+**Impact**:
+- ✅ Clean upgrade path from Douane
+- ✅ No "silly issues" with lingering processes
+- ✅ Professional package management
+- ✅ Easy installation for end users
+
+---
+
+### 2. Performance Optimization
 
 **Goal**: Reduce packet processing latency by 50%
 
@@ -37,7 +62,7 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
 
 ---
 
-### 2. Test Coverage Expansion
+### 3. Test Coverage Expansion
 
 **Goal**: Achieve 80%+ code coverage
 
@@ -66,7 +91,7 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
 
 ---
 
-### 3. Container Support
+### 4. Container Support
 
 **Goal**: Full Docker/Podman compatibility
 
@@ -84,9 +109,9 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
 
 ---
 
-## 🔮 Medium-Term Goals (6-12 months)
+## 🔮 Medium-Term Goals (Q2-Q3 2025)
 
-### 4. eBPF Implementation
+### 5. eBPF Implementation
 
 **Goal**: Replace NetfilterQueue with eBPF for 10x performance improvement
 
@@ -109,7 +134,7 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
 
 ---
 
-### 5. CLI Mode (Headless Server Support)
+### 6. CLI Mode (Headless Server Support)
 
 **Goal**: Enable Bastion on servers without GUI
 
@@ -123,10 +148,10 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
   - GET /logs - Recent activity
 - [ ] Add CLI tool for rule management
   ```bash
-  douane-cli list
-  douane-cli allow /usr/bin/nginx
-  douane-cli deny /usr/bin/suspicious-app
-  douane-cli status
+  bastion-cli list
+  bastion-cli allow /usr/bin/nginx
+  bastion-cli deny /usr/bin/suspicious-app
+  bastion-cli status
   ```
 - [ ] Implement batch rule import/export
 - [ ] Add web-based management UI (optional)
@@ -138,7 +163,7 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
 
 ---
 
-### 6. Advanced Features
+### 7. Advanced Features
 
 **Goal**: Add enterprise-grade functionality
 
@@ -160,9 +185,9 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
 
 ---
 
-## 🌟 Long-Term Vision (1+ year)
+## 🌟 Long-Term Vision (Q4 2025+)
 
-### 7. Distributed Architecture
+### 8. Distributed Architecture
 
 **Goal**: Enterprise-grade multi-system management
 
@@ -180,7 +205,7 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
 
 ---
 
-### 8. Machine Learning Integration
+### 9. Machine Learning Integration
 
 **Goal**: Intelligent threat detection and automation
 
@@ -227,38 +252,50 @@ Pick an item from the roadmap and start contributing! 🚀
 
 ## 📝 Implementation Priority
 
-### High Priority (Next 3 months)
-1. ✅ **Documentation improvements** - COMPLETED (v2.0.18)
-2. 🔄 **Performance optimization** - Kernel-level filtering
-3. 🔄 **Test coverage** - Integration tests
+### High Priority (Q1 2025)
+1. ✅ **Package management & distribution** - COMPLETED (v1.0.0)
+2. ✅ **Rebranding to Bastion** - COMPLETED (v1.0.0)
+3. ✅ **Software Centre integration** - COMPLETED (v1.0.0)
+4. 🔄 **Performance optimization** - Kernel-level filtering
+5. 🔄 **Test coverage** - Integration tests
 
-### Medium Priority (3-6 months)
-4. **Container support** - Docker/Podman compatibility
-5. **CLI mode** - Headless server support
-6. **Advanced features** - Time-based rules, categorization
+### Medium Priority (Q2-Q3 2025)
+6. **Container support** - Docker/Podman compatibility
+7. **CLI mode** - Headless server support
+8. **Advanced features** - Time-based rules, categorization
+9. **eBPF implementation** - Major performance upgrade
 
-### Low Priority (6-12 months)
-7. **eBPF implementation** - Major performance upgrade
-8. **Distributed architecture** - Enterprise features
-9. **Machine learning** - Intelligent automation
+### Low Priority (Q4 2025+)
+10. **Distributed architecture** - Enterprise features
+11. **Machine learning** - Intelligent automation
 
 ---
 
 ## 📊 Version Planning
 
-### v2.1.0 (Q1 2025)
+### v1.0.0 (December 2024) ✅ RELEASED
+- ✅ Complete rebranding from Douane to Bastion Firewall
+- ✅ Robust package management (preinst/prerm/postrm)
+- ✅ Software Centre integration
+- ✅ Clean upgrade path from legacy Douane
+- ✅ GitHub release with .deb package
+- ✅ GitHub Pages documentation site
+- ✅ Zorin OS 18 primary target platform
+
+### v1.1.0 (Q1 2025)
 - Performance optimizations
 - Kernel-level filtering for known apps
 - Improved test coverage
 - Container detection and documentation
+- GUI auto-start improvements
 
-### v2.2.0 (Q2 2025)
+### v1.2.0 (Q2 2025)
 - CLI mode for headless servers
 - REST API for remote management
 - Time-based rules
 - Application categorization
 
-### v3.0.0 (Q3-Q4 2025)
+### v2.0.0 (Q3-Q4 2025)
 - eBPF implementation (breaking change)
 - Distributed architecture
 - Machine learning integration
@@ -275,9 +312,11 @@ Pick an item from the roadmap and start contributing! 🚀
 - Breaking changes will only be introduced in major versions
 
 **Last Updated**: 2024-12-21
-**Current Version**: 2.0.18
+**Current Version**: 1.0.0
 **Project Score**: 9.0/10
 **Target Score**: 10/10
+**Repository**: https://github.com/shipdocs/bastion-firewall
+**Platform**: Zorin OS 18 (Ubuntu 24.04 LTS base)
 
 ---
 
@@ -289,10 +328,3 @@ Pick an item from the roadmap and start contributing! 🚀
 4. **Stakeholders**: Understand project direction and timeline
 
 For questions or suggestions, open a discussion or contact the maintainer.
-  - Automatic rule switching based on network
-- [ ] **Enhanced logging**
-  - Structured logging (JSON format)
-  - Log rotation and compression
-  - Integration with syslog/journald
-
-
