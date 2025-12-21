@@ -28,6 +28,9 @@ class DouaneControlPanel:
         self.rules_file = Path('/etc/bastion/rules.json')
         self.config = self.load_config()
         self.rules = self.load_rules()
+        self.last_rules_mtime = 0
+        if self.rules_file.exists():
+            self.last_rules_mtime = self.rules_file.stat().st_mtime
         
         self.create_ui()
         self.start_polling()
@@ -389,8 +392,20 @@ class DouaneControlPanel:
 
     def poll_status(self):
         """Periodically check status"""
-        print("DEBUG: Polling status...")
+        # print("DEBUG: Polling status...")
         self.update_status()
+        
+        # Check if rules file has changed
+        if self.rules_file.exists():
+            try:
+                current_mtime = self.rules_file.stat().st_mtime
+                if current_mtime != self.last_rules_mtime:
+                    # print("DEBUG: Rules file changed, reloading...")
+                    self.last_rules_mtime = current_mtime
+                    self.update_rules_list()
+            except:
+                pass
+
         # Poll every 3 seconds
         self.root.after(3000, self.poll_status)
 
@@ -647,7 +662,7 @@ class DouaneControlPanel:
                                            capture_output=True).returncode == 0
                                            
                 if not gui_running:
-                    subprocess.Popen(['/usr/local/bin/bastion-gui'], 
+                    subprocess.Popen(['/usr/bin/bastion-gui'], 
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             # Note: We do NOT kill the GUI client on stop anymore. 

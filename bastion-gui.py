@@ -103,7 +103,7 @@ class DouaneGUIClient:
         # Start daemon with pkexec (GUI sudo) or sudo
         # Try installed path first, then local
         daemon_paths = [
-            '/usr/local/bin/bastion-daemon',
+            '/usr/bin/bastion-daemon',
             os.path.join(os.path.dirname(__file__), 'bastion-daemon.py')
         ]
 
@@ -235,7 +235,7 @@ class DouaneGUIClient:
     def show_control_panel(self):
         """Show control panel window"""
         try:
-            subprocess.Popen(['python3', '/usr/local/bin/bastion-control-panel'])
+            subprocess.Popen(['python3', '/usr/bin/bastion-control-panel'])
         except Exception as e:
             print(f"Error opening control panel: {e}")
             # Fallback to showing statistics
@@ -437,8 +437,12 @@ Enforcement Mode: Connections can be blocked
 
         decision, permanent = dialog.show()
 
-        # In learning mode, always allow
+        # In learning mode:
+        # 1. Always ALLOW the connection (don't block traffic while learning)
+        # 2. BUT if user clicked "Allow Always", we must return permanent=True to save the rule!
         if learning_mode:
+            if permanent and decision == 'allow':
+                return True, True
             return True, False
 
         return (decision == 'allow'), permanent

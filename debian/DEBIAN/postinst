@@ -1,250 +1,58 @@
 #!/bin/bash
-#
-# Post-installation script for Bastion Firewall
-#
-
 set -e
 
-echo ""
-echo "============================================================"
-echo "🏰 Bastion Firewall - Post Installation"
-echo "============================================================"
-echo ""
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
 
-# Install system dependencies for system tray
-echo "Installing system dependencies..."
-apt-get install -y gir1.2-ayatanaappindicator3-0.1 whiptail >/dev/null 2>&1 || true
+print_success() { echo -e "${GREEN}✓ $1${NC}"; }
+print_error() { echo -e "${RED}✗ $1${NC}"; }
 
-# Install Python dependencies
-echo "Installing Python dependencies..."
-pip3 install --break-system-packages psutil tabulate NetfilterQueue scapy pystray pillow 2>/dev/null || \
-pip3 install psutil tabulate NetfilterQueue scapy pystray pillow 2>/dev/null || true
+# Create bastion user/group if they don't exist
+if ! getent group bastion >/dev/null; then
+    groupadd -r bastion
+fi
+if ! getent passwd bastion >/dev/null; then
+    useradd -r -g bastion -d /var/lib/bastion -s /usr/sbin/nologin -c "Bastion Firewall User" bastion
+fi
 
-# Create config directory
+# Set up configuration directory
 mkdir -p /etc/bastion
-
-# Check if this is a fresh install (no existing config)
-FRESH_INSTALL=false
 if [ ! -f /etc/bastion/config.json ]; then
-    FRESH_INSTALL=true
-fi
-
-# Interactive configuration for fresh installs
-if [ "$FRESH_INSTALL" = true ]; then
-    echo ""
-    echo "============================================================"
-    echo "Initial Configuration"
-    echo "============================================================"
-    echo ""
-
-    # Check if running in non-interactive mode
-    if [ "$DEBIAN_FRONTEND" = "noninteractive" ]; then
-        # Non-interactive defaults
-        MODE="learning"
-        AUTOSTART=true
-        START_NOW=false
-        echo "✓ Non-interactive mode: Using defaults"
-        echo "  - Mode: Learning (safe)"
-        echo "  - Autostart: Enabled"
-        echo "  - Start now: No (will start at next login)"
+    if [ -f /usr/share/doc/bastion-firewall/config.json.example ]; then
+        cp /usr/share/doc/bastion-firewall/config.json.example /etc/bastion/config.json
     else
-        # Ask about starting mode
-        if whiptail --title "Bastion Firewall Setup" --yes-button "Learning Mode" --no-button "Enforcement Mode" --yesno \
-"Welcome to Bastion Firewall - Your Last Line of Defense!
-
-LEARNING MODE (Recommended):
-  • Shows popups for all connections
-  • Automatically allows all connections
-  • Builds your rule set safely
-  • No risk of blocking important services
-
-ENFORCEMENT MODE (Advanced):
-  • Actually blocks connections
-  • Requires careful configuration
-  • May block critical services if misconfigured
-
-Choose your initial mode:" 18 70; then
-            MODE="learning"
-            echo "✓ Selected: Learning Mode (safe)"
-        else
-            MODE="enforcement"
-            echo "✓ Selected: Enforcement Mode (blocking enabled)"
-        fi
-
-        # Ask about autostart
-        if whiptail --title "Bastion Firewall Setup" --yes-button "Enable Autostart" --no-button "Manual Start" --yesno \
-"Start Bastion Firewall automatically at login?
-
-ENABLE AUTOSTART (Recommended):
-  • Firewall starts when you log in
-  • Always protected
-
-MANUAL START:
-  • Start from application menu when needed
-  • You control when it runs" 14 70; then
-            AUTOSTART=true
-            echo "✓ Autostart: Enabled"
-        else
-            AUTOSTART=false
-            echo "✓ Autostart: Disabled"
-        fi
-
-        # Ask about starting now
-        if whiptail --title "Bastion Firewall Setup" --yes-button "Start Now" --no-button "Start Later" --yesno \
-"Start Bastion Firewall now?
-
-This will launch the firewall GUI client immediately." 10 70; then
-            START_NOW=true
-            echo "✓ Will start firewall after installation"
-        else
-            START_NOW=false
-            echo "✓ Will not start firewall now"
-        fi
+        echo '{"log_level": "INFO", "rules_file": "/etc/bastion/rules.json"}' > /etc/bastion/config.json
     fi
-
-    # Create config file
-    cat > /etc/bastion/config.json << EOF
-{
-  "mode": "$MODE",
-  "cache_decisions": true,
-  "default_action": "deny",
-  "timeout_seconds": 30,
-  "allow_localhost": true,
-  "allow_lan": false,
-  "log_decisions": true,
-  "filtering": {
-    "monitor_protocols": ["tcp", "udp"],
-    "ignore_local": true,
-    "ignore_localhost": true
-  },
-  "ufw": {
-    "default_outbound_policy": "allow",
-    "enable_logging": true
-  }
-}
-EOF
-    echo "✓ Created configuration file"
-
-    # Setup autostart if requested
-    if [ "$AUTOSTART" = true ]; then
-        # Create autostart directory for all users
-        mkdir -p /etc/xdg/autostart
-        cat > /etc/xdg/autostart/bastion-tray.desktop << 'EOF'
-[Desktop Entry]
-Type=Application
-Name=Bastion Firewall Tray Icon
-Comment=Start Bastion Firewall Tray Icon
-Exec=/usr/local/bin/bastion-gui
-Icon=security-high
-Terminal=false
-Categories=System;Security;
-X-GNOME-Autostart-enabled=true
-Hidden=false
-NoDisplay=false
-EOF
-        chmod 644 /etc/xdg/autostart/bastion-tray.desktop
-        echo "✓ Autostart enabled"
-    fi
-
-else
-    echo "✓ Existing configuration preserved"
-    # Upgrade scenario
-    if [ "$1" = "configure" ] && [ -n "$2" ]; then
-        # This is an upgrade
-        echo "Restarting Bastion Firewall service..."
-        systemctl restart bastion-firewall || true
-
-        # Try to restart GUI for the active user
-        REAL_USER="${SUDO_USER:-$USER}"
-        if [ "$REAL_USER" != "root" ] && [ -n "$REAL_USER" ]; then
-            echo "Restarting GUI for $REAL_USER..."
-
-            # Create a temporary script to start the GUI
-            # This works around sudo environment issues
-            TMP_SCRIPT="/tmp/bastion-start-$$.sh"
-            cat > "$TMP_SCRIPT" << 'EOFSCRIPT'
-#!/bin/bash
-# Find DISPLAY
-export DISPLAY=$(who | grep "$USER" | grep -oP ':\d+' | head -1)
-[ -z "$DISPLAY" ] && export DISPLAY=":0"
-# Start GUI
-nohup /usr/local/bin/bastion-gui >/dev/null 2>&1 &
-EOFSCRIPT
-            chmod +x "$TMP_SCRIPT"
-
-            # Run as user
-            su - "$REAL_USER" -c "$TMP_SCRIPT" >/dev/null 2>&1 || true
-            rm -f "$TMP_SCRIPT"
-            sleep 1
-
-            # Check if it started
-            if pgrep -u "$REAL_USER" -f bastion-gui >/dev/null 2>&1; then
-                echo "✓ GUI restarted"
-            else
-                echo "⚠ GUI will start at next login (autostart enabled)"
-            fi
-        fi
-    fi
-    AUTOSTART=false
-    START_NOW=false
+    chmod 644 /etc/bastion/config.json
 fi
 
-# Create log directory
-mkdir -p /var/log
-touch /var/log/bastion-daemon.log
-chmod 644 /var/log/bastion-daemon.log
+# Set up rules file
+if [ ! -f /etc/bastion/rules.json ]; then
+    echo '{"applications": {}, "services": {}}' > /etc/bastion/rules.json
+    chmod 644 /etc/bastion/rules.json
+fi
+
+# Set permissions for logs
+mkdir -p /var/log/bastion
+chown -R bastion:bastion /var/log/bastion
+chmod 750 /var/log/bastion
 
 # Reload systemd
-systemctl daemon-reload 2>/dev/null || true
-
-echo ""
-echo "============================================================"
-echo "✓ Bastion Firewall Installed"
-echo "============================================================"
-echo ""
-
-if [ "$START_NOW" = true ]; then
-    # Get the user who invoked sudo (if any)
-    REAL_USER="${SUDO_USER:-$USER}"
-    if [ "$REAL_USER" != "root" ] && [ -n "$REAL_USER" ]; then
-        echo "Starting Bastion Firewall for user $REAL_USER..."
-
-        # Create a temporary script to start the GUI
-        TMP_SCRIPT="/tmp/bastion-start-$$.sh"
-        cat > "$TMP_SCRIPT" << 'EOFSCRIPT'
-#!/bin/bash
-# Find DISPLAY
-export DISPLAY=$(who | grep "$USER" | grep -oP ':\d+' | head -1)
-[ -z "$DISPLAY" ] && export DISPLAY=":0"
-# Start GUI
-nohup /usr/local/bin/bastion-gui >/dev/null 2>&1 &
-EOFSCRIPT
-        chmod +x "$TMP_SCRIPT"
-
-        # Run as user
-        su - "$REAL_USER" -c "$TMP_SCRIPT" >/dev/null 2>&1 || true
-        rm -f "$TMP_SCRIPT"
-        sleep 1
-
-        # Check if it started
-        if pgrep -u "$REAL_USER" -f bastion-gui >/dev/null 2>&1; then
-            echo "✓ Firewall started"
-        else
-            echo "⚠ Start manually: /usr/local/bin/bastion-gui"
-        fi
-    else
-        echo "⚠ Cannot auto-start (no user session detected)"
-        echo "  Please start manually from the application menu"
-    fi
-else
-    echo "To start manually:"
-    echo "  /usr/local/bin/bastion-gui"
-    echo ""
-    echo "Or from the application menu:"
-    echo "  Search for 'Bastion Firewall'"
+systemctl daemon-reload
+if systemctl is-enabled bastion-firewall >/dev/null 2>&1; then
+    systemctl enable bastion-firewall
 fi
 
-echo ""
-echo "Documentation: /usr/share/doc/bastion-firewall/"
-exit 0
+# Update desktop database
+update-desktop-database || true
 
+# Autostart helpers
+if [ -d /home ]; then
+    for user_dir in /home/*; do
+        if [ -d "$user_dir/.config/autostart" ]; then
+            chown -R $(basename "$user_dir"):$(basename "$user_dir") "$user_dir/.config/autostart" 2>/dev/null || true
+        fi
+    done
+fi

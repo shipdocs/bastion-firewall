@@ -88,7 +88,7 @@ iptables -L OUTPUT -n -v --line-numbers | head -12
 echo ""
 print_warning "IMPORTANT: Make sure Douane daemon is running!"
 print_info "The NFQUEUE rule should be at position 1 in OUTPUT chain"
-print_info "If not, start Douane: /usr/local/bin/bastion-gui"
+print_info "If not, start Douane: /usr/bin/bastion-gui"
 
 echo ""
 print_info "Setup complete!"

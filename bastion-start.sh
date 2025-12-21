@@ -37,7 +37,7 @@ echo "Starting Douane Firewall GUI..."
 echo "(This will ask for your sudo password)"
 echo ""
 
-python3 /usr/local/bin/bastion-gui &
+python3 /usr/bin/bastion-gui &
 GUI_PID=$!
 
 sleep 3
