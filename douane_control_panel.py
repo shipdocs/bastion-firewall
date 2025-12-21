@@ -10,6 +10,7 @@ import subprocess
 import os
 import time
 from pathlib import Path
+from douane.inbound_firewall import InboundFirewallDetector
 
 
 class DouaneControlPanel:
@@ -18,7 +19,8 @@ class DouaneControlPanel:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Douane Firewall Control Panel")
-        self.root.geometry("800x600")
+        self.root.geometry("1000x750")
+        self.root.minsize(900, 650)
         self.root.resizable(True, True)
         
         # Load config and rules
@@ -82,36 +84,49 @@ class DouaneControlPanel:
         """Create the user interface"""
         # Create notebook (tabs)
         notebook = ttk.Notebook(self.root)
-        notebook.pack(fill='both', expand=True, padx=10, pady=10)
-        
+        notebook.pack(fill='both', expand=True, padx=10, pady=(10, 0))
+
         # Tab 1: Overview
         overview_frame = ttk.Frame(notebook)
         notebook.add(overview_frame, text='Overview')
         self.create_overview_tab(overview_frame)
-        
+
         # Tab 2: Settings
         settings_frame = ttk.Frame(notebook)
         notebook.add(settings_frame, text='Settings')
         self.create_settings_tab(settings_frame)
-        
+
         # Tab 3: Rules
         rules_frame = ttk.Frame(notebook)
         notebook.add(rules_frame, text='Rules')
         self.create_rules_tab(rules_frame)
-        
+
         # Tab 4: Logs
         logs_frame = ttk.Frame(notebook)
         notebook.add(logs_frame, text='Logs')
         self.create_logs_tab(logs_frame)
-        
-        # Bottom buttons
-        button_frame = ttk.Frame(self.root)
-        button_frame.pack(fill='x', padx=10, pady=10)
-        
-        ttk.Button(button_frame, text="Start Firewall", command=self.start_firewall).pack(side='left', padx=5)
-        ttk.Button(button_frame, text="Stop Firewall", command=self.stop_firewall).pack(side='left', padx=5)
-        ttk.Button(button_frame, text="Restart Firewall", command=self.restart_firewall).pack(side='left', padx=5)
-        ttk.Button(button_frame, text="Close", command=self.root.quit).pack(side='right', padx=5)
+
+        # Tab 5: Inbound Protection
+        inbound_frame = ttk.Frame(notebook)
+        notebook.add(inbound_frame, text='Inbound Protection')
+        self.create_inbound_tab(inbound_frame)
+
+        # Bottom buttons - ALWAYS VISIBLE with proper height
+        button_frame = ttk.Frame(self.root, relief='raised', borderwidth=1)
+        button_frame.pack(fill='x', side='bottom', padx=10, pady=10)
+
+        # Configure button style with larger padding for better visibility
+        style = ttk.Style()
+        style.configure('Control.TButton', padding=(10, 10), font=('Ubuntu', 11))
+
+        ttk.Button(button_frame, text="🚀 Start Firewall", command=self.start_firewall,
+                  width=18, style='Control.TButton').pack(side='left', padx=5, pady=5)
+        ttk.Button(button_frame, text="⏹️ Stop Firewall", command=self.stop_firewall,
+                  width=18, style='Control.TButton').pack(side='left', padx=5, pady=5)
+        ttk.Button(button_frame, text="🔄 Restart Firewall", command=self.restart_firewall,
+                  width=18, style='Control.TButton').pack(side='left', padx=5, pady=5)
+        ttk.Button(button_frame, text="❌ Close", command=self.root.quit,
+                  width=12, style='Control.TButton').pack(side='right', padx=5, pady=5)
     
     def create_overview_tab(self, parent):
         """Create overview tab"""
@@ -209,6 +224,164 @@ class DouaneControlPanel:
 
         ttk.Button(button_frame, text="Refresh Logs", command=self.update_logs).pack(side='left', padx=5)
         ttk.Button(button_frame, text="Clear Logs", command=self.clear_logs).pack(side='left', padx=5)
+
+    def create_inbound_tab(self, parent):
+        """Create inbound firewall protection tab"""
+        # Info frame
+        info_frame = ttk.LabelFrame(parent, text="Firewall Protection Status", padding=10)
+        info_frame.pack(fill='x', padx=10, pady=10)
+
+        # Explanation
+        explanation = tk.Label(info_frame, text=(
+            "Douane protects OUTBOUND connections (applications trying to connect to the internet).\n"
+            "For complete protection, you also need INBOUND firewall rules to block unsolicited incoming connections.\n\n"
+            "This tab helps you set up inbound protection using UFW (Uncomplicated Firewall)."
+        ), justify='left', wraplength=700)
+        explanation.pack(anchor='w', pady=5)
+
+        # Status frame
+        status_frame = ttk.LabelFrame(parent, text="Current Protection Status", padding=10)
+        status_frame.pack(fill='x', padx=10, pady=10)
+
+        # Outbound status
+        outbound_frame = ttk.Frame(status_frame)
+        outbound_frame.pack(fill='x', pady=5)
+        ttk.Label(outbound_frame, text="Outbound Protection:", font=('TkDefaultFont', 10, 'bold')).pack(side='left')
+        self.outbound_status_label = ttk.Label(outbound_frame, text="✅ Active (Douane)", foreground='green')
+        self.outbound_status_label.pack(side='left', padx=10)
+
+        # Inbound status
+        inbound_frame = ttk.Frame(status_frame)
+        inbound_frame.pack(fill='x', pady=5)
+        ttk.Label(inbound_frame, text="Inbound Protection:", font=('TkDefaultFont', 10, 'bold')).pack(side='left')
+        self.inbound_status_label = ttk.Label(inbound_frame, text="Checking...", foreground='gray')
+        self.inbound_status_label.pack(side='left', padx=10)
+
+        # Recommendation frame
+        self.recommendation_frame = ttk.LabelFrame(parent, text="Recommendation", padding=10)
+        self.recommendation_frame.pack(fill='both', expand=True, padx=10, pady=10)
+
+        self.recommendation_text = scrolledtext.ScrolledText(
+            self.recommendation_frame, height=10, wrap=tk.WORD, font=('TkDefaultFont', 9)
+        )
+        self.recommendation_text.pack(fill='both', expand=True, pady=5)
+
+        # Action buttons
+        button_frame = ttk.Frame(self.recommendation_frame)
+        button_frame.pack(fill='x', pady=5)
+
+        self.setup_ufw_button = ttk.Button(
+            button_frame, text="Install & Configure UFW",
+            command=self.setup_inbound_protection, state='disabled'
+        )
+        self.setup_ufw_button.pack(side='left', padx=5)
+
+        ttk.Button(button_frame, text="Refresh Status", command=self.check_inbound_protection).pack(side='left', padx=5)
+
+        # Initial check
+        self.check_inbound_protection()
+
+    def check_inbound_protection(self):
+        """Check inbound firewall status"""
+        try:
+            result = InboundFirewallDetector.detect_firewall()
+
+            if result['has_protection']:
+                # Has protection
+                firewall_name = result['firewall'].upper() if result['firewall'] else 'Unknown'
+                self.inbound_status_label.config(
+                    text=f"✅ Active ({firewall_name})",
+                    foreground='green'
+                )
+                self.recommendation_text.delete('1.0', tk.END)
+                self.recommendation_text.insert('1.0',
+                    f"✅ Your system is protected!\n\n"
+                    f"Inbound firewall: {firewall_name}\n"
+                    f"Status: {result['status']}\n\n"
+                    f"You have complete firewall protection:\n"
+                    f"• Outbound: Douane (application-level control)\n"
+                    f"• Inbound: {firewall_name} (blocks unsolicited connections)\n\n"
+                    f"No action needed."
+                )
+                self.setup_ufw_button.config(state='disabled')
+            else:
+                # No protection
+                self.inbound_status_label.config(
+                    text="⚠️ Not Detected",
+                    foreground='orange'
+                )
+                self.recommendation_text.delete('1.0', tk.END)
+
+                if result['firewall'] == 'ufw' and result['status'] == 'inactive':
+                    # UFW installed but not active
+                    self.recommendation_text.insert('1.0',
+                        "⚠️ UFW is installed but not active\n\n"
+                        "Click 'Install & Configure UFW' to enable it with safe defaults:\n\n"
+                        "• Deny all NEW inbound connections (blocks port scans, attacks)\n"
+                        "• Allow ESTABLISHED/RELATED (responses to your outbound requests)\n"
+                        "• Allow all outbound (Douane controls this)\n\n"
+                        "This is the recommended server configuration and safe for desktops."
+                    )
+                    self.setup_ufw_button.config(state='normal', text="Enable UFW")
+                else:
+                    # No firewall at all
+                    self.recommendation_text.insert('1.0',
+                        "⚠️ No inbound firewall detected\n\n"
+                        "Your system is vulnerable to:\n"
+                        "• Port scans\n"
+                        "• Unsolicited inbound connections\n"
+                        "• Network attacks\n\n"
+                        "Click 'Install & Configure UFW' to set up protection with safe defaults:\n\n"
+                        "• Deny all NEW inbound connections\n"
+                        "• Allow ESTABLISHED/RELATED (responses to your requests)\n"
+                        "• Allow all outbound (Douane controls this)\n\n"
+                        "This is the standard server configuration and safe for desktops."
+                    )
+                    self.setup_ufw_button.config(state='normal', text="Install & Configure UFW")
+
+        except Exception as e:
+            self.inbound_status_label.config(text=f"❌ Error: {e}", foreground='red')
+            self.recommendation_text.delete('1.0', tk.END)
+            self.recommendation_text.insert('1.0', f"Error checking firewall status:\n{e}")
+
+    def setup_inbound_protection(self):
+        """Install and configure UFW"""
+        if not messagebox.askyesno(
+            "Confirm UFW Setup",
+            "This will install and configure UFW with the following rules:\n\n"
+            "• Deny all NEW inbound connections\n"
+            "• Allow ESTABLISHED/RELATED connections\n"
+            "• Allow all outbound connections\n\n"
+            "This is safe and recommended. Continue?"
+        ):
+            return
+
+        # Show progress
+        self.recommendation_text.delete('1.0', tk.END)
+        self.recommendation_text.insert('1.0', "Setting up UFW...\nThis may take a minute...\n")
+        self.setup_ufw_button.config(state='disabled')
+        self.root.update()
+
+        try:
+            success, message = InboundFirewallDetector.setup_inbound_protection()
+
+            self.recommendation_text.delete('1.0', tk.END)
+            if success:
+                self.recommendation_text.insert('1.0', f"✅ {message}")
+                messagebox.showinfo("Success", message)
+                # Refresh status
+                self.check_inbound_protection()
+            else:
+                self.recommendation_text.insert('1.0', f"❌ {message}")
+                messagebox.showerror("Error", message)
+                self.setup_ufw_button.config(state='normal')
+
+        except Exception as e:
+            error_msg = f"Failed to setup UFW: {e}"
+            self.recommendation_text.delete('1.0', tk.END)
+            self.recommendation_text.insert('1.0', f"❌ {error_msg}")
+            messagebox.showerror("Error", error_msg)
+            self.setup_ufw_button.config(state='normal')
 
     def start_polling(self):
         """Start status polling loop"""
