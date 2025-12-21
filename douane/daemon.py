@@ -59,43 +59,47 @@ class DouaneDaemon:
             logger.error("Failed to setup iptables")
             return
 
-        # Start Packet Processor
+        # Start Packet Processor IMMEDIATELY
+        # Don't wait for GUI - use intelligent fallback for system services
         self.packet_processor = PacketProcessor(self._handle_packet)
         self.running = True
-        
-        # Start processor in a separate thread so we can accept GUI connections
-        # Actually, in the original code, it waited for GUI connection first.
-        # Let's keep that behavior for now, or make it async.
-        # Original: Wait for GUI to connect, THEN start processor.
-        
-        logger.info("Waiting for GUI to connect...")
-        try:
-            self.server_socket.settimeout(1.0) # Check signals/running flag periodically
-            while self.running and not self.gui_socket:
-                try:
-                    self.gui_socket, addr = self.server_socket.accept()
-                    logger.info(f"GUI connected from {addr}")
-                except socket.timeout:
-                    continue
-        except Exception as e:
-            logger.error(f"Error accepting GUI connection: {e}")
-            self.stop()
-            return
-        
-        if not self.running:
-             self.stop()
-             return
 
-        # Start processor
-        processor_thread = threading.Thread(target=self._run_processor)
+        # Start processor in background thread
+        processor_thread = threading.Thread(target=self._run_processor, daemon=True)
         processor_thread.start()
-        
+        logger.info("Packet processor started")
+
+        # Start GUI connection acceptor in background thread
+        gui_thread = threading.Thread(target=self._accept_gui_connections, daemon=True)
+        gui_thread.start()
+        logger.info("Waiting for GUI to connect...")
+
         # Watchdog loop
         self._run_watchdog()
-        
-        # Cleanup
-        processor_thread.join(timeout=1.0)
+
+        # Cleanup - threads are daemon threads, they'll stop automatically
         self.stop()
+
+    def _accept_gui_connections(self):
+        """Accept GUI connections in background"""
+        try:
+            self.server_socket.settimeout(1.0)
+            while self.running:
+                try:
+                    if not self.gui_socket:  # Only accept if not already connected
+                        gui_socket, addr = self.server_socket.accept()
+                        logger.info(f"GUI connected from {addr}")
+                        self.gui_socket = gui_socket
+                    else:
+                        time.sleep(1)  # Already connected, just wait
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    if self.running:  # Only log if not shutting down
+                        logger.error(f"Error accepting GUI connection: {e}")
+                    break
+        except Exception as e:
+            logger.error(f"GUI acceptor thread error: {e}")
 
     def _run_processor(self):
         """Run the packet processor"""
@@ -180,16 +184,21 @@ class DouaneDaemon:
     def _handle_packet(self, pkt_info: PacketInfo) -> bool:
         """Handle a packet decision"""
         self.stats['total_connections'] += 1
-        
+
         # Always use current config
         learning_mode = self.config.get('mode') == 'learning'
-        
-        # APP INFO
-        app_path = pkt_info.app_path or "unknown"
-        app_name = pkt_info.app_name or "Unknown Application"
-        
-        # CACHE CHECK
-        cached_decision = self.rule_manager.get_decision(app_path, pkt_info.dest_port)
+
+        # APP INFO - Keep as None if not identified (security fix v2.0.18)
+        # This prevents "Unknown Application" string from bypassing whitelist checks
+        app_path = pkt_info.app_path  # Can be None
+        app_name = pkt_info.app_name  # Can be None
+
+        # For display purposes only
+        display_name = app_name or "Unknown Application"
+        display_path = app_path or "unknown"
+
+        # CACHE CHECK - use actual path (can be None)
+        cached_decision = self.rule_manager.get_decision(display_path, pkt_info.dest_port)
         if cached_decision is not None:
             # If we have a decision (Allow or Deny), we obey it.
             # In learning mode, we obey Allow, but what about Deny?
@@ -209,42 +218,55 @@ class DouaneDaemon:
             return cached_decision
 
         # RATE LIMITING / PENDING
-        cache_key = f"{app_path}:{pkt_info.dest_port}"
+        cache_key = f"{display_path}:{pkt_info.dest_port}"
         now = time.time()
-        
+
         with self.request_lock:
             if cache_key in self.pending_requests:
                 return True # Auto-allow if already asking to prevent blocking
-            
+
             if cache_key in self.last_request_time:
                 if now - self.last_request_time[cache_key] < 5.0:
                     self.stats['allowed_connections'] += 1 # Auto-allow is technically an allow
                     return True # Auto-allow recent
-                    
-        # WL CHECK
+
+        # WL CHECK - Pass actual values (can be None) for security validation
         auto_allow, reason = should_auto_allow(app_name, app_path, pkt_info.dest_port, pkt_info.dest_ip)
         if auto_allow:
-            logger.info(f"Auto-allowing {app_name} ({reason})")
+            logger.info(f"Auto-allowing {display_name} ({reason})")
             self.stats['allowed_connections'] += 1
             return True
 
         # In learning mode, if we don't know the app, we log/notify but ALLOW.
         # But we still want to show the popup so the user can "Learn" (create a rule).
         # So we proceed to _ask_gui.
-        
-        # ASK GUI
-        return self._ask_gui(pkt_info, app_name, app_path, cache_key, learning_mode)
+
+        # ASK GUI - Pass display values for UI
+        return self._ask_gui(pkt_info, display_name, display_path, cache_key, learning_mode)
 
     def _ask_gui(self, pkt_info, app_name, app_path, cache_key, learning_mode) -> bool:
         """Communicate with GUI"""
         if not self.gui_socket:
-            logger.warning("No GUI connected, using default action")
-            allowed = True if learning_mode else False
-            if allowed:
-                self.stats['allowed_connections'] += 1
-            else:
+            logger.warning(f"No GUI connected for {app_name or 'unknown'} -> {pkt_info.dest_ip}:{pkt_info.dest_port}")
+
+            # SMART FALLBACK: In enforcement mode without GUI, allow essential system services
+            # This prevents breaking the system when GUI is not running
+            if not learning_mode:
+                # Check if this is a critical system service that should always work
+                from douane.service_whitelist import is_critical_system_service
+                if is_critical_system_service(app_name, app_path, pkt_info.dest_port):
+                    logger.info(f"Auto-allowing critical system service without GUI: {app_name}")
+                    self.stats['allowed_connections'] += 1
+                    return True
+
+                # Not a critical service and no GUI - block it
+                logger.warning(f"Blocking non-critical service without GUI: {app_name or 'unknown'}")
                 self.stats['blocked_connections'] += 1
-            return allowed
+                return False
+
+            # Learning mode - allow everything
+            self.stats['allowed_connections'] += 1
+            return True
 
         app_category = get_app_category(app_name, app_path)
         request = {

@@ -227,12 +227,9 @@ class ImprovedFirewallDialog:
         conn_frame = ttk.LabelFrame(main_frame, text="Connection Details", padding="10")
         conn_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
 
-        # Try reverse DNS lookup
-        hostname = reverse_dns_lookup(self.conn_info.dest_ip)
-        if hostname and hostname != self.conn_info.dest_ip:
-            dest_text = f"{hostname} ({self.conn_info.dest_ip})"
-        else:
-            dest_text = self.conn_info.dest_ip
+        # Skip reverse DNS lookup - it causes 10 second delays
+        # Just show the IP address directly for instant popup
+        dest_text = self.conn_info.dest_ip
 
         ttk.Label(conn_frame, text="Destination:", style='Header.TLabel').grid(row=0, column=0, sticky=tk.W, pady=2)
         dest_label = ttk.Label(conn_frame, text=dest_text, style='Info.TLabel', foreground='#2980b9', wraplength=500)
