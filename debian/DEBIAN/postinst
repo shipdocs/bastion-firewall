@@ -147,19 +147,29 @@ else
         if [ "$REAL_USER" != "root" ] && [ -n "$REAL_USER" ]; then
             echo "Restarting GUI for $REAL_USER..."
 
-            # Get the user's UID and GID
-            USER_UID=$(id -u "$REAL_USER" 2>/dev/null || echo "")
-            USER_GID=$(id -g "$REAL_USER" 2>/dev/null || echo "")
+            # Create a temporary script to start the GUI
+            # This works around sudo environment issues
+            TMP_SCRIPT="/tmp/bastion-start-$$.sh"
+            cat > "$TMP_SCRIPT" << 'EOFSCRIPT'
+#!/bin/bash
+# Find DISPLAY
+export DISPLAY=$(who | grep "$USER" | grep -oP ':\d+' | head -1)
+[ -z "$DISPLAY" ] && export DISPLAY=":0"
+# Start GUI
+nohup /usr/local/bin/bastion-gui >/dev/null 2>&1 &
+EOFSCRIPT
+            chmod +x "$TMP_SCRIPT"
 
-            if [ -n "$USER_UID" ] && [ -n "$USER_GID" ]; then
-                # Find the user's DISPLAY
-                USER_DISPLAY=$(ps aux | grep -E "Xorg|X11" | grep "$REAL_USER" | grep -oP ':\d+' | head -1 || echo ":0")
+            # Run as user
+            su - "$REAL_USER" -c "$TMP_SCRIPT" >/dev/null 2>&1 || true
+            rm -f "$TMP_SCRIPT"
+            sleep 1
 
-                # Start GUI as the user with proper environment
-                sudo -u "$REAL_USER" DISPLAY="$USER_DISPLAY" /usr/local/bin/bastion-gui >/dev/null 2>&1 &
+            # Check if it started
+            if pgrep -u "$REAL_USER" -f bastion-gui >/dev/null 2>&1; then
                 echo "✓ GUI restarted"
             else
-                echo "⚠ Could not determine user session"
+                echo "⚠ GUI will start at next login (autostart enabled)"
             fi
         fi
     fi
@@ -187,12 +197,29 @@ if [ "$START_NOW" = true ]; then
     if [ "$REAL_USER" != "root" ] && [ -n "$REAL_USER" ]; then
         echo "Starting Bastion Firewall for user $REAL_USER..."
 
-        # Find the user's DISPLAY
-        USER_DISPLAY=$(ps aux | grep -E "Xorg|X11" | grep "$REAL_USER" | grep -oP ':\d+' | head -1 || echo ":0")
+        # Create a temporary script to start the GUI
+        TMP_SCRIPT="/tmp/bastion-start-$$.sh"
+        cat > "$TMP_SCRIPT" << 'EOFSCRIPT'
+#!/bin/bash
+# Find DISPLAY
+export DISPLAY=$(who | grep "$USER" | grep -oP ':\d+' | head -1)
+[ -z "$DISPLAY" ] && export DISPLAY=":0"
+# Start GUI
+nohup /usr/local/bin/bastion-gui >/dev/null 2>&1 &
+EOFSCRIPT
+        chmod +x "$TMP_SCRIPT"
 
-        # Start GUI as the user with proper environment
-        sudo -u "$REAL_USER" DISPLAY="$USER_DISPLAY" /usr/local/bin/bastion-gui >/dev/null 2>&1 &
-        echo "✓ Firewall started"
+        # Run as user
+        su - "$REAL_USER" -c "$TMP_SCRIPT" >/dev/null 2>&1 || true
+        rm -f "$TMP_SCRIPT"
+        sleep 1
+
+        # Check if it started
+        if pgrep -u "$REAL_USER" -f bastion-gui >/dev/null 2>&1; then
+            echo "✓ Firewall started"
+        else
+            echo "⚠ Start manually: /usr/local/bin/bastion-gui"
+        fi
     else
         echo "⚠ Cannot auto-start (no user session detected)"
         echo "  Please start manually from the application menu"
