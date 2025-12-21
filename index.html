@@ -5,8 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description"
-        content="Douane Application Firewall for Linux - Production-ready outbound firewall for Linux. Take control of your network connections.">
-    <title>Douane Application Firewall for Linux - Take Control of Your Outbound Connections</title>
+        content="🏰 Bastion Firewall - Your Last Line of Defense. Production-ready outbound firewall for Zorin OS 18 and Linux.">
+    <title>🏰 Bastion Firewall - Your Last Line of Defense</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,14 +19,14 @@
     <nav class="navbar">
         <div class="container">
             <div class="nav-brand">
-                <span class="shield-icon">🛡️</span>
-                <span class="brand-name">Douane Application Firewall for Linux</span>
+                <span class="shield-icon">🏰</span>
+                <span class="brand-name">Bastion Firewall</span>
             </div>
             <div class="nav-links">
                 <a href="#features">Features</a>
                 <a href="#installation">Installation</a>
                 <a href="#docs">Documentation</a>
-                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux" target="_blank"
+                <a href="https://github.com/shipdocs/bastion-firewall" target="_blank"
                     class="github-link">
                     <svg height="24" width="24" viewBox="0 0 16 16" fill="currentColor">
                         <path
@@ -44,27 +44,27 @@
         <div class="container">
             <div class="hero-content">
                 <h1 class="hero-title">
-                    <span class="gradient-text">Take Control</span> of Your Outbound Connections
+                    🏰 <span class="gradient-text">Your Last Line of Defense</span>
                 </h1>
                 <p class="hero-subtitle">
-                    Production-ready application firewall that gives Linux users the same outbound connection control
+                    Production-ready application firewall built for Zorin OS 18. Like a medieval bastion protecting a fortress, Bastion stands guard over your network connections
                     they had on Windows.
                 </p>
                 <div class="hero-updates">
-                    <span class="update-badge">🐛 v2.0.18: Critical Bug Fixes - Internet Connectivity & Popup Performance</span>
-                    <span class="update-badge">🔒 Major Security Hardening - Localhost Bypass Fixed</span>
-                    <span class="update-badge">🛡️ NEW: Inbound Protection - UFW Integration</span>
-                    <span class="update-badge">📊 Security Score: 7.5/10 → 2/10 (LOW RISK)</span>
+                    <span class="update-badge">🏰 v1.0.0: Initial Bastion Release - Professional Rebranding</span>
+                    <span class="update-badge">🎯 Built for Zorin OS 18 - Debian-based Distributions</span>
+                    <span class="update-badge">🔒 Security Hardened - 5-Phase Implementation</span>
+                    <span class="update-badge">📊 Security Score: 2/10 (LOW RISK)</span>
                 </div>
                 <div class="hero-buttons">
                     <a href="#installation" class="btn btn-primary">Get Started</a>
-                    <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux"
+                    <a href="https://github.com/shipdocs/bastion-firewall"
                         class="btn btn-secondary" target="_blank">View on GitHub</a>
                 </div>
                 <div class="hero-badges" style="margin-top: 20px; display: flex; gap: 10px; justify-content: center;">
+                    <img src="https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue" alt="Zorin OS 18">
                     <img src="https://img.shields.io/badge/Debian%2FUbuntu-Supported-green" alt="Debian Supported">
-                    <img src="https://img.shields.io/badge/Fedora%2FRHEL-Supported-blue" alt="Fedora Supported">
-                    <img src="https://img.shields.io/badge/Generic%20Linux-Works-orange" alt="Generic Linux Works">
+                    <img src="https://img.shields.io/badge/Version-1.0.0-brightgreen" alt="Version 1.0.0">
                 </div>
                 <div class="hero-stats">
                     <div class="stat">
@@ -95,7 +95,7 @@
                 </div>
                 <div class="solution-card">
                     <h3>✅ The Solution</h3>
-                    <p>Douane intercepts <strong>every outbound connection</strong> and shows you a GUI popup. You
+                    <p>Bastion intercepts <strong>every outbound connection</strong> and shows you a GUI popup. You
                         decide which applications can access the network - Allow or Deny, Once or Always.</p>
                 </div>
             </div>
@@ -136,7 +136,7 @@
                 <div class="feature-card">
                     <div class="feature-icon">🛡️</div>
                     <h3>Decoupled Architecture</h3>
-                    <p>Internal rule engine prevents conflicts with system firewall; UFW handles inbound, Douane handles
+                    <p>Internal rule engine prevents conflicts with system firewall; UFW handles inbound, Bastion handles
                         outbound.</p>
                 </div>
                 <div class="feature-card">
@@ -233,37 +233,35 @@
                     <div class="install-badge">Recommended</div>
                     <h3>📦 Install from .deb Package</h3>
                     <div class="code-block">
+                        <pre><code># Download from GitHub Releases
+wget https://github.com/shipdocs/bastion-firewall/releases/download/v1.0.0/bastion-firewall_1.0.0_all.deb
+
+# Install
+sudo dpkg -i bastion-firewall_1.0.0_all.deb
+
+# Fix dependencies if needed
+sudo apt-get install -f</code></pre>
+                    </div>
+                    <p style="margin-top: 15px; text-align: center;">
+                        <a href="https://github.com/shipdocs/bastion-firewall/releases/latest"
+                           class="btn btn-primary" target="_blank">Download Latest Release</a>
+                    </p>
+                </div>
+                <div class="install-card">
+                    <h3>🔧 Build from Source</h3>
+                    <div class="code-block">
                         <pre><code># Clone the repository
-git clone https://github.com/shipdocs/Douane-Application-firewall-for-Linux.git
-cd Douane-Application-firewall-for-Linux
+git clone https://github.com/shipdocs/bastion-firewall.git
+cd bastion-firewall
 
 # Build the package
 ./build_deb.sh
 
 # Install
-sudo dpkg -i douane-firewall_2.0.0_all.deb
+sudo dpkg -i bastion-firewall_1.0.0_all.deb
 
 # Fix dependencies if needed
 sudo apt-get install -f</code></pre>
-                    </div>
-                </div>
-                <div class="install-card">
-                    <h3>🔧 Manual Installation</h3>
-                    <div class="code-block">
-                        <pre><code># Install system dependencies
-sudo apt-get update
-sudo apt-get install -y python3 python3-pip \
-    python3-tk build-essential \
-    libnetfilter-queue-dev iptables ufw
-
-# Install Python dependencies
-pip3 install -r requirements.txt
-
-# Configure UFW
-sudo ./setup_firewall.sh
-
-# Run the firewall
-sudo python3 douane_firewall.py</code></pre>
                     </div>
                 </div>
             </div>
@@ -271,7 +269,7 @@ sudo python3 douane_firewall.py</code></pre>
                 <h3>System Requirements</h3>
                 <div class="req-grid">
                     <div class="req-item">
-                        <strong>OS:</strong> Linux with kernel 3.0+
+                        <strong>OS:</strong> Zorin OS 18 (or any Debian-based distribution)
                     </div>
                     <div class="req-item">
                         <strong>Python:</strong> 3.6 or higher
@@ -295,8 +293,7 @@ sudo python3 douane_firewall.py</code></pre>
                 <div class="usage-step">
                     <div class="step-icon">1️⃣</div>
                     <h3>Start the Firewall</h3>
-                    <p>Search for "Douane Firewall" in your application menu and click to launch. Enter your password
-                        when prompted.</p>
+                    <p>Search for "Bastion Firewall" in your application menu and click to launch. The tray icon will appear automatically.</p>
                 </div>
                 <div class="usage-step">
                     <div class="step-icon">2️⃣</div>
@@ -330,31 +327,31 @@ sudo python3 douane_firewall.py</code></pre>
                     <h3>README</h3>
                     <p>Complete overview and getting started guide</p>
                 </a>
-                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/PRODUCTION_GUIDE.md"
+                <a href="https://github.com/shipdocs/bastion-firewall/blob/master/README.md"
                     class="doc-card" target="_blank">
-                    <div class="doc-icon">🚀</div>
-                    <h3>Production Guide</h3>
-                    <p>Complete production deployment guide</p>
+                    <div class="doc-icon">📖</div>
+                    <h3>README</h3>
+                    <p>Getting started guide</p>
                 </a>
-                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/IMPLEMENTATION.md"
+                <a href="https://github.com/shipdocs/bastion-firewall/blob/master/ARCHITECTURE.md"
                     class="doc-card" target="_blank">
                     <div class="doc-icon">🔧</div>
-                    <h3>Implementation</h3>
-                    <p>Technical implementation details</p>
+                    <h3>Architecture</h3>
+                    <p>Technical architecture details</p>
                 </a>
-                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/FAQ.md"
+                <a href="https://github.com/shipdocs/bastion-firewall/blob/master/FAQ.md"
                     class="doc-card" target="_blank">
                     <div class="doc-icon">❓</div>
                     <h3>FAQ</h3>
                     <p>Frequently asked questions</p>
                 </a>
-                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/INSTALLATION.md"
+                <a href="https://github.com/shipdocs/bastion-firewall/blob/master/ROADMAP.md"
                     class="doc-card" target="_blank">
-                    <div class="doc-icon">📦</div>
-                    <h3>Installation</h3>
-                    <p>Detailed installation instructions</p>
+                    <div class="doc-icon">🗺️</div>
+                    <h3>Roadmap</h3>
+                    <p>Future plans and features</p>
                 </a>
-                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/issues" class="doc-card"
+                <a href="https://github.com/shipdocs/bastion-firewall/issues" class="doc-card"
                     target="_blank">
                     <div class="doc-icon">🐛</div>
                     <h3>Issues</h3>
@@ -367,14 +364,14 @@ sudo python3 douane_firewall.py</code></pre>
     <!-- Tested On Section -->
     <section class="tested">
         <div class="container">
-            <h2 class="section-title">Tested On</h2>
+            <h2 class="section-title">Built For</h2>
             <div class="distro-badges">
-                <span class="badge">Ubuntu 20.04</span>
-                <span class="badge">Ubuntu 22.04</span>
-                <span class="badge">Ubuntu 24.04</span>
-                <span class="badge">Debian 11</span>
-                <span class="badge">Debian 12</span>
-                <span class="badge">Linux Mint 21</span>
+                <span class="badge" style="background: linear-gradient(135deg, #0066cc 0%, #0099ff 100%); font-weight: 600;">🎯 Zorin OS 18</span>
+                <span class="badge">Ubuntu 20.04+</span>
+                <span class="badge">Debian 11+</span>
+                <span class="badge">Linux Mint 21+</span>
+                <span class="badge">Pop!_OS</span>
+                <span class="badge">Elementary OS</span>
             </div>
         </div>
     </section>
@@ -382,13 +379,13 @@ sudo python3 douane_firewall.py</code></pre>
     <!-- CTA Section -->
     <section class="cta">
         <div class="container">
-            <h2>Ready to Take Control?</h2>
-            <p>Start protecting your Linux system from unauthorized outbound connections today.</p>
+            <h2>🏰 Ready to Defend Your System?</h2>
+            <p>Start protecting your Linux system with Bastion - Your Last Line of Defense.</p>
             <div class="cta-buttons">
-                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux"
+                <a href="https://github.com/shipdocs/bastion-firewall"
                     class="btn btn-primary btn-large" target="_blank">Get Started on GitHub</a>
-                <a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/releases"
-                    class="btn btn-secondary btn-large" target="_blank">Download Release</a>
+                <a href="https://github.com/shipdocs/bastion-firewall/releases/latest"
+                    class="btn btn-secondary btn-large" target="_blank">Download v1.0.0</a>
             </div>
         </div>
     </section>
@@ -398,34 +395,34 @@ sudo python3 douane_firewall.py</code></pre>
         <div class="container">
             <div class="footer-content">
                 <div class="footer-section">
-                    <h4>Douane Application Firewall for Linux</h4>
-                    <p>Production-ready outbound firewall for Linux</p>
+                    <h4>🏰 Bastion Firewall</h4>
+                    <p>Your Last Line of Defense - Built for Zorin OS 18</p>
                 </div>
                 <div class="footer-section">
                     <h4>Links</h4>
                     <ul>
-                        <li><a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux"
+                        <li><a href="https://github.com/shipdocs/bastion-firewall"
                                 target="_blank">GitHub</a></li>
-                        <li><a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/issues"
+                        <li><a href="https://github.com/shipdocs/bastion-firewall/issues"
                                 target="_blank">Issues</a></li>
-                        <li><a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/releases"
+                        <li><a href="https://github.com/shipdocs/bastion-firewall/releases"
                                 target="_blank">Releases</a></li>
                     </ul>
                 </div>
                 <div class="footer-section">
                     <h4>Documentation</h4>
                     <ul>
-                        <li><a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/README.md"
+                        <li><a href="https://github.com/shipdocs/bastion-firewall/blob/master/README.md"
                                 target="_blank">README</a></li>
-                        <li><a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/FAQ.md"
+                        <li><a href="https://github.com/shipdocs/bastion-firewall/blob/master/FAQ.md"
                                 target="_blank">FAQ</a></li>
-                        <li><a href="https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/PRODUCTION_GUIDE.md"
-                                target="_blank">Production Guide</a></li>
+                        <li><a href="https://github.com/shipdocs/bastion-firewall/blob/master/ROADMAP.md"
+                                target="_blank">Roadmap</a></li>
                     </ul>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>Made with ❤️ for Linux users who want control over their outbound connections</p>
+                <p>🏰 Built with ❤️ for Zorin OS 18 - Your Last Line of Defense</p>
             </div>
         </div>
     </footer>
