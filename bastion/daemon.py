@@ -222,13 +222,26 @@ class DouaneDaemon:
         now = time.time()
 
         with self.request_lock:
+            # Check if there is already a PENDING request for this flow
+            # We want to BLOCK/WAIT for the verdict, not just auto-allow,
+            # otherwise we leak packets while the user is deciding.
+            # But we can't block the logic loop here too long.
+            
+            # Better approach: 
+            # If a request is pending, we should probably DROP this packet 
+            # (or queue it, but NFQUEUE has limits).
+            # Dropping is safer than leaking. The app will retry.
             if cache_key in self.pending_requests:
-                return True # Auto-allow if already asking to prevent blocking
+                return False 
 
+            # Check rate limiting for recently treated flows
             if cache_key in self.last_request_time:
-                if now - self.last_request_time[cache_key] < 5.0:
-                    self.stats['allowed_connections'] += 1 # Auto-allow is technically an allow
-                    return True # Auto-allow recent
+                # If we asked recently (5s), check if we have a standard rule now?
+                # No, standard rules are checked above.
+                # So this means user ignored it or we are in a "grace period"?
+                # Let's simple ignore/drop to avoid spamming the GUI logic.
+                if now - self.last_request_time[cache_key] < 2.0:
+                     return False
 
         # WL CHECK - Pass actual values (can be None) for security validation
         auto_allow, reason = should_auto_allow(app_name, app_path, pkt_info.dest_port, pkt_info.dest_ip)

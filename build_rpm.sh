@@ -18,7 +18,7 @@ TEMP_DIR="${NAME}-${VERSION}"
 mkdir -p "$TEMP_DIR"
 cp -r douane "$TEMP_DIR/"
 cp bastion-firewall bastion-daemon bastion-gui bastion-control-panel bastion-setup-firewall "$TEMP_DIR/"
-cp config.json bastion-firewall.service bastion-firewall.desktop bastion-control-panel.desktop "$TEMP_DIR/"
+cp config.json bastion-firewall.service com.bastion.firewall.desktop bastion-control-panel.desktop "$TEMP_DIR/"
 
 tar -czf "$BUILD_DIR/SOURCES/${NAME}-${VERSION}.tar.gz" "$TEMP_DIR"
 rm -rf "$TEMP_DIR"

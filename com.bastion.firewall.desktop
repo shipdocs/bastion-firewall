@@ -4,7 +4,7 @@ Type=Application
 Name=Bastion Firewall
 GenericName=Application Firewall
 Comment=🏰 Your Last Line of Defense - Control which applications can access the network
-Exec=/usr/local/bin/bastion-launch
+Exec=/usr/bin/bastion-launch
 Icon=security-high
 Terminal=false
 Categories=System;Security;Network;
@@ -16,7 +16,7 @@ Actions=ControlPanel;Stop;
 
 [Desktop Action ControlPanel]
 Name=Control Panel
-Exec=/usr/local/bin/bastion-control-panel
+Exec=/usr/bin/bastion-control-panel
 
 [Desktop Action Stop]
 Name=Stop Firewall
