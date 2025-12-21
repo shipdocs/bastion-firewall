@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Douane Firewall - Production outbound firewall with GUI
+Bastion Firewall - Production outbound firewall with GUI
 
 This is the main production application that:
 1. Intercepts outbound packets using netfilter
@@ -36,7 +36,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_dir / 'douane_firewall.log'),
+        logging.FileHandler(log_dir / 'bastion_firewall.log'),
         logging.StreamHandler()
     ]
 )
@@ -46,14 +46,14 @@ logger = logging.getLogger(__name__)
 try:
     # Try to import from installed package first
     try:
-        from douane.firewall_core import PacketProcessor, PacketInfo, IPTablesManager, NETFILTER_AVAILABLE
-        from douane.ufw_manager import UFWManager, ConnectionInfo
-        from douane.gui_improved import ImprovedFirewallDialog
+        from bastion.firewall_core import PacketProcessor, PacketInfo, IPTablesManager, NETFILTER_AVAILABLE
+        from bastion.ufw_manager import UFWManager, ConnectionInfo
+        from bastion.gui_improved import ImprovedFirewallDialog
     except ImportError:
         # Fall back to local imports for development
         from firewall_core import PacketProcessor, PacketInfo, IPTablesManager, NETFILTER_AVAILABLE
         from ufw_firewall_gui import UFWManager, ConnectionInfo
-        from douane_gui_improved import ImprovedFirewallDialog
+        from bastion_gui_improved import ImprovedFirewallDialog
 except ImportError as e:
     logger.error(f"Failed to import required modules: {e}")
     print(f"ERROR: {e}")
@@ -266,7 +266,7 @@ class DouaneFirewall:
     def start(self):
         """Start the firewall"""
         logger.info("=" * 60)
-        logger.info("Douane Firewall Starting")
+        logger.info("Bastion Firewall Starting")
         logger.info("=" * 60)
 
         # Check dependencies
@@ -335,7 +335,7 @@ class DouaneFirewall:
 def main():
     """Main entry point"""
     print("\n" + "=" * 60)
-    print("Douane Firewall - Outbound Connection Control")
+    print("Bastion Firewall - Outbound Connection Control")
     print("=" * 60)
     print()
 

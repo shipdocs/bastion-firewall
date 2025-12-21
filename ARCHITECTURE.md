@@ -1,6 +1,6 @@
-# Douane Firewall - Architecture Documentation
+# Bastion Firewall - Architecture Documentation
 
-This document provides detailed architectural diagrams and explanations of the Douane Firewall system.
+This document provides detailed architectural diagrams and explanations of the Bastion Firewall system.
 
 ## Table of Contents
 
@@ -12,7 +12,7 @@ This document provides detailed architectural diagrams and explanations of the D
 
 ## System Overview
 
-Douane Firewall follows a **client-server architecture** with strict privilege separation between the root daemon and user-space GUI components.
+Bastion Firewall follows a **client-server architecture** with strict privilege separation between the root daemon and user-space GUI components.
 
 ```mermaid
 graph TB
@@ -56,7 +56,7 @@ graph TB
 
 ```mermaid
 graph LR
-    subgraph "Douane Firewall Components"
+    subgraph "Bastion Firewall Components"
         direction TB
 
         subgraph "User Interface Layer"
@@ -137,7 +137,7 @@ sequenceDiagram
     participant App as Application
     participant Kernel as Linux Kernel
     participant NFQ as NFQUEUE
-    participant Daemon as Douane Daemon
+    participant Daemon as Bastion Daemon
     participant WL as Service Whitelist
     participant Rules as Rules Engine
     participant GUI as GUI Client
@@ -236,7 +236,7 @@ graph TB
 
 ### Security Phases
 
-Douane implements **5 security phases** for defense-in-depth:
+Bastion implements **5 security phases** for defense-in-depth:
 
 ```mermaid
 graph TD
@@ -425,7 +425,7 @@ graph TB
         end
 
         subgraph "System Services"
-            DAEMON[Douane Daemon]
+            DAEMON[Bastion Daemon]
             SYSTEMD[systemd]
         end
 

@@ -2,7 +2,7 @@
 
 ## Problem
 
-When stopping the Douane Firewall, iptables NFQUEUE rules were left behind, causing:
+When stopping the Bastion Firewall, iptables NFQUEUE rules were left behind, causing:
 - WiFi shows connected but with question mark
 - No internet access
 - Only rebooting would fix it

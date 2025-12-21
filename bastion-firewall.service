@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /usr/local/bin/douane-daemon
+ExecStart=/usr/bin/python3 /usr/local/bin/bastion-daemon
 Restart=on-failure
 User=root
 Group=root

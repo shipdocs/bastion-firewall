@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Douane Firewall Control Panel - Main GUI window
+Bastion Firewall Control Panel - Main GUI window
 """
 
 import tkinter as tk
@@ -10,22 +10,22 @@ import subprocess
 import os
 import time
 from pathlib import Path
-from douane.inbound_firewall import InboundFirewallDetector
+from bastion.inbound_firewall import InboundFirewallDetector
 
 
 class DouaneControlPanel:
-    """Main control panel window for Douane Firewall"""
+    """Main control panel window for Bastion Firewall"""
     
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Douane Firewall Control Panel")
+        self.root.title("Bastion Firewall Control Panel")
         self.root.geometry("1000x750")
         self.root.minsize(900, 650)
         self.root.resizable(True, True)
         
         # Load config and rules
-        self.config_file = Path('/etc/douane/config.json')
-        self.rules_file = Path('/etc/douane/rules.json')
+        self.config_file = Path('/etc/bastion/config.json')
+        self.rules_file = Path('/etc/bastion/rules.json')
         self.config = self.load_config()
         self.rules = self.load_rules()
         
@@ -63,7 +63,7 @@ class DouaneControlPanel:
                 json.dump(self.config, tmp, indent=2)
                 tmp_path = tmp.name
 
-            # Use pkexec to copy temp file to /etc/douane/config.json
+            # Use pkexec to copy temp file to /etc/bastion/config.json
             result = subprocess.run(
                 ['pkexec', 'cp', tmp_path, str(self.config_file)],
                 capture_output=True,
@@ -399,7 +399,7 @@ class DouaneControlPanel:
         try:
             # Check systemd status
             # systemctl is-active returns the current state keyword (active, inactive, etc.)
-            result = subprocess.run(['systemctl', 'is-active', 'douane-firewall'], capture_output=True, text=True)
+            result = subprocess.run(['systemctl', 'is-active', 'bastion-firewall'], capture_output=True, text=True)
             status = result.stdout.strip()
             
             if status == 'active':
@@ -467,14 +467,14 @@ class DouaneControlPanel:
         """Update logs display"""
         try:
             # Try without sudo first (if log file is readable)
-            result = subprocess.run(['tail', '-100', '/var/log/douane-daemon.log'],
+            result = subprocess.run(['tail', '-100', '/var/log/bastion-daemon.log'],
                                   capture_output=True, text=True)
             if result.returncode == 0:
                 self.logs_text.delete('1.0', tk.END)
                 self.logs_text.insert('1.0', result.stdout)
             else:
                 # Try with pkexec for GUI password prompt
-                result = subprocess.run(['pkexec', 'tail', '-100', '/var/log/douane-daemon.log'],
+                result = subprocess.run(['pkexec', 'tail', '-100', '/var/log/bastion-daemon.log'],
                                       capture_output=True, text=True)
                 if result.returncode == 0:
                     self.logs_text.delete('1.0', tk.END)
@@ -490,7 +490,7 @@ class DouaneControlPanel:
         """Clear daemon logs"""
         if messagebox.askyesno("Confirm", "Clear all daemon logs?"):
             try:
-                subprocess.run(['pkexec', 'truncate', '-s', '0', '/var/log/douane-daemon.log'])
+                subprocess.run(['pkexec', 'truncate', '-s', '0', '/var/log/bastion-daemon.log'])
                 self.update_logs()
                 messagebox.showinfo("Success", "Logs cleared")
             except Exception as e:
@@ -504,7 +504,7 @@ class DouaneControlPanel:
         
         # Signal daemon to reload config
         try:
-            subprocess.run(['pkill', '-HUP', '-f', 'douane-daemon'], check=False)
+            subprocess.run(['pkill', '-HUP', '-f', 'bastion-daemon'], check=False)
         except:
             pass
             
@@ -538,7 +538,7 @@ class DouaneControlPanel:
                     json.dump(self.rules, tmp, indent=2)
                     tmp_path = tmp.name
 
-                # Use pkexec to copy temp file to /etc/douane/rules.json
+                # Use pkexec to copy temp file to /etc/bastion/rules.json
                 result = subprocess.run(
                     ['pkexec', 'cp', tmp_path, str(self.rules_file)],
                     capture_output=True,
@@ -551,7 +551,7 @@ class DouaneControlPanel:
                 if result.returncode == 0:
                     # Send SIGHUP to daemon to reload rules
                     try:
-                        subprocess.run(['pkill', '-HUP', '-f', 'douane-daemon'], check=False)
+                        subprocess.run(['pkill', '-HUP', '-f', 'bastion-daemon'], check=False)
                     except:
                         pass
 
@@ -576,7 +576,7 @@ class DouaneControlPanel:
                     json.dump(self.rules, tmp, indent=2)
                     tmp_path = tmp.name
 
-                # Use pkexec to copy temp file to /etc/douane/rules.json
+                # Use pkexec to copy temp file to /etc/bastion/rules.json
                 result = subprocess.run(
                     ['pkexec', 'cp', tmp_path, str(self.rules_file)],
                     capture_output=True,
@@ -589,7 +589,7 @@ class DouaneControlPanel:
                 if result.returncode == 0:
                     # Send SIGHUP to daemon to reload rules
                     try:
-                        subprocess.run(['pkill', '-HUP', '-f', 'douane-daemon'], check=False)
+                        subprocess.run(['pkill', '-HUP', '-f', 'bastion-daemon'], check=False)
                     except:
                         pass
 
@@ -637,17 +637,17 @@ class DouaneControlPanel:
             progress_dialog.update()
 
             # Execute systemctl
-            subprocess.run(['pkexec', 'systemctl', action, 'douane-firewall'], check=True)
+            subprocess.run(['pkexec', 'systemctl', action, 'bastion-firewall'], check=True)
             
             # Start GUI client if starting
             if action in ['start', 'restart']:
                 # The service starts the daemon. The GUI client is per-user and needs to be started manually or via autostart.
                 # Check if already running for this user
-                gui_running = subprocess.run(['pgrep', '-u', str(os.getuid()), '-f', 'douane-gui-client'], 
+                gui_running = subprocess.run(['pgrep', '-u', str(os.getuid()), '-f', 'bastion-gui'], 
                                            capture_output=True).returncode == 0
                                            
                 if not gui_running:
-                    subprocess.Popen(['/usr/local/bin/douane-gui-client'], 
+                    subprocess.Popen(['/usr/local/bin/bastion-gui'], 
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             # Note: We do NOT kill the GUI client on stop anymore. 

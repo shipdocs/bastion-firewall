@@ -73,8 +73,8 @@ echo -e "${YELLOW}This will completely remove Douane Firewall from your system.$
 echo ""
 echo "The following will be removed:"
 echo "  • Douane package"
-echo "  • Configuration files (/etc/douane)"
-echo "  • Log files (/var/log/douane-daemon.log)"
+echo "  • Configuration files (/etc/bastion)"
+echo "  • Log files (/var/log/bastion-daemon.log)"
 echo "  • Binaries (/usr/local/bin/douane*)"
 echo "  • Python modules"
 echo "  • Systemd service"
@@ -92,26 +92,26 @@ fi
 print_header "Step 1: Stopping Douane Firewall"
 
 # Stop the service if running
-if systemctl is-active --quiet douane-firewall 2>/dev/null; then
-    print_info "Stopping douane-firewall service..."
-    systemctl stop douane-firewall || true
+if systemctl is-active --quiet bastion-firewall 2>/dev/null; then
+    print_info "Stopping bastion-firewall service..."
+    systemctl stop bastion-firewall || true
     print_success "Service stopped"
 else
     print_info "Service not running"
 fi
 
 # Disable service
-if systemctl is-enabled --quiet douane-firewall 2>/dev/null; then
-    print_info "Disabling douane-firewall service..."
-    systemctl disable douane-firewall || true
+if systemctl is-enabled --quiet bastion-firewall 2>/dev/null; then
+    print_info "Disabling bastion-firewall service..."
+    systemctl disable bastion-firewall || true
     print_success "Service disabled"
 fi
 
 # Kill any running processes
 print_info "Terminating all Douane processes..."
-pkill -f douane-daemon 2>/dev/null || true
-pkill -f douane-gui-client 2>/dev/null || true
-pkill -f douane-control-panel 2>/dev/null || true
+pkill -f bastion-daemon 2>/dev/null || true
+pkill -f bastion-gui 2>/dev/null || true
+pkill -f bastion-control-panel 2>/dev/null || true
 sleep 1
 print_success "Processes terminated"
 
@@ -125,9 +125,9 @@ print_header "Step 2: Removing Package"
 case "$DISTRO" in
     debian|ubuntu|linuxmint|pop)
         # Debian-based systems
-        if dpkg -l | grep -q douane-firewall 2>/dev/null; then
-            print_info "Removing douane-firewall package (Debian/Ubuntu)..."
-            dpkg --purge douane-firewall 2>/dev/null || true
+        if dpkg -l | grep -q bastion-firewall 2>/dev/null; then
+            print_info "Removing bastion-firewall package (Debian/Ubuntu)..."
+            dpkg --purge bastion-firewall 2>/dev/null || true
             print_success "Package removed"
 
             print_info "Removing unused dependencies..."
@@ -140,9 +140,9 @@ case "$DISTRO" in
 
     fedora|rhel|centos|rocky|almalinux)
         # RPM-based systems
-        if rpm -q douane-firewall >/dev/null 2>&1; then
-            print_info "Removing douane-firewall package (Fedora/RHEL)..."
-            dnf remove -y douane-firewall 2>/dev/null || yum remove -y douane-firewall 2>/dev/null || true
+        if rpm -q bastion-firewall >/dev/null 2>&1; then
+            print_info "Removing bastion-firewall package (Fedora/RHEL)..."
+            dnf remove -y bastion-firewall 2>/dev/null || yum remove -y bastion-firewall 2>/dev/null || true
             print_success "Package removed"
 
             print_info "Removing unused dependencies..."
@@ -155,9 +155,9 @@ case "$DISTRO" in
 
     arch|manjaro)
         # Arch-based systems
-        if pacman -Q douane-firewall >/dev/null 2>&1; then
-            print_info "Removing douane-firewall package (Arch)..."
-            pacman -Rns --noconfirm douane-firewall 2>/dev/null || true
+        if pacman -Q bastion-firewall >/dev/null 2>&1; then
+            print_info "Removing bastion-firewall package (Arch)..."
+            pacman -Rns --noconfirm bastion-firewall 2>/dev/null || true
             print_success "Package removed"
         else
             print_info "Package not installed"
@@ -173,29 +173,29 @@ esac
 print_header "Step 3: Removing Files and Directories"
 
 # Remove configuration
-if [ -d "/etc/douane" ]; then
-    print_info "Removing /etc/douane..."
-    rm -rf /etc/douane
+if [ -d "/etc/bastion" ]; then
+    print_info "Removing /etc/bastion..."
+    rm -rf /etc/bastion
     print_success "Configuration removed"
 fi
 
 # Remove log files
-if [ -f "/var/log/douane-daemon.log" ]; then
-    print_info "Removing /var/log/douane-daemon.log..."
-    rm -f /var/log/douane-daemon.log
+if [ -f "/var/log/bastion-daemon.log" ]; then
+    print_info "Removing /var/log/bastion-daemon.log..."
+    rm -f /var/log/bastion-daemon.log
     print_success "Log file removed"
 fi
 
-if [ -d "/var/log/douane" ]; then
-    print_info "Removing /var/log/douane..."
-    rm -rf /var/log/douane
+if [ -d "/var/log/bastion" ]; then
+    print_info "Removing /var/log/bastion..."
+    rm -rf /var/log/bastion
     print_success "Log directory removed"
 fi
 
 # Remove socket
-if [ -S "/var/run/douane.sock" ]; then
-    print_info "Removing /var/run/douane.sock..."
-    rm -f /var/run/douane.sock
+if [ -S "/var/run/bastion.sock" ]; then
+    print_info "Removing /var/run/bastion.sock..."
+    rm -f /var/run/bastion.sock
     print_success "Socket removed"
 fi
 
@@ -220,16 +220,16 @@ if [ -d "/usr/lib/python3/site-packages/douane" ]; then
 fi
 
 # Remove systemd service
-if [ -f "/lib/systemd/system/douane-firewall.service" ]; then
+if [ -f "/lib/systemd/system/bastion-firewall.service" ]; then
     print_info "Removing systemd service..."
-    rm -f /lib/systemd/system/douane-firewall.service
+    rm -f /lib/systemd/system/bastion-firewall.service
     systemctl daemon-reload
     print_success "Systemd service removed"
 fi
 
-if [ -f "/usr/lib/systemd/system/douane-firewall.service" ]; then
+if [ -f "/usr/lib/systemd/system/bastion-firewall.service" ]; then
     print_info "Removing systemd service (alternate path)..."
-    rm -f /usr/lib/systemd/system/douane-firewall.service
+    rm -f /usr/lib/systemd/system/bastion-firewall.service
     systemctl daemon-reload
     print_success "Systemd service removed"
 fi
@@ -258,24 +258,24 @@ for user_home in /home/*; do
 done
 
 # Remove AppStream metadata
-if [ -f "/usr/share/metainfo/com.douane.firewall.metainfo.xml" ]; then
+if [ -f "/usr/share/metainfo/com.bastion.firewall.metainfo.xml" ]; then
     print_info "Removing AppStream metadata..."
-    rm -f /usr/share/metainfo/com.douane.firewall.metainfo.xml
+    rm -f /usr/share/metainfo/com.bastion.firewall.metainfo.xml
     print_success "AppStream metadata removed"
 fi
 
 
 # Remove PolicyKit actions
-if [ -f "/usr/share/polkit-1/actions/com.douane.daemon.policy" ]; then
+if [ -f "/usr/share/polkit-1/actions/com.bastion.daemon.policy" ]; then
     print_info "Removing PolicyKit actions..."
-    rm -f /usr/share/polkit-1/actions/com.douane.daemon.policy
+    rm -f /usr/share/polkit-1/actions/com.bastion.daemon.policy
     print_success "PolicyKit actions removed"
 fi
 
 # Remove documentation
-if [ -d "/usr/share/doc/douane-firewall" ]; then
+if [ -d "/usr/share/doc/bastion-firewall" ]; then
     print_info "Removing documentation..."
-    rm -rf /usr/share/doc/douane-firewall
+    rm -rf /usr/share/doc/bastion-firewall
     print_success "Documentation removed"
 fi
 

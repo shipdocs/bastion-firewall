@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Douane Firewall GUI Client - Runs as user
+Bastion Firewall GUI Client - Runs as user
 
 This client:
 - Runs as your user (has access to DISPLAY)
@@ -36,12 +36,12 @@ except (ImportError, ValueError):
 
 # Import GUI module
 try:
-    from douane.gui import ImprovedFirewallDialog
+    from bastion.gui import ImprovedFirewallDialog
 except ImportError:
     # Try local import if package structure is different
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from douane.gui import ImprovedFirewallDialog
+        from bastion.gui import ImprovedFirewallDialog
     except ImportError as e:
         print(f"ERROR: Could not import GUI module: {e}")
         sys.exit(1)
@@ -62,7 +62,7 @@ class DouaneGUIClient:
     """GUI client that shows popups and communicates with daemon"""
 
     def __init__(self):
-        self.socket_path = '/tmp/douane-daemon.sock'
+        self.socket_path = '/tmp/bastion-daemon.sock'
         self.daemon_socket = None
         self.running = False
         self.config = self.load_config()
@@ -74,7 +74,7 @@ class DouaneGUIClient:
         
     def load_config(self):
         """Load configuration"""
-        config_path = Path('/etc/douane/config.json')
+        config_path = Path('/etc/bastion/config.json')
         if config_path.exists():
             try:
                 with open(config_path) as f:
@@ -103,8 +103,8 @@ class DouaneGUIClient:
         # Start daemon with pkexec (GUI sudo) or sudo
         # Try installed path first, then local
         daemon_paths = [
-            '/usr/local/bin/douane-daemon',
-            os.path.join(os.path.dirname(__file__), 'douane-daemon.py')
+            '/usr/local/bin/bastion-daemon',
+            os.path.join(os.path.dirname(__file__), 'bastion-daemon.py')
         ]
 
         daemon_path = None
@@ -114,7 +114,7 @@ class DouaneGUIClient:
                 break
 
         if not daemon_path:
-            print("ERROR: Could not find douane-daemon")
+            print("ERROR: Could not find bastion-daemon")
             return False
 
         # Try pkexec first (GUI password prompt)
@@ -149,12 +149,12 @@ class DouaneGUIClient:
         # Create Indicator
         # ID, Icon Name, Category
         self.indicator = AyatanaAppIndicator3.Indicator.new(
-            "douane-firewall",
+            "bastion-firewall",
             "security-high",  # Standard icon name (usually a shield or lock)
             AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS
         )
         self.indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
-        self.indicator.set_title("Douane Firewall")
+        self.indicator.set_title("Bastion Firewall")
 
         # Create Menu
         menu = Gtk.Menu()
@@ -235,7 +235,7 @@ class DouaneGUIClient:
     def show_control_panel(self):
         """Show control panel window"""
         try:
-            subprocess.Popen(['python3', '/usr/local/bin/douane-control-panel'])
+            subprocess.Popen(['python3', '/usr/local/bin/bastion-control-panel'])
         except Exception as e:
             print(f"Error opening control panel: {e}")
             # Fallback to showing statistics
@@ -251,7 +251,7 @@ class DouaneGUIClient:
             try:
                 root = tk.Tk()
                 root.withdraw() # Hide main window
-                stats_msg = f"""Douane Firewall Statistics
+                stats_msg = f"""Bastion Firewall Statistics
 
 Mode: {self.config.get('mode', 'learning').title()}
 Total Connections: {self.connection_count}
@@ -261,7 +261,7 @@ Blocked: {self.blocked_count}
 Learning Mode: Connections are always allowed
 Enforcement Mode: Connections can be blocked
 """
-                messagebox.showinfo("Douane Firewall Statistics", stats_msg)
+                messagebox.showinfo("Bastion Firewall Statistics", stats_msg)
                 root.destroy()
             except Exception as e:
                 print(f"Error showing stats: {e}")
@@ -272,7 +272,7 @@ Enforcement Mode: Connections can be blocked
     def view_logs(self):
         """Open log file"""
         try:
-            subprocess.Popen(['xdg-open', '/var/log/douane-daemon.log'])
+            subprocess.Popen(['xdg-open', '/var/log/bastion-daemon.log'])
         except:
             print("Error opening logs")
 
@@ -280,7 +280,7 @@ Enforcement Mode: Connections can be blocked
         """Start the firewall via systemctl"""
         print("\nStarting firewall service...")
         try:
-            subprocess.run(['pkexec', 'systemctl', 'start', 'douane-firewall'], check=True)
+            subprocess.run(['pkexec', 'systemctl', 'start', 'bastion-firewall'], check=True)
             print("✓ Firewall service started")
             # Update icon to orange (connecting)
             self.update_tray_icon('orange')
@@ -293,7 +293,7 @@ Enforcement Mode: Connections can be blocked
         """Restart the firewall via systemctl"""
         print("\nRestarting firewall service...")
         try:
-            subprocess.run(['pkexec', 'systemctl', 'restart', 'douane-firewall'], check=True)
+            subprocess.run(['pkexec', 'systemctl', 'restart', 'bastion-firewall'], check=True)
             print("✓ Firewall service restarted")
             # Update icon to orange (connecting)
             self.update_tray_icon('orange')
@@ -306,7 +306,7 @@ Enforcement Mode: Connections can be blocked
         """Stop the firewall via systemctl"""
         print("\nStopping firewall service...")
         try:
-            subprocess.run(['pkexec', 'systemctl', 'stop', 'douane-firewall'], check=True)
+            subprocess.run(['pkexec', 'systemctl', 'stop', 'bastion-firewall'], check=True)
             print("✓ Firewall service stopped")
             # Update icon to red (stopped)
             self.update_tray_icon('red')
@@ -446,7 +446,7 @@ Enforcement Mode: Connections can be blocked
     def start(self):
         """Start the GUI client with persistent connection loop"""
         print("=" * 60)
-        print("Douane Firewall GUI Client (Tray Icon)")
+        print("Bastion Firewall GUI Client (Tray Icon)")
         print("=" * 60)
         print("")
         print("Tray icon will run independently and auto-connect to daemon")

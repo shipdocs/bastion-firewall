@@ -1,9 +1,9 @@
-Name:           douane-firewall
-Version:        2.0.20
+Name:           bastion-firewall
+Version:        1.0.0
 Release:        1%{?dist}
-Summary:        Application Firewall for Linux with GUI
+Summary:        Application Firewall for Linux with GUI - Your Last Line of Defense
 License:        GPLv3
-URL:            https://github.com/shipdocs/Douane-Application-firewall-for-Linux
+URL:            https://github.com/bastion-firewall/bastion-firewall
 Source0:        %{name}-%{version}.tar.gz
 BuildArch:      noarch
 
@@ -20,14 +20,20 @@ Requires:       python3-scapy
 Requires:       python3-pillow
 
 %description
-Douane Firewall provides Windows-like outbound connection control for Linux.
-It intercepts all outbound connections and shows GUI dialogs to let users
-decide which applications can access the network.
+🏰 Bastion Firewall - Your Last Line of Defense
+
+Bastion Firewall provides Windows-like outbound connection control for Linux.
+Like a medieval bastion protecting a fortress, Bastion stands guard over your
+system's network connections, intercepting all outbound traffic and showing
+GUI dialogs to let users decide which applications can access the network.
+
+Built specifically for Zorin OS 18 and compatible with all Debian-based distributions.
 
 Features:
  - Real-time packet interception using netfilter
  - Application identification via /proc filesystem
  - Beautiful GUI dialogs for user decisions
+ - Independent tray icon with visual status indicators
  - UFW integration for persistent rules
  - Decision caching for performance
  - Comprehensive logging and audit trail
@@ -44,30 +50,30 @@ Features:
 rm -rf $RPM_BUILD_ROOT
 mkdir -p $RPM_BUILD_ROOT/usr/local/bin
 mkdir -p $RPM_BUILD_ROOT/usr/lib/python3/site-packages/douane
-mkdir -p $RPM_BUILD_ROOT/etc/douane
+mkdir -p $RPM_BUILD_ROOT/etc/bastion
 mkdir -p $RPM_BUILD_ROOT/usr/share/applications
-mkdir -p $RPM_BUILD_ROOT/usr/share/doc/douane-firewall
+mkdir -p $RPM_BUILD_ROOT/usr/share/doc/bastion-firewall
 mkdir -p $RPM_BUILD_ROOT/lib/systemd/system
 
 # Install executables
-install -m 755 douane-firewall $RPM_BUILD_ROOT/usr/local/bin/
-install -m 755 douane-daemon $RPM_BUILD_ROOT/usr/local/bin/
-install -m 755 douane-gui-client $RPM_BUILD_ROOT/usr/local/bin/
-install -m 755 douane-control-panel $RPM_BUILD_ROOT/usr/local/bin/
-install -m 755 douane-setup-firewall $RPM_BUILD_ROOT/usr/local/bin/
+install -m 755 bastion-firewall $RPM_BUILD_ROOT/usr/local/bin/
+install -m 755 bastion-daemon $RPM_BUILD_ROOT/usr/local/bin/
+install -m 755 bastion-gui $RPM_BUILD_ROOT/usr/local/bin/
+install -m 755 bastion-control-panel $RPM_BUILD_ROOT/usr/local/bin/
+install -m 755 bastion-setup-firewall $RPM_BUILD_ROOT/usr/local/bin/
 
 # Install Python modules
 cp -r douane/* $RPM_BUILD_ROOT/usr/lib/python3/site-packages/douane/
 
 # Install config
-install -m 644 config.json $RPM_BUILD_ROOT/etc/douane/config.json
+install -m 644 config.json $RPM_BUILD_ROOT/etc/bastion/config.json
 
 # Install Systemd service
-install -m 644 douane-firewall.service $RPM_BUILD_ROOT/lib/systemd/system/
+install -m 644 bastion-firewall.service $RPM_BUILD_ROOT/lib/systemd/system/
 
 # Install Desktop files
-install -m 644 douane-firewall.desktop $RPM_BUILD_ROOT/usr/share/applications/
-install -m 644 douane-control-panel.desktop $RPM_BUILD_ROOT/usr/share/applications/
+install -m 644 bastion-firewall.desktop $RPM_BUILD_ROOT/usr/share/applications/
+install -m 644 bastion-control-panel.desktop $RPM_BUILD_ROOT/usr/share/applications/
 install -m 644 douane-tray.desktop $RPM_BUILD_ROOT/usr/share/applications/
 
 # Install autostart entry for tray icon
@@ -75,28 +81,28 @@ mkdir -p $RPM_BUILD_ROOT/etc/xdg/autostart
 install -m 644 douane-tray.desktop $RPM_BUILD_ROOT/etc/xdg/autostart/
 
 %files
-/usr/local/bin/douane-firewall
-/usr/local/bin/douane-daemon
-/usr/local/bin/douane-gui-client
-/usr/local/bin/douane-control-panel
-/usr/local/bin/douane-setup-firewall
-/usr/local/bin/douane-launch
+/usr/local/bin/bastion-firewall
+/usr/local/bin/bastion-daemon
+/usr/local/bin/bastion-gui
+/usr/local/bin/bastion-control-panel
+/usr/local/bin/bastion-setup-firewall
+/usr/local/bin/bastion-launch
 /usr/lib/python3/site-packages/douane/
-%config(noreplace) /etc/douane/config.json
-/lib/systemd/system/douane-firewall.service
-/usr/share/applications/douane-firewall.desktop
-/usr/share/applications/douane-control-panel.desktop
+%config(noreplace) /etc/bastion/config.json
+/lib/systemd/system/bastion-firewall.service
+/usr/share/applications/bastion-firewall.desktop
+/usr/share/applications/bastion-control-panel.desktop
 /usr/share/applications/douane-tray.desktop
 /etc/xdg/autostart/douane-tray.desktop
-/usr/share/metainfo/com.douane.firewall.metainfo.xml
-/usr/share/polkit-1/actions/com.douane.daemon.policy
-%doc /usr/share/doc/douane-firewall/
+/usr/share/metainfo/com.bastion.firewall.metainfo.xml
+/usr/share/polkit-1/actions/com.bastion.daemon.policy
+%doc /usr/share/doc/bastion-firewall/
 
 %pre
 # Pre-installation script
 if [ $1 -eq 2 ]; then
     # Upgrade - stop existing service
-    systemctl stop douane-firewall 2>/dev/null || true
+    systemctl stop bastion-firewall 2>/dev/null || true
 fi
 
 %post
@@ -125,12 +131,12 @@ echo "✓ Douane Firewall Installed"
 echo "============================================================"
 echo ""
 echo "To start manually:"
-echo "  /usr/local/bin/douane-gui-client"
+echo "  /usr/local/bin/bastion-gui"
 echo ""
 echo "Or from the application menu:"
 echo "  Search for 'Douane Firewall'"
 echo ""
-echo "Documentation: /usr/share/doc/douane-firewall/"
+echo "Documentation: /usr/share/doc/bastion-firewall/"
 echo ""
 
 %preun
@@ -144,23 +150,23 @@ if [ $1 -eq 0 ]; then
     echo ""
 
     # Stop and disable service
-    if systemctl is-active --quiet douane-firewall 2>/dev/null; then
-        echo "Stopping douane-firewall service..."
-        systemctl stop douane-firewall 2>/dev/null || true
+    if systemctl is-active --quiet bastion-firewall 2>/dev/null; then
+        echo "Stopping bastion-firewall service..."
+        systemctl stop bastion-firewall 2>/dev/null || true
         echo "✓ Service stopped"
     fi
 
-    if systemctl is-enabled --quiet douane-firewall 2>/dev/null; then
-        echo "Disabling douane-firewall service..."
-        systemctl disable douane-firewall 2>/dev/null || true
+    if systemctl is-enabled --quiet bastion-firewall 2>/dev/null; then
+        echo "Disabling bastion-firewall service..."
+        systemctl disable bastion-firewall 2>/dev/null || true
         echo "✓ Service disabled"
     fi
 
     # Kill all processes
     echo "Terminating all Douane processes..."
-    pkill -f douane-daemon 2>/dev/null || true
-    pkill -f douane-gui-client 2>/dev/null || true
-    pkill -f douane-control-panel 2>/dev/null || true
+    pkill -f bastion-daemon 2>/dev/null || true
+    pkill -f bastion-gui 2>/dev/null || true
+    pkill -f bastion-control-panel 2>/dev/null || true
     sleep 1
     echo "✓ Processes terminated"
 
@@ -196,12 +202,12 @@ if [ $1 -eq 0 ]; then
     echo ""
 
     # Remove configuration (only on purge, RPM doesn't have purge like DEB)
-    # Users can manually remove /etc/douane if they want
+    # Users can manually remove /etc/bastion if they want
 
     # Remove log files
-    if [ -f "/var/log/douane-daemon.log" ]; then
+    if [ -f "/var/log/bastion-daemon.log" ]; then
         echo "Removing log files..."
-        rm -f /var/log/douane-daemon.log
+        rm -f /var/log/bastion-daemon.log
         echo "✓ Log files removed"
     fi
 
@@ -225,39 +231,26 @@ if [ $1 -eq 0 ]; then
     echo ""
     echo "✓ Douane Firewall removed"
     echo ""
-    echo "Configuration files remain in /etc/douane"
-    echo "To completely remove: sudo rm -rf /etc/douane"
+    echo "Configuration files remain in /etc/bastion"
+    echo "To completely remove: sudo rm -rf /etc/bastion"
     echo ""
 fi
 
 %changelog
-* Sat Dec 21 2024 Martin <shipdocs@users.noreply.github.com> - 2.0.20-1
-- Independent tray icon with auto-connect and service controls
-- Tray icon now runs independently from daemon
-- Visual status indicators (green/red/orange)
-- Working Start/Restart/Stop controls via systemctl
-- Auto-start support via /etc/xdg/autostart/
-- Improved uninstaller to remove autostart entries
-- Tray icon stays visible even when daemon is stopped
-
-* Sat Dec 21 2024 Martin <shipdocs@users.noreply.github.com> - 2.0.19-1
-- Documentation improvements and project roadmap
-- Added CONTRIBUTING.md with developer guidelines
-- Added ARCHITECTURE.md with Mermaid diagrams
-- Added ROADMAP.md with future planning
-- Improved README organization
-- Project score improved from 8.5/10 to 9.0/10
-
-* Sat Dec 21 2024 Martin <shipdocs@users.noreply.github.com> - 2.0.18-1
-- Major security hardening and critical bug fixes
-- Fixed internet connectivity failure after installation
-- Fixed 10-second popup delay
-- Fixed Control Panel missing buttons
-- Localhost bypass vulnerability fixed
-- DHCP hardening with destination validation
-- Application identification security improvements
-- Name spoofing protection with path validation
-- Port restrictions for trusted applications
+* Sat Dec 21 2024 Martin <shipdocs@users.noreply.github.com> - 1.0.0-1
+- 🏰 Initial release of Bastion Firewall
+- Rebranded from Douane to Bastion Firewall
+- Professional branding: "Your Last Line of Defense"
+- Built specifically for Zorin OS 18
+- All features from Douane 2.0.20 included:
+  * Independent tray icon with auto-connect
+  * Visual status indicators (green/red/orange)
+  * Working Start/Restart/Stop controls
+  * Auto-start support
+  * Security hardening (5 phases)
+  * UFW integration
+  * Comprehensive documentation
+  * Production-ready stability
 - NEW: Inbound Protection tab with UFW integration
 - Security score improved from 7.5/10 to 2/10
 

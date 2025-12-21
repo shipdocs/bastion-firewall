@@ -1,6 +1,6 @@
-# Douane Firewall - Future Improvements Roadmap
+# Bastion Firewall - Future Improvements Roadmap
 
-Based on comprehensive project analysis (Score: 9.0/10), this document tracks planned improvements to take Douane from excellent to exceptional.
+Based on comprehensive project analysis (Score: 9.0/10), this document tracks planned improvements to take Bastion from excellent to exceptional.
 
 ## 📊 Current Status
 
@@ -111,7 +111,7 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
 
 ### 5. CLI Mode (Headless Server Support)
 
-**Goal**: Enable Douane on servers without GUI
+**Goal**: Enable Bastion on servers without GUI
 
 **Tasks**:
 - [ ] Develop daemon-only mode (no GUI requirement)

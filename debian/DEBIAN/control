@@ -1,29 +1,30 @@
-Package: douane-firewall
-Version: 2.0.20
+Package: bastion-firewall
+Version: 1.0.0
 Section: net
 Priority: optional
 Architecture: all
 Installed-Size: 408
 Depends: python3 (>= 3.6), python3-pip, python3-tk, python3-dev, build-essential, libnetfilter-queue-dev, iptables, ufw, python3-psutil, python3-gi, python3-gi-cairo, gir1.2-ayatanaappindicator3-0.1, libayatana-appindicator3-1
 Recommends: python3-scapy
-Replaces: douane, douane-daemon
-Conflicts: douane, douane-daemon
+Replaces: douane, bastion-daemon
+Conflicts: douane, bastion-daemon
 Maintainer: Martin <shipdocs@users.noreply.github.com>
-Description: Outbound firewall with GUI for Linux
- Douane Firewall provides Windows-like outbound connection control for Linux.
- It intercepts all outbound connections and shows GUI dialogs to let users
- decide which applications can access the network.
+Description: 🏰 Your Last Line of Defense - Application Firewall for Linux
+ Bastion Firewall is an outbound application firewall built specifically for
+ Zorin OS 18 (and compatible with all Debian-based distributions). Like a
+ medieval bastion protecting a fortress, Bastion stands guard over your
+ system's network connections.
  .
  Features:
   - Real-time packet interception using netfilter
-  - Application identification via /proc filesystem
-  - Beautiful GUI dialogs for user decisions
-  - UFW integration for persistent rules
-  - Decision caching for performance
-  - Comprehensive logging and audit trail
-  - Safe installation with rollback capability
-  - Interactive setup wizard during installation
+  - Beautiful GUI dialogs for permission requests
+  - Independent tray icon with visual status indicators
+  - Security hardened (5-phase implementation, score: 2/10 LOW RISK)
+  - Per-application, per-port rules
+  - UFW integration for complete firewall coverage
+  - Control panel for managing settings and rules
+  - Auto-start support with systemctl controls
  .
  The installer will guide you through the setup process and can automatically
  configure UFW and start the firewall service.
-Homepage: https://github.com/shipdocs/Douane
+Homepage: https://github.com/bastion-firewall/bastion-firewall

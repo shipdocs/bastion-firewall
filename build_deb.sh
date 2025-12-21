@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# Build Debian package for Douane Firewall
+# Build Debian package for Bastion Firewall
 #
 
 set -e
 
-VERSION="2.0.20"
+VERSION="1.0.0"
 
 # Colors
 GREEN='\033[0;32m'
@@ -18,12 +18,12 @@ print_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 echo "============================================================"
-echo "Building Douane Firewall Debian Package"
+echo "🏰 Building Bastion Firewall Debian Package"
 echo "============================================================"
 echo ""
 
 # Check if running in project directory
-if [ ! -f "douane_firewall.py" ]; then
+if [ ! -f "bastion_firewall.py" ]; then
     print_error "Must run from project root directory"
     exit 1
 fi
@@ -31,46 +31,48 @@ fi
 # Clean previous build
 print_step "Cleaning previous build..."
 rm -rf debian/usr/local/bin/*
-rm -rf debian/usr/lib/python3/dist-packages/douane/*.py
-rm -rf debian/usr/share/doc/douane-firewall/*
+rm -rf debian/usr/lib/python3/dist-packages/douane
+rm -rf debian/usr/lib/python3/dist-packages/bastion
+rm -rf debian/usr/share/doc/douane-firewall
+rm -rf debian/usr/share/doc/bastion-firewall
 rm -rf debian/etc
-rm -f douane-firewall_*.deb
+rm -f bastion-firewall_*.deb
 
 # Ensure directory structure exists
 print_step "Creating directory structure..."
 mkdir -p debian/usr/local/bin
-mkdir -p debian/usr/lib/python3/dist-packages/douane
-mkdir -p debian/usr/share/doc/douane-firewall
+mkdir -p debian/usr/lib/python3/dist-packages/bastion
+mkdir -p debian/usr/share/doc/bastion-firewall
 mkdir -p debian/usr/share/applications
 mkdir -p debian/usr/share/metainfo
 mkdir -p debian/lib/systemd/system
 mkdir -p debian/usr/share/polkit-1/actions
 mkdir -p debian/DEBIAN
-# Note: /etc/douane is created by postinst, not in package
+# Note: /etc/bastion is created by postinst, not in package
 
 # Copy executables
 print_step "Copying executables..."
-cp douane_firewall.py debian/usr/local/bin/douane-firewall
-cp setup_firewall.sh debian/usr/local/bin/douane-setup-firewall
-cp douane-daemon.py debian/usr/local/bin/douane-daemon
-cp douane-gui-client.py debian/usr/local/bin/douane-gui-client
-cp douane_control_panel.py debian/usr/local/bin/douane-control-panel
-cp launch_douane.sh debian/usr/local/bin/douane-launch
-chmod +x debian/usr/local/bin/douane-firewall
-chmod +x debian/usr/local/bin/douane-setup-firewall
-chmod +x debian/usr/local/bin/douane-daemon
-chmod +x debian/usr/local/bin/douane-gui-client
-chmod +x debian/usr/local/bin/douane-control-panel
-chmod +x debian/usr/local/bin/douane-launch
+cp bastion_firewall.py debian/usr/local/bin/bastion-firewall
+cp setup_firewall.sh debian/usr/local/bin/bastion-setup-firewall
+cp bastion-daemon.py debian/usr/local/bin/bastion-daemon
+cp bastion-gui.py debian/usr/local/bin/bastion-gui
+cp bastion_control_panel.py debian/usr/local/bin/bastion-control-panel
+cp launch_bastion.sh debian/usr/local/bin/bastion-launch
+chmod +x debian/usr/local/bin/bastion-firewall
+chmod +x debian/usr/local/bin/bastion-setup-firewall
+chmod +x debian/usr/local/bin/bastion-daemon
+chmod +x debian/usr/local/bin/bastion-gui
+chmod +x debian/usr/local/bin/bastion-control-panel
+chmod +x debian/usr/local/bin/bastion-launch
 
 # Copy Python modules
 print_step "Copying Python modules..."
-cp -r douane/* debian/usr/lib/python3/dist-packages/douane/
+cp -r bastion/* debian/usr/lib/python3/dist-packages/bastion/
 
 # Make modules importable
-cat > debian/usr/lib/python3/dist-packages/douane/__main__.py << 'EOF'
+cat > debian/usr/lib/python3/dist-packages/bastion/__main__.py << 'EOF'
 """
-Main entry point for Douane Firewall when run as module
+Main entry point for Bastion Firewall when run as module
 """
 import sys
 from pathlib import Path
@@ -88,65 +90,66 @@ if __name__ == '__main__':
         test_dialog()
     else:
         print("Usage:")
-        print("  python3 -m douane --test   # Test GUI")
-        print("  python3 -m douane --rules  # Manage rules")
+        print("  python3 -m bastion --test   # Test GUI")
+        print("  python3 -m bastion --rules  # Manage rules")
 EOF
 
 # Copy systemd service
 print_step "Copying systemd service..."
-cp douane-firewall.service debian/lib/systemd/system/
+cp bastion-firewall.service debian/lib/systemd/system/
 
-# Note: config.json is NOT copied to /etc/douane/ in the package
+# Note: config.json is NOT copied to /etc/bastion/ in the package
 # It will be created by postinst script during installation with user prompts
 
 # Copy desktop entries
 print_step "Copying desktop entries..."
-cp douane-firewall.desktop debian/usr/share/applications/douane-firewall.desktop
-chmod 644 debian/usr/share/applications/douane-firewall.desktop
-# Control panel desktop file already exists in debian/usr/share/applications/
-chmod 644 debian/usr/share/applications/douane-control-panel.desktop
+cp bastion-firewall.desktop debian/usr/share/applications/bastion-firewall.desktop
+chmod 644 debian/usr/share/applications/bastion-firewall.desktop
+# Control panel desktop file
+cp bastion-control-panel.desktop debian/usr/share/applications/bastion-control-panel.desktop
+chmod 644 debian/usr/share/applications/bastion-control-panel.desktop
 # Tray icon autostart entry (both in applications and autostart)
-cp douane-tray.desktop debian/usr/share/applications/douane-tray.desktop
-chmod 644 debian/usr/share/applications/douane-tray.desktop
+cp bastion-tray.desktop debian/usr/share/applications/bastion-tray.desktop
+chmod 644 debian/usr/share/applications/bastion-tray.desktop
 # Also install to autostart directory for automatic startup
 mkdir -p debian/etc/xdg/autostart
-cp douane-tray.desktop debian/etc/xdg/autostart/douane-tray.desktop
-chmod 644 debian/etc/xdg/autostart/douane-tray.desktop
+cp bastion-tray.desktop debian/etc/xdg/autostart/bastion-tray.desktop
+chmod 644 debian/etc/xdg/autostart/bastion-tray.desktop
 
 # Create AppStream metadata for Software Center
 print_step "Creating AppStream metadata..."
-cat > debian/usr/share/metainfo/com.douane.firewall.metainfo.xml << 'EOF'
+cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.douane.firewall</id>
+  <id>com.bastion.firewall</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0+</project_license>
-  <name>Douane Application Firewall</name>
-  <summary>Control which applications can access the network</summary>
+  <name>Bastion Firewall</name>
+  <summary>Your Last Line of Defense - Application Firewall for Linux</summary>
   <description>
     <p>
-      Douane is an outbound application firewall for Linux that gives you control over which
-      applications can access the network. Similar to Little Snitch on macOS or Windows Firewall,
-      Douane shows a popup whenever an application tries to make a network connection, allowing
-      you to allow or deny it.
+      🏰 Bastion Firewall is an outbound application firewall built specifically for Zorin OS 18
+      (and compatible with all Debian-based distributions). Like a medieval bastion protecting a
+      fortress, Bastion stands guard over your system's network connections, giving you control
+      over which applications can access the network.
     </p>
     <p>Features:</p>
     <ul>
       <li>Real-time packet interception using NetfilterQueue</li>
-      <li>Learning mode for safe testing (shows popups but allows all connections)</li>
-      <li>Enforcement mode for actual blocking</li>
+      <li>Beautiful GUI dialogs for permission requests</li>
+      <li>Independent tray icon with visual status indicators</li>
+      <li>Security hardened (5-phase implementation, score: 2/10 LOW RISK)</li>
       <li>Per-application, per-port rules</li>
-      <li>Automatic rule persistence</li>
-      <li>UFW integration - rules visible in system firewall manager</li>
+      <li>UFW integration for complete firewall coverage</li>
       <li>Control panel for managing settings and rules</li>
-      <li>System tray integration</li>
+      <li>Auto-start support with systemctl controls</li>
     </ul>
   </description>
-  <launchable type="desktop-id">douane-firewall.desktop</launchable>
-  <url type="homepage">https://shipdocs.github.io/Douane-Application-firewall-for-Linux/</url>
-  <url type="bugtracker">https://github.com/shipdocs/Douane-Application-firewall-for-Linux/issues</url>
-  <url type="help">https://github.com/shipdocs/Douane-Application-firewall-for-Linux/blob/master/FAQ.md</url>
-  <developer id="com.douane">
+  <launchable type="desktop-id">bastion-firewall.desktop</launchable>
+  <url type="homepage">https://github.com/bastion-firewall/bastion-firewall</url>
+  <url type="bugtracker">https://github.com/bastion-firewall/bastion-firewall/issues</url>
+  <url type="help">https://github.com/bastion-firewall/bastion-firewall/blob/master/FAQ.md</url>
+  <developer id="com.bastion">
     <name>Martin</name>
   </developer>
   <update_contact>shipdocs@users.noreply.github.com</update_contact>
@@ -164,38 +167,39 @@ cat > debian/usr/share/metainfo/com.douane.firewall.metainfo.xml << 'EOF'
     <keyword>application</keyword>
   </keywords>
   <releases>
-    <release version="2.0.0" date="2024-12-15">
+    <release version="1.0.0" date="2024-12-21">
       <description>
-        <p>Production-ready release with real packet interception</p>
+        <p>🏰 Initial release of Bastion Firewall - Your Last Line of Defense</p>
         <ul>
-          <li>NetfilterQueue integration for packet capture</li>
-          <li>Enhanced GUI with timeout protection</li>
-          <li>UFW integration for persistent rules</li>
-          <li>Decision caching for performance</li>
-          <li>Control panel for managing settings</li>
-          <li>Automatic rule persistence in learning mode</li>
+          <li>Rebranded from Douane to Bastion Firewall</li>
+          <li>Built specifically for Zorin OS 18</li>
+          <li>Independent tray icon with auto-connect</li>
+          <li>Visual status indicators (green/red/orange)</li>
+          <li>Security hardened (5-phase implementation)</li>
+          <li>UFW integration for complete protection</li>
+          <li>Production-ready and stable</li>
         </ul>
       </description>
     </release>
   </releases>
 </component>
 EOF
-chmod 644 debian/usr/share/metainfo/com.douane.firewall.metainfo.xml
+chmod 644 debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml
 
 # Copy documentation
 print_step "Copying documentation..."
-cp README.md debian/usr/share/doc/douane-firewall/
-cp PRODUCTION_GUIDE.md debian/usr/share/doc/douane-firewall/
-cp FAQ.md debian/usr/share/doc/douane-firewall/
-cp IMPLEMENTATION.md debian/usr/share/doc/douane-firewall/
-cp config.json debian/usr/share/doc/douane-firewall/config.json.example
+cp README.md debian/usr/share/doc/bastion-firewall/
+cp PRODUCTION_GUIDE.md debian/usr/share/doc/bastion-firewall/
+cp FAQ.md debian/usr/share/doc/bastion-firewall/
+cp IMPLEMENTATION.md debian/usr/share/doc/bastion-firewall/
+cp config.json debian/usr/share/doc/bastion-firewall/config.json.example
 
 # Create copyright file
-cat > debian/usr/share/doc/douane-firewall/copyright << 'EOF'
+cat > debian/usr/share/doc/bastion-firewall/copyright << 'EOF'
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: douane-firewall
+Upstream-Name: bastion-firewall
 Upstream-Contact: Martin <shipdocs@users.noreply.github.com>
-Source: https://github.com/shipdocs/Douane
+Source: https://github.com/bastion-firewall/bastion-firewall
 
 Files: *
 Copyright: 2024 Martin
@@ -203,49 +207,27 @@ License: GPL-3.0+
 EOF
 
 # Create changelog
-cat > debian/usr/share/doc/douane-firewall/changelog << 'EOF'
-douane-firewall (2.0.10) stable; urgency=high
+cat > debian/usr/share/doc/bastion-firewall/changelog << 'EOF'
+bastion-firewall (1.0.0) stable; urgency=medium
 
-  * Fix: Improved startup logic to prevent password prompt on boot
-  * Fix: Cleaner process shutdown logic
-  * Change: Updated to version 2.0.10
+  * 🏰 Initial release of Bastion Firewall
+  * Rebranded from Douane to Bastion Firewall
+  * Professional branding: "Your Last Line of Defense"
+  * Built specifically for Zorin OS 18
+  * Independent tray icon with auto-connect
+  * Visual status indicators (green/red/orange)
+  * Security hardened (5-phase implementation, score: 2/10 LOW RISK)
+  * UFW integration for complete firewall coverage
+  * Production-ready and stable
 
- -- Martin <shipdocs@users.noreply.github.com>  Sat, 21 Dec 2024 10:00:00 +0000
-
-douane-firewall (2.0.9) stable; urgency=high
-
-  * Fix: Decoupled UFW logic (Douane now manages filtering internally)
-  * Fix: Daemon now reloads configuration instantly on mode switch
-  * Change: UFW set to "Allow Outgoing" (Pass-through mode)
-
- -- Martin <shipdocs@users.noreply.github.com>  Sat, 20 Dec 2024 13:00:00 +0000
-
-douane-firewall (2.0.8) stable; urgency=high
-
-douane-firewall (2.0.7) stable; urgency=medium
-
-  * Systemd Integration: Migrated daemon management to strict systemd service
-  * Fix: Resolves issue with multiple daemon instances preventing Stop
-  * Fix: Improved Control Panel responsiveness and status accuracy
-  * NetfilterQueue integration for packet capture
-  * Enhanced GUI with timeout protection
-  * UFW integration for persistent rules
-  * Decision caching for performance
+ -- Martin <shipdocs@users.noreply.github.com>  Sat, 21 Dec 2024 14:00:00 +0000
   * Safe installation with rollback capability
   * Systemd service integration
   * Comprehensive documentation
 
- -- Martin <shipdocs@users.noreply.github.com>  Sun, 15 Dec 2024 12:00:00 +0000
-
-douane-firewall (1.0.0) stable; urgency=low
-
-  * Initial release with demo mode
-  * Basic GUI and UFW integration
-
- -- Martin <shipdocs@users.noreply.github.com>  Sat, 01 Dec 2024 12:00:00 +0000
 EOF
 
-gzip -9 debian/usr/share/doc/douane-firewall/changelog
+gzip -9 debian/usr/share/doc/bastion-firewall/changelog
 
 # Set permissions
 print_step "Setting permissions..."
@@ -267,23 +249,23 @@ fi
 
 # Build package
 print_step "Building package..."
-dpkg-deb --build debian "douane-firewall_${VERSION}_all.deb"
+dpkg-deb --build debian "bastion-firewall_${VERSION}_all.deb"
 
 # Check package
 print_step "Checking package..."
-dpkg-deb --info "douane-firewall_${VERSION}_all.deb"
+dpkg-deb --info "bastion-firewall_${VERSION}_all.deb"
 echo ""
-dpkg-deb --contents "douane-firewall_${VERSION}_all.deb"
+dpkg-deb --contents "bastion-firewall_${VERSION}_all.deb"
 
 echo ""
-print_info "Package built successfully: douane-firewall_${VERSION}_all.deb"
+print_info "Package built successfully: bastion-firewall_${VERSION}_all.deb"
 echo ""
 print_info "To install:"
-echo "  sudo dpkg -i douane-firewall_${VERSION}_all.deb"
+echo "  sudo dpkg -i bastion-firewall_${VERSION}_all.deb"
 echo "  sudo apt-get install -f  # Install dependencies if needed"
 echo ""
 print_info "To test:"
-echo "  dpkg-deb --contents douane-firewall_${VERSION}_all.deb"
-echo "  dpkg-deb --info douane-firewall_${VERSION}_all.deb"
+echo "  dpkg-deb --contents bastion-firewall_${VERSION}_all.deb"
+echo "  dpkg-deb --info bastion-firewall_${VERSION}_all.deb"
 echo ""
 

@@ -1,10 +1,10 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Douane Firewall
+Name=Bastion Firewall
 GenericName=Outbound Firewall
 Comment=Control which applications can access the network
-Exec=/usr/local/bin/douane-launch
+Exec=/usr/local/bin/bastion-launch
 Icon=security-high
 Terminal=false
 Categories=System;Security;Network;
@@ -15,5 +15,5 @@ Actions=Stop;
 
 [Desktop Action Stop]
 Name=Stop Firewall
-Exec=pkexec killall douane-daemon douane-gui-client
+Exec=pkexec killall bastion-daemon bastion-gui
 

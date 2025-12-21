@@ -4,7 +4,7 @@ import tempfile
 import json
 import shutil
 from pathlib import Path
-from douane.config import ConfigManager
+from bastion.config import ConfigManager
 
 class TestConfigManager(unittest.TestCase):
     def setUp(self):

@@ -19,7 +19,7 @@ class ConfigManager:
         'log_decisions': True
     }
     
-    CONFIG_PATH = Path('/etc/douane/config.json')
+    CONFIG_PATH = Path('/etc/bastion/config.json')
     
     @classmethod
     def load_config(cls) -> Dict[str, Any]:

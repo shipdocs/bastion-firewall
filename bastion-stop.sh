@@ -7,17 +7,17 @@ echo "============================================================"
 
 # Stop GUI client
 echo "Stopping GUI client..."
-pkill -f douane-gui-client 2>/dev/null
+pkill -f bastion-gui 2>/dev/null
 sleep 1
 
 # Stop daemon
 echo "Stopping daemon..."
-sudo pkill -f douane-daemon 2>/dev/null
+sudo pkill -f bastion-daemon 2>/dev/null
 sleep 1
 
 # Remove socket
 echo "Removing socket..."
-sudo rm -f /tmp/douane-daemon.sock
+sudo rm -f /tmp/bastion-daemon.sock
 
 # Remove iptables NFQUEUE rules (all of them)
 echo "Removing iptables rules..."

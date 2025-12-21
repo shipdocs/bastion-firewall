@@ -46,7 +46,7 @@ ssh -D 127.0.0.1:1080 localhost
 curl --socks5 127.0.0.1:1080 http://example.com
 ```
 
-**Expected Result:** ⚠️ Douane should prompt for the SSH connection to localhost
+**Expected Result:** ⚠️ Bastion should prompt for the SSH connection to localhost
 **Action:** This is CORRECT behavior - malware often uses SSH tunnels to bypass firewalls
 
 ---
