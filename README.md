@@ -578,6 +578,7 @@ Please feel free to submit a Pull Request or open an Issue.
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture with diagrams 🏗️
 - **[IMPLEMENTATION.md](IMPLEMENTATION.md)** - Technical implementation details 🔧
 - **[PACKAGING.md](PACKAGING.md)** - Build and distribute packages 📦
+- **[ROADMAP.md](ROADMAP.md)** - Future improvements and version planning 🗺️
 - **[FAQ.md](FAQ.md)** - Frequently asked questions ❓
 - **[RELEASE_NOTES.md](RELEASE_NOTES.md)** - What's new in v2.0.0 🎉
 
