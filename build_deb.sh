@@ -30,17 +30,21 @@ fi
 
 # Clean previous build
 print_step "Cleaning previous build..."
-rm -rf debian/usr/local/bin/*
+# Clean previous build
+print_step "Cleaning previous build..."
+rm -rf debian/usr/bin/*
 rm -rf debian/usr/lib/python3/dist-packages/douane
 rm -rf debian/usr/lib/python3/dist-packages/bastion
 rm -rf debian/usr/share/doc/douane-firewall
 rm -rf debian/usr/share/doc/bastion-firewall
+rm -rf debian/usr/share/applications/*
+rm -rf debian/usr/share/metainfo/*
 rm -rf debian/etc
 rm -f bastion-firewall_*.deb
 
 # Ensure directory structure exists
 print_step "Creating directory structure..."
-mkdir -p debian/usr/local/bin
+mkdir -p debian/usr/bin
 mkdir -p debian/usr/lib/python3/dist-packages/bastion
 mkdir -p debian/usr/share/doc/bastion-firewall
 mkdir -p debian/usr/share/applications
@@ -52,18 +56,18 @@ mkdir -p debian/DEBIAN
 
 # Copy executables
 print_step "Copying executables..."
-cp bastion_firewall.py debian/usr/local/bin/bastion-firewall
-cp setup_firewall.sh debian/usr/local/bin/bastion-setup-firewall
-cp bastion-daemon.py debian/usr/local/bin/bastion-daemon
-cp bastion-gui.py debian/usr/local/bin/bastion-gui
-cp bastion_control_panel.py debian/usr/local/bin/bastion-control-panel
-cp launch_bastion.sh debian/usr/local/bin/bastion-launch
-chmod +x debian/usr/local/bin/bastion-firewall
-chmod +x debian/usr/local/bin/bastion-setup-firewall
-chmod +x debian/usr/local/bin/bastion-daemon
-chmod +x debian/usr/local/bin/bastion-gui
-chmod +x debian/usr/local/bin/bastion-control-panel
-chmod +x debian/usr/local/bin/bastion-launch
+cp bastion_firewall.py debian/usr/bin/bastion-firewall
+cp setup_firewall.sh debian/usr/bin/bastion-setup-firewall
+cp bastion-daemon.py debian/usr/bin/bastion-daemon
+cp bastion-gui.py debian/usr/bin/bastion-gui
+cp bastion_control_panel.py debian/usr/bin/bastion-control-panel
+cp launch_bastion.sh debian/usr/bin/bastion-launch
+chmod +x debian/usr/bin/bastion-firewall
+chmod +x debian/usr/bin/bastion-setup-firewall
+chmod +x debian/usr/bin/bastion-daemon
+chmod +x debian/usr/bin/bastion-gui
+chmod +x debian/usr/bin/bastion-control-panel
+chmod +x debian/usr/bin/bastion-launch
 
 # Copy Python modules
 print_step "Copying Python modules..."
@@ -103,15 +107,13 @@ cp bastion-firewall.service debian/lib/systemd/system/
 
 # Copy desktop entries
 print_step "Copying desktop entries..."
-cp bastion-firewall.desktop debian/usr/share/applications/bastion-firewall.desktop
-chmod 644 debian/usr/share/applications/bastion-firewall.desktop
+cp com.bastion.firewall.desktop debian/usr/share/applications/com.bastion.firewall.desktop
+chmod 644 debian/usr/share/applications/com.bastion.firewall.desktop
 # Control panel desktop file
 cp bastion-control-panel.desktop debian/usr/share/applications/bastion-control-panel.desktop
 chmod 644 debian/usr/share/applications/bastion-control-panel.desktop
-# Tray icon autostart entry (both in applications and autostart)
-cp bastion-tray.desktop debian/usr/share/applications/bastion-tray.desktop
-chmod 644 debian/usr/share/applications/bastion-tray.desktop
-# Also install to autostart directory for automatic startup
+# Tray icon autostart entry (ONLY in autostart, NOT in applications menu)
+# This prevents Software Center from picking it up as the main app
 mkdir -p debian/etc/xdg/autostart
 cp bastion-tray.desktop debian/etc/xdg/autostart/bastion-tray.desktop
 chmod 644 debian/etc/xdg/autostart/bastion-tray.desktop
@@ -145,7 +147,7 @@ cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
       <li>Auto-start support with systemctl controls</li>
     </ul>
   </description>
-  <launchable type="desktop-id">bastion-firewall.desktop</launchable>
+  <launchable type="desktop-id">com.bastion.firewall.desktop</launchable>
   <icon type="stock">security-high</icon>
   <url type="homepage">https://github.com/shipdocs/bastion-firewall</url>
   <url type="bugtracker">https://github.com/shipdocs/bastion-firewall/issues</url>
@@ -160,7 +162,7 @@ cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
     <binary>bastion-gui</binary>
     <binary>bastion-control-panel</binary>
     <binary>bastion-firewall</binary>
-    <id>bastion-firewall.desktop</id>
+    <id>com.bastion.firewall.desktop</id>
   </provides>
   <recommends>
     <control>pointing</control>
@@ -244,11 +246,98 @@ EOF
 
 gzip -9 debian/usr/share/doc/bastion-firewall/changelog
 
+# Create postinst
+print_step "Creating postinst script..."
+cat > debian/DEBIAN/postinst << 'EOF'
+#!/bin/bash
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+print_success() { echo -e "${GREEN}✓ $1${NC}"; }
+print_error() { echo -e "${RED}✗ $1${NC}"; }
+
+# Create bastion user/group if they don't exist
+if ! getent group bastion >/dev/null; then
+    groupadd -r bastion
+fi
+if ! getent passwd bastion >/dev/null; then
+    useradd -r -g bastion -d /var/lib/bastion -s /usr/sbin/nologin -c "Bastion Firewall User" bastion
+fi
+
+# Set up configuration directory
+mkdir -p /etc/bastion
+if [ ! -f /etc/bastion/config.json ]; then
+    if [ -f /usr/share/doc/bastion-firewall/config.json.example ]; then
+        cp /usr/share/doc/bastion-firewall/config.json.example /etc/bastion/config.json
+    else
+        echo '{"log_level": "INFO", "rules_file": "/etc/bastion/rules.json"}' > /etc/bastion/config.json
+    fi
+    chmod 644 /etc/bastion/config.json
+fi
+
+# Set up rules file
+if [ ! -f /etc/bastion/rules.json ]; then
+    echo '{"applications": {}, "services": {}}' > /etc/bastion/rules.json
+    chmod 644 /etc/bastion/rules.json
+fi
+
+# Set permissions for logs
+mkdir -p /var/log/bastion
+chown -R bastion:bastion /var/log/bastion
+chmod 750 /var/log/bastion
+
+# Reload systemd
+systemctl daemon-reload
+if systemctl is-enabled bastion-firewall >/dev/null 2>&1; then
+    systemctl enable bastion-firewall
+fi
+
+# Update desktop database
+update-desktop-database || true
+
+# Autostart helpers
+if [ -d /home ]; then
+    for user_dir in /home/*; do
+        if [ -d "$user_dir/.config/autostart" ]; then
+            chown -R $(basename "$user_dir"):$(basename "$user_dir") "$user_dir/.config/autostart" 2>/dev/null || true
+        fi
+    done
+fi
+EOF
+
+# Create prerm
+print_step "Creating prerm script..."
+cat > debian/DEBIAN/prerm << 'EOF'
+#!/bin/bash
+set -e
+systemctl stop bastion-firewall || true
+systemctl disable bastion-firewall || true
+pkill -f bastion-gui || true
+pkill -f bastion-control-panel || true
+EOF
+
+# Create postrm
+print_step "Creating postrm script..."
+cat > debian/DEBIAN/postrm << 'EOF'
+#!/bin/bash
+set -e
+if [ "$1" = "purge" ]; then
+    rm -rf /etc/bastion
+    rm -rf /var/log/bastion
+    rm -rf /var/lib/bastion
+fi
+update-desktop-database || true
+EOF
+
 # Set permissions
 print_step "Setting permissions..."
 find debian/usr -type f -exec chmod 644 {} \;
 find debian/usr -type d -exec chmod 755 {} \;
-chmod +x debian/usr/local/bin/*
+chmod +x debian/usr/bin/*
 chmod +x debian/DEBIAN/postinst
 chmod +x debian/DEBIAN/prerm
 chmod +x debian/DEBIAN/postrm
@@ -264,7 +353,7 @@ fi
 
 # Build package
 print_step "Building package..."
-dpkg-deb --build debian "bastion-firewall_${VERSION}_all.deb"
+dpkg-deb --root-owner-group --build debian "bastion-firewall_${VERSION}_all.deb"
 
 # Check package
 print_step "Checking package..."

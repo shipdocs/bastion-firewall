@@ -200,9 +200,9 @@ if [ -S "/var/run/bastion.sock" ]; then
 fi
 
 # Remove binaries
-if ls /usr/local/bin/douane* >/dev/null 2>&1; then
-    print_info "Removing binaries from /usr/local/bin..."
-    rm -f /usr/local/bin/douane*
+if ls /usr/bin/douane* >/dev/null 2>&1; then
+    print_info "Removing binaries from /usr/bin..."
+    rm -f /usr/bin/douane*
     print_success "Binaries removed"
 fi
 
@@ -235,16 +235,20 @@ if [ -f "/usr/lib/systemd/system/bastion-firewall.service" ]; then
 fi
 
 # Remove desktop entries
-if ls /usr/share/applications/douane*.desktop >/dev/null 2>&1; then
     print_info "Removing desktop entries..."
     rm -f /usr/share/applications/douane*.desktop
+    rm -f /usr/share/applications/bastion-firewall.desktop
+    rm -f /usr/share/applications/com.bastion.firewall.desktop
+    rm -f /usr/share/applications/bastion-control-panel.desktop
+    rm -f /usr/share/applications/bastion-tray.desktop
     print_success "Desktop entries removed"
 fi
 
 # Remove autostart entries
-if ls /etc/xdg/autostart/douane*.desktop >/dev/null 2>&1; then
+if ls /etc/xdg/autostart/douane*.desktop >/dev/null 2>&1 || ls /etc/xdg/autostart/bastion*.desktop >/dev/null 2>&1; then
     print_info "Removing autostart entries..."
     rm -f /etc/xdg/autostart/douane*.desktop
+    rm -f /etc/xdg/autostart/bastion*.desktop
     print_success "Autostart entries removed"
 fi
 

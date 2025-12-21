@@ -34,7 +34,7 @@ except ImportError as e:
     logger.error(f"Failed to import bastion package: {e}")
     # Fallback to local import if installed differently
     try:
-        sys.path.append('/usr/local/lib/python3/dist-packages')
+        sys.path.append('/usr/lib/python3/dist-packages')
         from bastion.daemon import DouaneDaemon
     except ImportError:
         logger.critical("Could not load Douane modules")
