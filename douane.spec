@@ -1,5 +1,5 @@
 Name:           douane-firewall
-Version:        2.0.19
+Version:        2.0.20
 Release:        1%{?dist}
 Summary:        Application Firewall for Linux with GUI
 License:        GPLv3
@@ -231,6 +231,15 @@ if [ $1 -eq 0 ]; then
 fi
 
 %changelog
+* Sat Dec 21 2024 Martin <shipdocs@users.noreply.github.com> - 2.0.20-1
+- Independent tray icon with auto-connect and service controls
+- Tray icon now runs independently from daemon
+- Visual status indicators (green/red/orange)
+- Working Start/Restart/Stop controls via systemctl
+- Auto-start support via /etc/xdg/autostart/
+- Improved uninstaller to remove autostart entries
+- Tray icon stays visible even when daemon is stopped
+
 * Sat Dec 21 2024 Martin <shipdocs@users.noreply.github.com> - 2.0.19-1
 - Documentation improvements and project roadmap
 - Added CONTRIBUTING.md with developer guidelines
