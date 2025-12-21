@@ -1,5 +1,14 @@
 # Release Notes
 
+## v2.0.10 - Startup & Polish
+**Release Date:** 2025-12-21
+
+### 🐛 Bug Fixes
+- **Startup Race Condition Fix**: `douane-gui-client` now robustly waits for the systemd daemon to initialize on boot. This prevents the "Password Required" prompt that occurred when the GUI started before the daemon. 
+- **Process Cleanup**: Improved signal handling for cleaner shutdowns during system restart or service stops.
+
+---
+
 ## v2.0.9 - Universal Support & Decoupled Architecture
 **Release Date:** 2025-12-20
 

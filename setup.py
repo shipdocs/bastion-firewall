@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="douane-firewall",
-    version="2.0.9",
+    version="2.0.10",
     description="Application Firewall for Linux / Douane Application Firewall for Linux",
     author="Douane Team",
     packages=find_packages(),

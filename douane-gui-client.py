@@ -303,7 +303,8 @@ Enforcement Mode: Connections can be blocked
             print("Connected to daemon!")
             return True
         except Exception as e:
-            print(f"ERROR: Could not connect to daemon: {e}")
+            # make this less alarmist as we might retry
+            # print(f"ERROR: Could not connect to daemon: {e}") 
             return False
     
     def handle_requests(self):
@@ -392,13 +393,27 @@ Enforcement Mode: Connections can be blocked
         print("=" * 60)
         print("")
 
-        # Start daemon
-        if not self.start_daemon():
-            return False
-
-        # Connect to daemon
-        if not self.connect_to_daemon():
-            return False
+        # Try to connect to daemon first (it should be started by systemd)
+        # We try for 5 seconds to handle boot race conditions
+        print("Waiting for daemon socket...")
+        for i in range(10):
+            if os.path.exists(self.socket_path):
+                break
+            time.sleep(0.5)
+            
+        # Verify connection
+        if self.connect_to_daemon():
+            # Connected successfully
+            pass
+        else:
+            # Connection failed, try to start it manually (will ask for password)
+            print("Daemon not running, attempting to start...")
+            if not self.start_daemon():
+                return False
+                
+            # Try to connect again after starting
+            if not self.connect_to_daemon():
+                return False
 
         # Setup system tray
         self.setup_system_tray()

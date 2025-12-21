@@ -5,6 +5,8 @@
 
 set -e
 
+VERSION="2.0.10"
+
 # Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -195,6 +197,14 @@ EOF
 
 # Create changelog
 cat > debian/usr/share/doc/douane-firewall/changelog << 'EOF'
+douane-firewall (2.0.10) stable; urgency=high
+
+  * Fix: Improved startup logic to prevent password prompt on boot
+  * Fix: Cleaner process shutdown logic
+  * Change: Updated to version 2.0.10
+
+ -- Martin <shipdocs@users.noreply.github.com>  Sat, 21 Dec 2024 10:00:00 +0000
+
 douane-firewall (2.0.9) stable; urgency=high
 
   * Fix: Decoupled UFW logic (Douane now manages filtering internally)
@@ -250,23 +260,23 @@ fi
 
 # Build package
 print_step "Building package..."
-dpkg-deb --build debian douane-firewall_2.0.9_all.deb
+dpkg-deb --build debian "douane-firewall_${VERSION}_all.deb"
 
 # Check package
 print_step "Checking package..."
-dpkg-deb --info douane-firewall_2.0.9_all.deb
+dpkg-deb --info "douane-firewall_${VERSION}_all.deb"
 echo ""
-dpkg-deb --contents douane-firewall_2.0.9_all.deb
+dpkg-deb --contents "douane-firewall_${VERSION}_all.deb"
 
 echo ""
-print_info "Package built successfully: douane-firewall_2.0.9_all.deb"
+print_info "Package built successfully: douane-firewall_${VERSION}_all.deb"
 echo ""
 print_info "To install:"
-echo "  sudo dpkg -i douane-firewall_2.0.9_all.deb"
+echo "  sudo dpkg -i douane-firewall_${VERSION}_all.deb"
 echo "  sudo apt-get install -f  # Install dependencies if needed"
 echo ""
 print_info "To test:"
-echo "  dpkg-deb --contents douane-firewall_2.0.9_all.deb"
-echo "  dpkg-deb --info douane-firewall_2.0.9_all.deb"
+echo "  dpkg-deb --contents douane-firewall_${VERSION}_all.deb"
+echo "  dpkg-deb --info douane-firewall_${VERSION}_all.deb"
 echo ""
 
