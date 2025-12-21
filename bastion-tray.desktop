@@ -14,5 +14,6 @@ NoDisplay=true
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=5
 X-KDE-autostart-after=panel
-Hidden=false
+Hidden=true
+NotShowIn=GNOME;KDE;XFCE;MATE;
 
