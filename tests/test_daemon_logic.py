@@ -1,8 +1,8 @@
 
 import unittest
 from unittest.mock import MagicMock, patch
-from douane.daemon import DouaneDaemon, PacketInfo
-from douane.rules import RuleManager
+from bastion.daemon import DouaneDaemon, PacketInfo
+from bastion.rules import RuleManager
 
 class TestDaemonIntegration(unittest.TestCase):
     """
@@ -12,13 +12,13 @@ class TestDaemonIntegration(unittest.TestCase):
     
     def setUp(self):
         # Prevent actually loading config/rules from disk during test init
-        with patch('douane.config.ConfigManager.load_config', return_value={'mode': 'enforcement'}):
+        with patch('bastion.config.ConfigManager.load_config', return_value={'mode': 'enforcement'}):
             self.daemon = DouaneDaemon()
             # Reset rules for test
             self.daemon.rule_manager._rules = {}
             self.daemon.pending_requests = {}
         
-    @patch('douane.daemon.should_auto_allow')
+    @patch('bastion.daemon.should_auto_allow')
     def test_packet_blocking_logic(self, mock_auto_allow):
         """
         Critical Test: Ensure unknown packets are actually BLOCKED (return False) 
@@ -51,7 +51,7 @@ class TestDaemonIntegration(unittest.TestCase):
         # Verify it actually asked the GUI
         mock_socket.sendall.assert_called()
 
-    @patch('douane.daemon.should_auto_allow')
+    @patch('bastion.daemon.should_auto_allow')
     def test_packet_allow_logic(self, mock_auto_allow):
         """Test allowing a packet"""
         mock_auto_allow.return_value = (False, "")

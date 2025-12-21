@@ -7,9 +7,9 @@ echo "============================================================"
 
 # First, ensure everything is stopped
 echo "Ensuring clean state..."
-pkill -f douane-gui-client 2>/dev/null
-sudo pkill -f douane-daemon 2>/dev/null
-sudo rm -f /tmp/douane-daemon.sock
+pkill -f bastion-gui 2>/dev/null
+sudo pkill -f bastion-daemon 2>/dev/null
+sudo rm -f /tmp/bastion-daemon.sock
 sleep 1
 
 # Remove any leftover iptables rules
@@ -37,7 +37,7 @@ echo "Starting Douane Firewall GUI..."
 echo "(This will ask for your sudo password)"
 echo ""
 
-python3 /usr/local/bin/douane-gui-client &
+python3 /usr/local/bin/bastion-gui &
 GUI_PID=$!
 
 sleep 3
@@ -54,7 +54,7 @@ if ps -p $GUI_PID > /dev/null 2>&1; then
     echo "Try opening a browser or running: curl https://example.com"
     echo "You should see a popup asking for permission."
     echo ""
-    echo "To stop: ./douane-stop.sh"
+    echo "To stop: ./bastion-stop.sh"
     echo ""
 else
     echo ""

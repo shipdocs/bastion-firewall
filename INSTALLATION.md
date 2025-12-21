@@ -1,8 +1,8 @@
-# Douane Firewall - Clean Installation Guide
+# Bastion Firewall - Clean Installation Guide
 
 ## ✅ Package Installed Successfully
 
-The Douane Firewall package has been installed cleanly without breaking your internet connection!
+The Bastion Firewall package has been installed cleanly without breaking your internet connection!
 
 ## What Was Installed
 
@@ -29,7 +29,7 @@ The Douane Firewall package has been installed cleanly without breaking your int
 
 ### Option 1: From Application Menu
 1. Open your application menu
-2. Search for "Douane Firewall"
+2. Search for "Bastion Firewall"
 3. Click to launch
 
 ### Option 2: From Command Line

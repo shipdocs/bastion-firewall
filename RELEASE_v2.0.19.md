@@ -1,4 +1,4 @@
-# Release Notes - Douane Firewall v2.0.19
+# Release Notes - Bastion Firewall v2.0.19
 
 **Release Date**: December 21, 2024  
 **Type**: Documentation Release  
@@ -116,14 +116,14 @@ This is a **documentation-only release**. All functionality from v2.0.18 remains
 
 ### Debian/Ubuntu
 ```bash
-wget https://github.com/shipdocs/Douane-Application-firewall-for-Linux/releases/download/v2.0.19/douane-firewall_2.0.19_all.deb
+wget https://github.com/shipdocs/Bastion-Application-firewall-for-Linux/releases/download/v2.0.19/douane-firewall_2.0.19_all.deb
 sudo dpkg -i douane-firewall_2.0.19_all.deb
 sudo apt-get install -f  # Install dependencies if needed
 ```
 
 ### Fedora/RHEL
 ```bash
-wget https://github.com/shipdocs/Douane-Application-firewall-for-Linux/releases/download/v2.0.19/douane-firewall-2.0.19-1.noarch.rpm
+wget https://github.com/shipdocs/Bastion-Application-firewall-for-Linux/releases/download/v2.0.19/douane-firewall-2.0.19-1.noarch.rpm
 sudo dnf install douane-firewall-2.0.19-1.noarch.rpm
 ```
 
@@ -169,11 +169,11 @@ With the new documentation, contributing is easier than ever:
 
 ## 🔗 Links
 
-- **GitHub**: https://github.com/shipdocs/Douane-Application-firewall-for-Linux
+- **GitHub**: https://github.com/shipdocs/Bastion-Application-firewall-for-Linux
 - **Documentation**: See README.md for all documentation links
 - **Issues**: Contact maintainer at shipdocs@users.noreply.github.com
 
 ---
 
-**Thank you for using Douane Firewall!** 🚀
+**Thank you for using Bastion Firewall!** 🚀
 

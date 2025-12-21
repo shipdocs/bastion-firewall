@@ -1,19 +1,19 @@
-# Douane Firewall - Production Deployment Guide
+# Bastion Firewall - Production Deployment Guide
 
 ## Overview
 
-Douane Firewall is a production-ready outbound firewall for Linux that provides Windows-like network control. It intercepts all outbound connections and prompts users with GUI dialogs to allow or deny each connection.
+Bastion Firewall is a production-ready outbound firewall for Linux that provides Windows-like network control. It intercepts all outbound connections and prompts users with GUI dialogs to allow or deny each connection.
 
 ## What This Does
 
-**Before Douane:**
+**Before Bastion:**
 - Linux allows ALL outbound connections by default
 - Applications can connect to any server without your knowledge
 - No visibility into what's connecting where
 
-**After Douane:**
+**After Bastion:**
 - UFW configuration set to "Allow Outbound" (Pass-through)
-- Douane blocks unauthorized traffic internally
+- Bastion blocks unauthorized traffic internally
 - Every new outbound connection triggers a popup dialog
 - You decide which applications can access the network
 - Decisions are cached and can be made permanent
@@ -28,7 +28,7 @@ Application → Outbound Connection Attempt
                     ↓
             iptables NFQUEUE
                     ↓
-        Douane Firewall (Python)
+        Bastion Firewall (Python)
                     ↓
         Identify Application
                     ↓
@@ -74,8 +74,8 @@ Application → Outbound Connection Attempt
 
 ```bash
 # Clone the repository
-git clone https://github.com/shipdocs/Douane.git
-cd Douane
+git clone https://github.com/shipdocs/Bastion.git
+cd Bastion
 
 # Run installation script
 sudo ./install_douane.sh
@@ -318,7 +318,7 @@ sudo systemctl daemon-reload
 
 ## Support
 
-- GitHub Issues: https://github.com/shipdocs/Douane/issues
+- GitHub Issues: https://github.com/shipdocs/Bastion/issues
 - Documentation: See README.md, FAQ.md, IMPLEMENTATION.md
 
 ## License

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class RuleManager:
     """Manages firewall rules and decision caching"""
     
-    RULES_PATH = Path('/etc/douane/rules.json')
+    RULES_PATH = Path('/etc/bastion/rules.json')
     
     def __init__(self):
         self._rules: Dict[str, bool] = {}

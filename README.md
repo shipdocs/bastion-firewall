@@ -1,33 +1,40 @@
-<p align="center">
-  <a href="http://blog.zedroot.org/" target="_blank">
-    <img src="https://gitlab.com/zedtux/gpair/raw/master/media/developpeur_breton_logo.png" alt="Je suis un developpeyr Breton!"/>
-  </a>
-</p>
+# 🏰 Bastion Firewall
 
-# Douane Application Firewall for Linux
+**Your Last Line of Defense for Linux**
 
-**🔒 Take Control of Your Outbound Connections**
+Bastion is a **production-ready** application firewall built specifically for **Zorin OS 18** (and compatible with all Debian-based distributions). Like a medieval bastion protecting a fortress, Bastion stands guard over your system's network connections, giving you the same outbound connection control you had on Windows.
 
-Douane is a **production-ready** application firewall that gives Linux users the same outbound connection control they had on Windows. It intercepts **every** outbound connection attempt and lets you decide which applications can access the network.
+![Zorin OS](https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue) ![Debian](https://img.shields.io/badge/Debian%2FUbuntu-Supported-green) ![License](https://img.shields.io/badge/License-GPLv3-blue) ![Version](https://img.shields.io/badge/Version-1.0.0-brightgreen)
 
-![Debian](https://img.shields.io/badge/Debian%2FUbuntu-Supported-green) ![Fedora](https://img.shields.io/badge/Fedora%2FRHEL-Supported-blue) ![Generic](https://img.shields.io/badge/Generic%20Linux-Works-orange)
+---
 
-> **Latest Updates (v2.0.18 - Major Security Hardening & Critical Bug Fixes):**
-> - 🐛 **CRITICAL FIX: Internet Connectivity** - Fixed complete network failure after installation
-> - 🐛 **CRITICAL FIX: Daemon Startup** - Packet processor now starts immediately without waiting for GUI
-> - 🐛 **FIX: Popup Performance** - Removed 10-second delay, popups now instant ("supersnel!")
-> - 🐛 **FIX: Control Panel** - Buttons now visible, window enlarged to 1000x750
-> - 🔒 **CRITICAL: Localhost Bypass Fixed** - Prevents malware from using localhost tunnels to bypass firewall
-> - 🔒 **DHCP Hardening** - Validates DHCP destinations to prevent data exfiltration
-> - 🔒 **Application ID Security** - Fixed bypass via unidentified applications
-> - 🔒 **Name Spoofing Protection** - Prevents malware from impersonating trusted services
-> - 🔒 **Port Restrictions** - Trusted apps limited to expected ports (defense-in-depth)
-> - 🛡️ **NEW: Inbound Protection** - Detects and configures UFW for complete firewall coverage
-> - 📊 **Security Score Improved** - From 7.5/10 HIGH RISK → 2/10 LOW RISK
-> - ✅ **Backwards Compatible** - All existing rules continue to work
-> - ✅ **Fully Tested** - All functionality verified working (ping, curl, wget, browsers)
+## 🎯 **What is Bastion?**
+
+Bastion intercepts **every** outbound connection attempt and shows you a GUI dialog to decide which applications can access the network. No more silent data exfiltration, no more mystery connections.
+
+**Key Features:**
+- 🛡️ **Real-time Protection** - Intercepts all outbound connections
+- 🎨 **Beautiful GUI** - Windows-like permission dialogs
+- 🚦 **Visual Status** - Tray icon shows firewall status (🟢 running, 🔴 stopped, 🟠 connecting)
+- ⚙️ **Easy Control** - Start/Stop/Restart from tray menu
+- 🔒 **Security Hardened** - 5-phase security implementation
+- 📊 **Low Risk** - Security score: 2/10 (was 7.5/10)
+
+---
+
+> **Latest Release (v1.0.0 - Initial Bastion Release):**
+> - 🏰 **Rebranded** - Professional new identity: "Your Last Line of Defense"
+> - 🎯 **Zorin OS 18** - Built specifically for Zorin OS 18
+> - 🎨 **Independent Tray Icon** - Runs independently, auto-connects to daemon
+> - 🚦 **Visual Status** - Green (running), Red (stopped), Orange (connecting)
+> - ⚙️ **Working Controls** - Start/Stop/Restart via systemctl
+> - 🚀 **Auto-Start** - Tray icon starts automatically at login
+> - 🔒 **Security Hardened** - 5-phase security implementation (score: 2/10 LOW RISK)
+> - 🛡️ **UFW Integration** - Complete inbound + outbound protection
+> - 📚 **Comprehensive Docs** - ROADMAP, ARCHITECTURE, FAQ, and more
+> - ✅ **Production Ready** - Stable, tested, and ready for daily use
 >
-> See [RELEASE_NOTES.md](RELEASE_NOTES.md) for detailed improvements and fixes.
+> See [ROADMAP.md](ROADMAP.md) for future plans and [FAQ.md](FAQ.md) for common questions.
 
 ## 🎯 The Problem
 
@@ -35,7 +42,7 @@ Linux by default **allows ALL outbound connections**. Any application can connec
 
 ## ✅ The Solution
 
-Douane Firewall:
+Bastion Firewall:
 - **Blocks unapproved connections** (via internal engine)
 - **Intercepts packets in real-time** using netfilter/iptables
 - **Shows GUI popups** for each new connection attempt
@@ -70,7 +77,7 @@ Douane Firewall:
 ### Smart Rule Management
 - **Per-application + port rules** - Firefox:443 allows all HTTPS, Firefox:80 separate for HTTP
 - **Persistent storage** - Rules automatically saved to `/etc/douane/rules.json`
-- **Decoupled Architecture** - Douane manages filtering internally; UFW is set to "Allow Outbound" to prevent conflicts
+- **Decoupled Architecture** - Bastion manages filtering internally; UFW is set to "Allow Outbound" to prevent conflicts
 - **Decision caching** - Avoid repeated prompts for known connections
 - **Learning mode** - Shows popups but always allows (safe for testing, rules are saved)
 - **Enforcement mode** - Actually blocks based on decisions
@@ -167,8 +174,8 @@ sudo apt-get install -y python3 python3-pip iptables gir1.2-ayatanaappindicator3
 
 ```bash
 # Clone the repository
-git clone https://github.com/shipdocs/Douane.git
-cd Douane
+git clone https://github.com/shipdocs/Bastion.git
+cd Bastion
 
 # Build the package
 ./build_deb.sh
@@ -190,7 +197,7 @@ The package installs:
 
 ### Method 2: RPM Package (Fedora/RHEL/CentOS)
 
-1. Download the latest `.rpm` from the [Releases Page](https://github.com/shipdocs/Douane/releases).
+1. Download the latest `.rpm` from the [Releases Page](https://github.com/shipdocs/Bastion/releases).
 2. Install with dnf/rpm:
 ```bash
 sudo dnf install ./douane-firewall-2.0.15-1.noarch.rpm
@@ -200,8 +207,8 @@ sudo dnf install ./douane-firewall-2.0.15-1.noarch.rpm
 
 ```bash
 # Clone the repository
-git clone https://github.com/shipdocs/Douane.git
-cd Douane
+git clone https://github.com/shipdocs/Bastion.git
+cd Bastion
 
 # Build the Debian package
 ./build_deb.sh
@@ -262,7 +269,7 @@ sudo python3 douane_firewall.py
 ### Starting the Firewall
 
 **From Application Menu:**
-1. Search for "Douane Firewall" in your application menu
+1. Search for "Bastion Firewall" in your application menu
 2. Click to launch
 3. Enter your password when prompted (pkexec)
 4. System tray icon appears (green shield)
@@ -275,7 +282,7 @@ sudo python3 douane_firewall.py
 ```
 
 **Open Control Panel:**
-1. Search for "Douane Control Panel" in application menu, OR
+1. Search for "Bastion Control Panel" in application menu, OR
 2. Right-click system tray icon → "Control Panel"
 
 ### Using the Control Panel
@@ -376,7 +383,7 @@ pkill -TERM -f douane-gui-client
 1. **Application tries to connect** → Creates outbound packet
 2. **Linux network stack** → Packet enters OUTPUT chain
 3. **iptables NFQUEUE** → Packet queued to userspace (queue #1)
-4. **Douane Firewall receives packet** → Via NetfilterQueue
+4. **Bastion Firewall receives packet** → Via NetfilterQueue
 5. **Parse packet** → Extract IP, port, protocol using scapy
 6. **Identify application** → Match socket to process via /proc
 7. **Check rules**:
@@ -632,7 +639,7 @@ sudo pkill -TERM -f douane-gui-client
 sudo tail -f /var/log/douane-daemon.log
 ```
 
-**Note:** The NFQUEUE rule can be removed if UFW is reloaded. If this happens frequently, restart the Douane firewall after any UFW changes.
+**Note:** The NFQUEUE rule can be removed if UFW is reloaded. If this happens frequently, restart the Bastion firewall after any UFW changes.
 
 ### Permission Errors in Control Panel
 
@@ -670,7 +677,7 @@ sudo iptables -L OUTPUT -v -n | grep NFQUEUE
 
 # Check UFW rules (optional cleanup)
 sudo ufw status numbered
-# Delete any Douane-related rules if needed
+# Delete any Bastion-related rules if needed
 ```
 
 The package's `postrm` script automatically:
@@ -684,13 +691,13 @@ See LICENSE file for details.
 
 ## 🔗 Links
 
-- **GitHub**: https://github.com/shipdocs/Douane
-- **Original project**: [GitLab](https://gitlab.com/douaneapp/Douane)
-- **Issues**: https://github.com/shipdocs/Douane/issues
+- **GitHub**: https://github.com/shipdocs/Bastion
+- **Original project**: [GitLab](https://gitlab.com/douaneapp/Bastion)
+- **Issues**: https://github.com/shipdocs/Bastion/issues
 
 ## ⭐ Star This Project
 
-If you find Douane Firewall useful, please star this repository to help others discover it!
+If you find Bastion Firewall useful, please star this repository to help others discover it!
 
 ---
 

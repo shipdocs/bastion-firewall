@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Bastion Control Panel
+GenericName=Firewall Control Panel
+Comment=Manage Bastion Firewall settings and rules
+Exec=python3 /usr/local/bin/bastion-control-panel
+Icon=preferences-system-network
+Terminal=false
+Categories=System;Security;Network;Settings;
+Keywords=firewall;security;network;settings;control;
+StartupNotify=true
+

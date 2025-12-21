@@ -60,11 +60,11 @@ ufw reload
 
 # Step 3: Update Douane config to enforcement mode
 print_info "Updating Douane config to enforcement mode..."
-if [ -f /etc/douane/config.json ]; then
+if [ -f /etc/bastion/config.json ]; then
     # Use Python to update JSON properly
     python3 << 'PYTHON_EOF'
 import json
-config_file = '/etc/douane/config.json'
+config_file = '/etc/bastion/config.json'
 with open(config_file, 'r') as f:
     config = json.load(f)
 config['mode'] = 'enforcement'
@@ -73,7 +73,7 @@ with open(config_file, 'w') as f:
 print("✓ Config updated to enforcement mode")
 PYTHON_EOF
 else
-    print_warning "Config file not found at /etc/douane/config.json"
+    print_warning "Config file not found at /etc/bastion/config.json"
 fi
 
 # Step 4: Show current status
@@ -88,7 +88,7 @@ iptables -L OUTPUT -n -v --line-numbers | head -12
 echo ""
 print_warning "IMPORTANT: Make sure Douane daemon is running!"
 print_info "The NFQUEUE rule should be at position 1 in OUTPUT chain"
-print_info "If not, start Douane: /usr/local/bin/douane-gui-client"
+print_info "If not, start Douane: /usr/local/bin/bastion-gui"
 
 echo ""
 print_info "Setup complete!"
