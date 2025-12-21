@@ -146,14 +146,28 @@ cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
     </ul>
   </description>
   <launchable type="desktop-id">bastion-firewall.desktop</launchable>
-  <url type="homepage">https://github.com/bastion-firewall/bastion-firewall</url>
-  <url type="bugtracker">https://github.com/bastion-firewall/bastion-firewall/issues</url>
-  <url type="help">https://github.com/bastion-firewall/bastion-firewall/blob/master/FAQ.md</url>
+  <icon type="stock">security-high</icon>
+  <url type="homepage">https://github.com/shipdocs/bastion-firewall</url>
+  <url type="bugtracker">https://github.com/shipdocs/bastion-firewall/issues</url>
+  <url type="help">https://github.com/shipdocs/bastion-firewall/blob/master/FAQ.md</url>
   <developer id="com.bastion">
     <name>Martin</name>
   </developer>
   <update_contact>shipdocs@users.noreply.github.com</update_contact>
   <content_rating type="oars-1.1" />
+  <provides>
+    <binary>bastion-daemon</binary>
+    <binary>bastion-gui</binary>
+    <binary>bastion-control-panel</binary>
+    <binary>bastion-firewall</binary>
+  </provides>
+  <recommends>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </recommends>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
   <categories>
     <category>System</category>
     <category>Security</category>
