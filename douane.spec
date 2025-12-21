@@ -1,5 +1,5 @@
 Name:           douane-firewall
-Version:        2.0.18
+Version:        2.0.19
 Release:        1%{?dist}
 Summary:        Application Firewall for Linux with GUI
 License:        GPLv3
@@ -217,6 +217,14 @@ if [ $1 -eq 0 ]; then
 fi
 
 %changelog
+* Sat Dec 21 2024 Martin <shipdocs@users.noreply.github.com> - 2.0.19-1
+- Documentation improvements and project roadmap
+- Added CONTRIBUTING.md with developer guidelines
+- Added ARCHITECTURE.md with Mermaid diagrams
+- Added ROADMAP.md with future planning
+- Improved README organization
+- Project score improved from 8.5/10 to 9.0/10
+
 * Sat Dec 21 2024 Martin <shipdocs@users.noreply.github.com> - 2.0.18-1
 - Major security hardening and critical bug fixes
 - Fixed internet connectivity failure after installation
