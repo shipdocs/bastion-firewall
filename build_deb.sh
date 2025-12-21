@@ -105,6 +105,13 @@ cp douane-firewall.desktop debian/usr/share/applications/douane-firewall.desktop
 chmod 644 debian/usr/share/applications/douane-firewall.desktop
 # Control panel desktop file already exists in debian/usr/share/applications/
 chmod 644 debian/usr/share/applications/douane-control-panel.desktop
+# Tray icon autostart entry (both in applications and autostart)
+cp douane-tray.desktop debian/usr/share/applications/douane-tray.desktop
+chmod 644 debian/usr/share/applications/douane-tray.desktop
+# Also install to autostart directory for automatic startup
+mkdir -p debian/etc/xdg/autostart
+cp douane-tray.desktop debian/etc/xdg/autostart/douane-tray.desktop
+chmod 644 debian/etc/xdg/autostart/douane-tray.desktop
 
 # Create AppStream metadata for Software Center
 print_step "Creating AppStream metadata..."

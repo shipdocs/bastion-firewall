@@ -68,6 +68,11 @@ install -m 644 douane-firewall.service $RPM_BUILD_ROOT/lib/systemd/system/
 # Install Desktop files
 install -m 644 douane-firewall.desktop $RPM_BUILD_ROOT/usr/share/applications/
 install -m 644 douane-control-panel.desktop $RPM_BUILD_ROOT/usr/share/applications/
+install -m 644 douane-tray.desktop $RPM_BUILD_ROOT/usr/share/applications/
+
+# Install autostart entry for tray icon
+mkdir -p $RPM_BUILD_ROOT/etc/xdg/autostart
+install -m 644 douane-tray.desktop $RPM_BUILD_ROOT/etc/xdg/autostart/
 
 %files
 /usr/local/bin/douane-firewall
@@ -81,6 +86,8 @@ install -m 644 douane-control-panel.desktop $RPM_BUILD_ROOT/usr/share/applicatio
 /lib/systemd/system/douane-firewall.service
 /usr/share/applications/douane-firewall.desktop
 /usr/share/applications/douane-control-panel.desktop
+/usr/share/applications/douane-tray.desktop
+/etc/xdg/autostart/douane-tray.desktop
 /usr/share/metainfo/com.douane.firewall.metainfo.xml
 /usr/share/polkit-1/actions/com.douane.daemon.policy
 %doc /usr/share/doc/douane-firewall/
@@ -197,6 +204,13 @@ if [ $1 -eq 0 ]; then
         rm -f /var/log/douane-daemon.log
         echo "✓ Log files removed"
     fi
+
+    # Remove autostart entries from user directories
+    for user_home in /home/*; do
+        if [ -d "$user_home/.config/autostart" ]; then
+            rm -f "$user_home/.config/autostart/douane"*.desktop 2>/dev/null || true
+        fi
+    done
 
     # Reload systemd
     systemctl daemon-reload 2>/dev/null || true
