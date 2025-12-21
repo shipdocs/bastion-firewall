@@ -1,10 +1,10 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Douane Firewall Tray Icon
+Name=Bastion Firewall Tray Icon
 GenericName=Firewall Tray Icon
-Comment=System tray icon for Douane Firewall - shows status and provides quick controls
-Exec=/usr/local/bin/douane-gui-client
+Comment=System tray icon for Bastion Firewall - shows status and provides quick controls
+Exec=/usr/local/bin/bastion-gui
 Icon=security-high
 Terminal=false
 Categories=System;Security;Network;

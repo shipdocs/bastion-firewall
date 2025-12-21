@@ -2,7 +2,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="douane-firewall",
+    name="bastion-firewall",
     version="2.0.18",
     description="Application Firewall for Linux / Douane Application Firewall for Linux",
     author="Douane Team",
@@ -14,20 +14,20 @@ setup(
         "scapy>=2.5.0",
     ],
     scripts=[
-        "douane-daemon.py",
-        "douane-gui-client.py", 
-        "douane_control_panel.py"
+        "bastion-daemon.py",
+        "bastion-gui.py", 
+        "bastion_control_panel.py"
     ],
     entry_points={
         'console_scripts': [
-            'douane-daemon=douane_daemon:main',
+            'bastion-daemon=douane_daemon:main',
             'douane-gui=douane_gui_client:main',
-            'douane-control-panel=douane_control_panel:main',
+            'bastion-control-panel=bastion_control_panel:main',
         ],
     },
     data_files=[
-        ('/etc/douane', ['config.json']),
-        ('/usr/share/applications', ['douane-firewall.desktop']),
+        ('/etc/bastion', ['config.json']),
+        ('/usr/share/applications', ['bastion-firewall.desktop']),
     ],
     classifiers=[
         "Programming Language :: Python :: 3",

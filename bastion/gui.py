@@ -411,7 +411,7 @@ class RuleManagerGUI:
 
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Douane Firewall - Rule Manager")
+        self.root.title("Bastion Firewall - Rule Manager")
         self.root.geometry("800x600")
 
         # Main frame

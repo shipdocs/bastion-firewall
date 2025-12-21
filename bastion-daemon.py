@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Douane Firewall Daemon - Entry Point
+Bastion Firewall Daemon - Entry Point
 """
 
 import sys
@@ -22,20 +22,20 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/var/log/douane-daemon.log'),
+        logging.FileHandler('/var/log/bastion-daemon.log'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger("douane-entry")
 
 try:
-    from douane.daemon import DouaneDaemon
+    from bastion.daemon import DouaneDaemon
 except ImportError as e:
-    logger.error(f"Failed to import douane package: {e}")
+    logger.error(f"Failed to import bastion package: {e}")
     # Fallback to local import if installed differently
     try:
         sys.path.append('/usr/local/lib/python3/dist-packages')
-        from douane.daemon import DouaneDaemon
+        from bastion.daemon import DouaneDaemon
     except ImportError:
         logger.critical("Could not load Douane modules")
         sys.exit(1)

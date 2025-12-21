@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class DouaneDaemon:
     """Core Daemon Logic"""
     
-    SOCKET_PATH = '/tmp/douane-daemon.sock'
+    SOCKET_PATH = '/tmp/bastion-daemon.sock'
     
     def __init__(self):
         self.config = ConfigManager.load_config()
@@ -253,7 +253,7 @@ class DouaneDaemon:
             # This prevents breaking the system when GUI is not running
             if not learning_mode:
                 # Check if this is a critical system service that should always work
-                from douane.service_whitelist import is_critical_system_service
+                from bastion.service_whitelist import is_critical_system_service
                 if is_critical_system_service(app_name, app_path, pkt_info.dest_port):
                     logger.info(f"Auto-allowing critical system service without GUI: {app_name}")
                     self.stats['allowed_connections'] += 1

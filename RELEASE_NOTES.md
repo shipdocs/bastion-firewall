@@ -74,7 +74,7 @@
 - **Configuration**: Sets up stateful firewall rules:
   - ✅ DENY all NEW inbound connections (blocks port scans, attacks)
   - ✅ ALLOW ESTABLISHED/RELATED (responses to your outbound requests)
-  - ✅ ALLOW all outbound (Douane controls this)
+  - ✅ ALLOW all outbound (Bastion controls this)
 - **User Impact**: Optional - only activated if user clicks "Install & Configure UFW"
 
 ### 📊 Security Improvement Summary
@@ -91,8 +91,8 @@
 ### 🎯 Comparison with Standard Linux
 
 - **Standard Linux (UFW default)**: 100% open outbound, basic inbound rules
-- **Douane v2.0.17**: Outbound filtering with some security holes
-- **Douane v2.0.18**: Hardened outbound filtering + optional inbound protection = **Complete firewall solution**
+- **Bastion v2.0.17**: Outbound filtering with some security holes
+- **Bastion v2.0.18**: Hardened outbound filtering + optional inbound protection = **Complete firewall solution**
 
 ### ✅ Test Results
 
@@ -188,8 +188,8 @@ See `douane/gui.py` for popup performance improvements.
 **Release Date:** 2025-12-20
 
 ### 🌍 Universal Linux Support
-- **Decoupled Architecture**: Douane no longer messes with your system firewall rules.
-- **Pass-Through Logic**: UFW/Firewalld are set to "Allow Outbound", and Douane handles filtering internally via NFQUEUE.
+- **Decoupled Architecture**: Bastion no longer messes with your system firewall rules.
+- **Pass-Through Logic**: UFW/Firewalld are set to "Allow Outbound", and Bastion handles filtering internally via NFQUEUE.
 - **Multi-Distro Support**: Added installation scripts and docs for Fedora, RHEL, CentOS, and Arch Linux.
 - **RPM Packaging**: Added `build_rpm.sh` and `douane.spec` used by CI/CD.
 
@@ -216,14 +216,14 @@ See `douane/gui.py` for popup performance improvements.
 - **Visual feedback** for all firewall operations
 - **Start Firewall Dialog** (350x150):
   - Animated progress bar
-  - "Starting Douane Firewall..." message
+  - "Starting Bastion Firewall..." message
   - Verifies daemon is running
   - Shows "✓ Firewall started successfully!"
   - Auto-closes after 1.5 seconds
 - **Stop Firewall Dialog** (350x150):
   - Warning: "Your system will be unprotected"
   - Animated progress bar
-  - "Stopping Douane Firewall..." message
+  - "Stopping Bastion Firewall..." message
   - Shows "✓ Firewall stopped"
   - Auto-closes after 1.5 seconds
 - **Restart Firewall Dialog** (400x200):
@@ -334,7 +334,7 @@ If upgrading from v1.x:
 
 ### 🙏 Credits
 
-- Original Douane project by Guillaume Hain
+- Original Bastion project by Guillaume Hain
 - Modernization and v2.0 features by Martin (shipdocs)
 - Community feedback and testing
 

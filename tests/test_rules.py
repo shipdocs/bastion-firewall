@@ -4,7 +4,7 @@ import json
 import tempfile
 import shutil
 from pathlib import Path
-from douane.rules import RuleManager
+from bastion.rules import RuleManager
 
 class TestRuleManager(unittest.TestCase):
     def setUp(self):

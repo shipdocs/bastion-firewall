@@ -1,6 +1,6 @@
-# Contributing to Douane Firewall
+# Contributing to Bastion Firewall
 
-Thank you for your interest in contributing to Douane Firewall! This document provides guidelines and information for developers who want to contribute to the project.
+Thank you for your interest in contributing to Bastion Firewall! This document provides guidelines and information for developers who want to contribute to the project.
 
 ## Table of Contents
 
@@ -24,8 +24,8 @@ Thank you for your interest in contributing to Douane Firewall! This document pr
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/shipdocs/Douane-Application-firewall-for-Linux.git
-   cd Douane-Application-firewall-for-Linux
+   git clone https://github.com/shipdocs/Bastion-Application-firewall-for-Linux.git
+   cd Bastion-Application-firewall-for-Linux
    ```
 
 2. **Install dependencies:**
@@ -59,11 +59,11 @@ Thank you for your interest in contributing to Douane Firewall! This document pr
 
 ## Architecture Overview
 
-Douane follows a **client-server architecture** with privilege separation:
+Bastion follows a **client-server architecture** with privilege separation:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Douane Architecture                      │
+│                     Bastion Architecture                      │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  ┌──────────────────┐         ┌──────────────────┐         │
@@ -381,11 +381,11 @@ We use **Semantic Versioning** (MAJOR.MINOR.PATCH):
 
 ## License
 
-By contributing to Douane Firewall, you agree that your contributions will be licensed under the GPLv3 license.
+By contributing to Bastion Firewall, you agree that your contributions will be licensed under the GPLv3 license.
 
 ---
 
-Thank you for contributing to Douane Firewall! 🚀
+Thank you for contributing to Bastion Firewall! 🚀
             - src_ip: Source IP address
             - dest_ip: Destination IP address
             - dest_port: Destination port

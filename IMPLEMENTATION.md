@@ -29,7 +29,7 @@ Linux by default allows all outbound connections, which can be a security risk. 
 2. **UFW Coexistence**
    - UFW handles Inbound traffic
    - UFW set to "Allow Outbound" (Pass-through)
-   - Douane handles Outbound filtering via NFQUEUE
+   - Bastion handles Outbound filtering via NFQUEUE
 
 4. **GUI System**
    - Tkinter-based popup dialogs

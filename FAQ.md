@@ -1,14 +1,14 @@
-# Douane Application Firewall for Linux - Frequently Asked Questions
+# Bastion Application Firewall for Linux - Frequently Asked Questions
 
 ## General Questions
 
 ### What is this tool?
 
-Douane Application Firewall is a production-ready outbound firewall for Linux that gives you Windows-like control over which applications can access the network. It monitors all outbound network connections and shows GUI popups allowing you to interactively allow or deny them. It uses a robust internal rule engine to store your decisions reliably.
+Bastion Application Firewall is a production-ready outbound firewall for Linux that gives you Windows-like control over which applications can access the network. It monitors all outbound network connections and shows GUI popups allowing you to interactively allow or deny them. It uses a robust internal rule engine to store your decisions reliably.
 
-### How is this different from the original Douane?
+### How is this different from the original Bastion?
 
-The original Douane project has moved to GitLab (https://gitlab.com/douaneapp/Douane). This is a modernized implementation with:
+The original Bastion project has moved to GitLab (https://gitlab.com/douaneapp/Bastion). This is a modernized implementation with:
 - Internal persistent rule storage (Decoupled from UFW)
 - Enhanced GUI with control panel
 - Automatic rule persistence (even in learning mode)
@@ -64,7 +64,7 @@ No, this tool requires a display server (X11 or Wayland) because it shows GUI di
 ### How do I start the application?
 
 **From Application Menu (Recommended):**
-1. Search for "Douane Firewall" in your application menu
+1. Search for "Bastion Firewall" in your application menu
 2. Click to launch
 3. Enter password when prompted (uses pkexec for GUI password dialog)
 4. System tray icon appears - firewall is active!
@@ -79,7 +79,7 @@ The application runs in the background with a system tray icon and shows popups 
 ### How do I open the Control Panel?
 
 **From Application Menu:**
-- Search for "Douane Control Panel"
+- Search for "Bastion Control Panel"
 
 **From System Tray:**
 - Right-click the tray icon → "Control Panel"
@@ -141,7 +141,7 @@ In Enforcement Mode: Connection is blocked immediately.
 
 **Via Command Line:**
 ```bash
-# View Douane rules
+# View Bastion rules
 cat /etc/douane/rules.json
 ```
 
@@ -154,7 +154,7 @@ cat /etc/douane/rules.json
 
 **Via Command Line:**
 ```bash
-# Remove from Douane
+# Remove from Bastion
 # Edit /etc/douane/rules.json and remove the line
 
 # Remove from UFW (if in Enforcement mode)

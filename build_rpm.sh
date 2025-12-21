@@ -2,7 +2,7 @@
 set -e
 
 VERSION="2.0.12"
-NAME="douane-firewall"
+NAME="bastion-firewall"
 BUILD_DIR="rpmbuild"
 
 echo "Building RPM package version $VERSION..."
@@ -17,8 +17,8 @@ echo "Creating source tarball..."
 TEMP_DIR="${NAME}-${VERSION}"
 mkdir -p "$TEMP_DIR"
 cp -r douane "$TEMP_DIR/"
-cp douane-firewall douane-daemon douane-gui-client douane-control-panel douane-setup-firewall "$TEMP_DIR/"
-cp config.json douane-firewall.service douane-firewall.desktop douane-control-panel.desktop "$TEMP_DIR/"
+cp bastion-firewall bastion-daemon bastion-gui bastion-control-panel bastion-setup-firewall "$TEMP_DIR/"
+cp config.json bastion-firewall.service bastion-firewall.desktop bastion-control-panel.desktop "$TEMP_DIR/"
 
 tar -czf "$BUILD_DIR/SOURCES/${NAME}-${VERSION}.tar.gz" "$TEMP_DIR"
 rm -rf "$TEMP_DIR"

@@ -1,6 +1,6 @@
 # GitHub Pages Setup Guide
 
-This guide will help you deploy the Douane Firewall website to GitHub Pages.
+This guide will help you deploy the Bastion Firewall website to GitHub Pages.
 
 ## Files Created
 
@@ -27,7 +27,7 @@ git push origin master
 
 ### 2. Enable GitHub Pages
 
-1. Go to your repository on GitHub: https://github.com/shipdocs/Douane-Application-firewall-for-Linux
+1. Go to your repository on GitHub: https://github.com/shipdocs/Bastion-Application-firewall-for-Linux
 2. Click on **Settings** (top right)
 3. Scroll down to **Pages** in the left sidebar
 4. Under **Source**, select:
@@ -43,7 +43,7 @@ GitHub will automatically build and deploy your site. This usually takes 1-2 min
 
 Your site will be available at:
 ```
-https://shipdocs.github.io/Douane-Application-firewall-for-Linux/
+https://shipdocs.github.io/Bastion-Application-firewall-for-Linux/
 ```
 
 ## Features of the Site
@@ -56,7 +56,7 @@ https://shipdocs.github.io/Douane-Application-firewall-for-Linux/
 
 ### Sections Included
 1. **Hero Section** - Eye-catching introduction with call-to-action buttons
-2. **Problem/Solution** - Clear explanation of what Douane solves
+2. **Problem/Solution** - Clear explanation of what Bastion solves
 3. **Features** - Grid of production-ready features
 4. **Architecture** - Visual representation of the two-process design
 5. **Installation** - Quick installation guides with code blocks
@@ -78,7 +78,7 @@ https://shipdocs.github.io/Douane-Application-firewall-for-Linux/
 ### Update Repository Links
 All GitHub links have been updated to point to:
 ```
-https://github.com/shipdocs/Douane-Application-firewall-for-Linux
+https://github.com/shipdocs/Bastion-Application-firewall-for-Linux
 ```
 
 ### Add Screenshots (Optional)
@@ -158,6 +158,6 @@ For issues with the website:
 - Verify all files are committed and pushed
 - Ensure GitHub Pages is enabled in repository settings
 
-For issues with Douane Firewall itself:
-- Visit: https://github.com/shipdocs/Douane-Application-firewall-for-Linux/issues
+For issues with Bastion Firewall itself:
+- Visit: https://github.com/shipdocs/Bastion-Application-firewall-for-Linux/issues
 
