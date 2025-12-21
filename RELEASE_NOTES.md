@@ -1,5 +1,14 @@
 # Release Notes
 
+## v2.0.12 - Tray Icon Persistence
+**Release Date:** 2025-12-21
+
+### ✨ Improvements
+- **Persistent Tray Icon**: The system tray icon now remains visible even when the firewall service is stopped. It will switch to a "Disconnected" state (red icon) but won't crash or disappear. This makes it easier to restart the firewall from the tray menu.
+- **Smarter Control Panel**: The Control Panel no longer kills the GUI client when stopping the firewall, ensuring your monitoring context is preserved.
+
+---
+
 ## v2.0.11 - Control Panel Polish
 **Release Date:** 2025-12-21
 
