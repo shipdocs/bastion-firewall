@@ -27,4 +27,4 @@ Description: 🏰 Your Last Line of Defense - Application Firewall for Linux
  .
  The installer will guide you through the setup process and can automatically
  configure UFW and start the firewall service.
-Homepage: https://github.com/bastion-firewall/bastion-firewall
+Homepage: https://github.com/shipdocs/bastion-firewall
