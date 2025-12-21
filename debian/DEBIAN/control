@@ -1,5 +1,5 @@
 Package: douane-firewall
-Version: 2.0.11
+Version: 2.0.12
 Section: net
 Priority: optional
 Architecture: all
