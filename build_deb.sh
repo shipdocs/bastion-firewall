@@ -125,7 +125,7 @@ cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0+</project_license>
   <name>Bastion Firewall</name>
-  <summary>Your Last Line of Defense - Application Firewall for Linux</summary>
+  <summary>Application Firewall - Control which applications can access the network</summary>
   <description>
     <p>
       🏰 Bastion Firewall is an outbound application firewall built specifically for Zorin OS 18
@@ -160,6 +160,7 @@ cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
     <binary>bastion-gui</binary>
     <binary>bastion-control-panel</binary>
     <binary>bastion-firewall</binary>
+    <id>bastion-firewall.desktop</id>
   </provides>
   <recommends>
     <control>pointing</control>
