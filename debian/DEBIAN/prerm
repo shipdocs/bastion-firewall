@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Pre-removal script for Douane Firewall
+# Pre-removal script for Bastion Firewall
 # This runs BEFORE package files are removed
 #
 
@@ -8,29 +8,28 @@ set -e
 
 echo ""
 echo "============================================================"
-echo "Douane Firewall - Pre-Removal"
+echo "🏰 Bastion Firewall - Pre-Removal"
 echo "============================================================"
 echo ""
 
 # Stop and disable the service
-if systemctl is-active --quiet douane-firewall 2>/dev/null; then
-    echo "Stopping douane-firewall service..."
-    systemctl stop douane-firewall 2>/dev/null || true
+if systemctl is-active --quiet bastion-firewall 2>/dev/null; then
+    echo "Stopping bastion-firewall service..."
+    systemctl stop bastion-firewall 2>/dev/null || true
     echo "✓ Service stopped"
 fi
 
-if systemctl is-enabled --quiet douane-firewall 2>/dev/null; then
-    echo "Disabling douane-firewall service..."
-    systemctl disable douane-firewall 2>/dev/null || true
+if systemctl is-enabled --quiet bastion-firewall 2>/dev/null; then
+    echo "Disabling bastion-firewall service..."
+    systemctl disable bastion-firewall 2>/dev/null || true
     echo "✓ Service disabled"
 fi
 
-# Kill all Douane processes (daemon and GUIs)
-echo "Terminating all Douane processes..."
-pkill -f douane-daemon 2>/dev/null || true
-pkill -f douane-gui-client 2>/dev/null || true
-pkill -f douane-control-panel 2>/dev/null || true
-pkill -f douane_gui_improved 2>/dev/null || true
+# Kill all Bastion processes (daemon and GUIs)
+echo "Terminating all Bastion processes..."
+pkill -f bastion-daemon 2>/dev/null || true
+pkill -f bastion-gui 2>/dev/null || true
+pkill -f bastion-control-panel 2>/dev/null || true
 sleep 1
 echo "✓ Processes terminated"
 
@@ -40,15 +39,15 @@ iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || 
 echo "✓ Firewall rules removed"
 
 # Remove socket file
-if [ -S "/var/run/douane.sock" ]; then
+if [ -S "/tmp/bastion-daemon.sock" ]; then
     echo "Removing socket file..."
-    rm -f /var/run/douane.sock
+    rm -f /tmp/bastion-daemon.sock
     echo "✓ Socket removed"
 fi
 
 echo ""
 echo "============================================================"
-echo "✓ Douane Firewall stopped and cleaned up"
+echo "✓ Bastion Firewall stopped and cleaned up"
 echo "============================================================"
 echo ""
 echo "⚠ IMPORTANT: Your UFW outbound policy may still be set to DENY."

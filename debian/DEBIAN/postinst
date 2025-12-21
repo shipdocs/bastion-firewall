@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-# Post-installation script for Douane Firewall
+# Post-installation script for Bastion Firewall
 #
 
 set -e
 
 echo ""
 echo "============================================================"
-echo "Douane Firewall - Post Installation"
+echo "🏰 Bastion Firewall - Post Installation"
 echo "============================================================"
 echo ""
 
@@ -21,11 +21,11 @@ pip3 install --break-system-packages psutil tabulate NetfilterQueue scapy pystra
 pip3 install psutil tabulate NetfilterQueue scapy pystray pillow 2>/dev/null || true
 
 # Create config directory
-mkdir -p /etc/douane
+mkdir -p /etc/bastion
 
 # Check if this is a fresh install (no existing config)
 FRESH_INSTALL=false
-if [ ! -f /etc/douane/config.json ]; then
+if [ ! -f /etc/bastion/config.json ]; then
     FRESH_INSTALL=true
 fi
 
@@ -38,8 +38,8 @@ if [ "$FRESH_INSTALL" = true ]; then
     echo ""
 
     # Ask about starting mode
-    if whiptail --title "Douane Firewall Setup" --yes-button "Learning Mode" --no-button "Enforcement Mode" --yesno \
-"Welcome to Douane Application Firewall!
+    if whiptail --title "Bastion Firewall Setup" --yes-button "Learning Mode" --no-button "Enforcement Mode" --yesno \
+"Welcome to Bastion Firewall - Your Last Line of Defense!
 
 LEARNING MODE (Recommended):
   • Shows popups for all connections
@@ -61,8 +61,8 @@ Choose your initial mode:" 18 70; then
     fi
 
     # Ask about autostart
-    if whiptail --title "Douane Firewall Setup" --yes-button "Enable Autostart" --no-button "Manual Start" --yesno \
-"Start Douane Firewall automatically at login?
+    if whiptail --title "Bastion Firewall Setup" --yes-button "Enable Autostart" --no-button "Manual Start" --yesno \
+"Start Bastion Firewall automatically at login?
 
 ENABLE AUTOSTART (Recommended):
   • Firewall starts when you log in
@@ -79,8 +79,8 @@ MANUAL START:
     fi
 
     # Ask about starting now
-    if whiptail --title "Douane Firewall Setup" --yes-button "Start Now" --no-button "Start Later" --yesno \
-"Start Douane Firewall now?
+    if whiptail --title "Bastion Firewall Setup" --yes-button "Start Now" --no-button "Start Later" --yesno \
+"Start Bastion Firewall now?
 
 This will launch the firewall GUI client immediately." 10 70; then
         START_NOW=true
@@ -91,7 +91,7 @@ This will launch the firewall GUI client immediately." 10 70; then
     fi
 
     # Create config file
-    cat > /etc/douane/config.json << EOF
+    cat > /etc/bastion/config.json << EOF
 {
   "mode": "$MODE",
   "cache_decisions": true,
@@ -117,12 +117,12 @@ EOF
     if [ "$AUTOSTART" = true ]; then
         # Create autostart directory for all users
         mkdir -p /etc/xdg/autostart
-        cat > /etc/xdg/autostart/douane-firewall.desktop << 'EOF'
+        cat > /etc/xdg/autostart/bastion-tray.desktop << 'EOF'
 [Desktop Entry]
 Type=Application
-Name=Douane Firewall
-Comment=Start Douane Application Firewall
-Exec=/usr/local/bin/douane-gui-client
+Name=Bastion Firewall Tray Icon
+Comment=Start Bastion Firewall Tray Icon
+Exec=/usr/local/bin/bastion-gui
 Icon=security-high
 Terminal=false
 Categories=System;Security;
@@ -130,7 +130,7 @@ X-GNOME-Autostart-enabled=true
 Hidden=false
 NoDisplay=false
 EOF
-        chmod 644 /etc/xdg/autostart/douane-firewall.desktop
+        chmod 644 /etc/xdg/autostart/bastion-tray.desktop
         echo "✓ Autostart enabled"
     fi
 
@@ -139,14 +139,14 @@ else
     # Upgrade scenario
     if [ "$1" = "configure" ] && [ -n "$2" ]; then
         # This is an upgrade
-        echo "Restarting Douane Firewall service..."
-        systemctl restart douane-firewall || true
-        
+        echo "Restarting Bastion Firewall service..."
+        systemctl restart bastion-firewall || true
+
         # Try to restart GUI for the active user
         REAL_USER="${SUDO_USER:-$USER}"
         if [ "$REAL_USER" != "root" ] && [ -n "$REAL_USER" ]; then
              echo "Restarting GUI for $REAL_USER..."
-             su - "$REAL_USER" -c "DISPLAY=:0 /usr/local/bin/douane-gui-client &" 2>/dev/null || true
+             su - "$REAL_USER" -c "DISPLAY=:0 /usr/local/bin/bastion-gui &" 2>/dev/null || true
         fi
     fi
     AUTOSTART=false
@@ -155,15 +155,15 @@ fi
 
 # Create log directory
 mkdir -p /var/log
-touch /var/log/douane-daemon.log
-chmod 644 /var/log/douane-daemon.log
+touch /var/log/bastion-daemon.log
+chmod 644 /var/log/bastion-daemon.log
 
 # Reload systemd
 systemctl daemon-reload 2>/dev/null || true
 
 echo ""
 echo "============================================================"
-echo "✓ Douane Firewall Installed"
+echo "✓ Bastion Firewall Installed"
 echo "============================================================"
 echo ""
 
@@ -171,9 +171,9 @@ if [ "$START_NOW" = true ]; then
     # Get the user who invoked sudo (if any)
     REAL_USER="${SUDO_USER:-$USER}"
     if [ "$REAL_USER" != "root" ] && [ -n "$REAL_USER" ]; then
-        echo "Starting Douane Firewall for user $REAL_USER..."
+        echo "Starting Bastion Firewall for user $REAL_USER..."
         # Start as the real user, not root
-        su - "$REAL_USER" -c "DISPLAY=:0 /usr/local/bin/douane-gui-client &" 2>/dev/null || true
+        su - "$REAL_USER" -c "DISPLAY=:0 /usr/local/bin/bastion-gui &" 2>/dev/null || true
         echo "✓ Firewall started"
     else
         echo "⚠ Cannot auto-start (no user session detected)"
@@ -181,13 +181,13 @@ if [ "$START_NOW" = true ]; then
     fi
 else
     echo "To start manually:"
-    echo "  /usr/local/bin/douane-gui-client"
+    echo "  /usr/local/bin/bastion-gui"
     echo ""
     echo "Or from the application menu:"
-    echo "  Search for 'Douane Firewall'"
+    echo "  Search for 'Bastion Firewall'"
 fi
 
 echo ""
-echo "Documentation: /usr/share/doc/douane-firewall/"
+echo "Documentation: /usr/share/doc/bastion-firewall/"
 exit 0
 
