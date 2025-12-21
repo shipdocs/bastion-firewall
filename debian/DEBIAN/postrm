@@ -1,24 +1,106 @@
 #!/bin/bash
 #
 # Post-removal script for Douane Firewall
+# This runs AFTER package files are removed
 #
 
 set -e
 
-if [ "$1" = "purge" ]; then
-    echo "Purging Douane Firewall configuration..."
-    
-    # Remove configuration
-    rm -rf /etc/douane
-    
-    # Remove logs
-    rm -rf /var/log/douane
-    
-    # Remove user config
-    rm -rf /root/.config/douane
-    
-    echo "Douane Firewall configuration purged"
-fi
+case "$1" in
+    remove)
+        echo ""
+        echo "============================================================"
+        echo "Douane Firewall - Post-Removal Cleanup"
+        echo "============================================================"
+        echo ""
+
+        # Reload systemd to remove service
+        echo "Reloading systemd daemon..."
+        systemctl daemon-reload 2>/dev/null || true
+        echo "✓ Systemd reloaded"
+
+        # Update desktop database
+        if command -v update-desktop-database >/dev/null 2>&1; then
+            echo "Updating desktop database..."
+            update-desktop-database -q 2>/dev/null || true
+            echo "✓ Desktop database updated"
+        fi
+
+        echo ""
+        echo "✓ Douane Firewall removed"
+        echo ""
+        ;;
+
+    purge)
+        echo ""
+        echo "============================================================"
+        echo "Douane Firewall - Complete Purge"
+        echo "============================================================"
+        echo ""
+
+        # Remove configuration directory
+        if [ -d "/etc/douane" ]; then
+            echo "Removing configuration directory..."
+            rm -rf /etc/douane
+            echo "✓ /etc/douane removed"
+        fi
+
+        # Remove log files
+        if [ -f "/var/log/douane-daemon.log" ]; then
+            echo "Removing log files..."
+            rm -f /var/log/douane-daemon.log
+            echo "✓ Log files removed"
+        fi
+
+        if [ -d "/var/log/douane" ]; then
+            rm -rf /var/log/douane
+        fi
+
+        # Remove socket file (if still exists)
+        if [ -S "/var/run/douane.sock" ]; then
+            echo "Removing socket file..."
+            rm -f /var/run/douane.sock
+            echo "✓ Socket removed"
+        fi
+
+        # Remove user config (for all users)
+        echo "Removing user configurations..."
+        rm -rf /root/.config/douane 2>/dev/null || true
+
+        # Remove from all user home directories
+        for user_home in /home/*; do
+            if [ -d "$user_home/.config/douane" ]; then
+                rm -rf "$user_home/.config/douane"
+            fi
+        done
+        echo "✓ User configurations removed"
+
+        # Reload systemd
+        systemctl daemon-reload 2>/dev/null || true
+
+        # Update desktop database
+        if command -v update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database -q 2>/dev/null || true
+        fi
+
+        echo ""
+        echo "============================================================"
+        echo "✓ Douane Firewall completely purged"
+        echo "============================================================"
+        echo ""
+        echo "All configuration files and data have been removed."
+        echo ""
+        ;;
+
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # Do nothing for these cases
+        ;;
+
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
 
 exit 0
 
