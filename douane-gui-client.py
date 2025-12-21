@@ -387,61 +387,68 @@ Enforcement Mode: Connections can be blocked
         return (decision == 'allow'), permanent
     
     def start(self):
-        """Start the GUI client"""
+        """Start the GUI client with persistent connection loop"""
         print("=" * 60)
         print("Douane Firewall GUI Client")
         print("=" * 60)
         print("")
 
-        # Try to connect to daemon first (it should be started by systemd)
-        # We try for 5 seconds to handle boot race conditions
-        print("Waiting for daemon socket...")
-        for i in range(10):
-            if os.path.exists(self.socket_path):
-                break
-            time.sleep(0.5)
-            
-        # Verify connection
-        if self.connect_to_daemon():
-            # Connected successfully
-            pass
-        else:
-            # Connection failed, try to start it manually (will ask for password)
-            print("Daemon not running, attempting to start...")
-            if not self.start_daemon():
-                return False
-                
-            # Try to connect again after starting
-            if not self.connect_to_daemon():
-                return False
-
-        # Setup system tray
+        # Setup system tray once
         self.setup_system_tray()
+        
+        # Initial attempt to start daemon if not running (standard behavior for fresh start)
+        # If this fails, we just enter the loop and wait for it
+        if not os.path.exists(self.socket_path):
+             self.start_daemon()
 
-        # Handle requests
         self.running = True
-        try:
-            self.handle_requests()
-        except KeyboardInterrupt:
-            self.stop()
+        
+        while self.running:
+            try:
+                # Try to connect
+                if self.connect_to_daemon():
+                    # Update tray to indicate Active
+                    self.update_tray_icon('green')
+                    
+                    # Handle requests (blocks until connection drops)
+                    self.handle_requests()
+                    
+                    # If we return here, connection dropped
+                    print("Connection lost. Waiting for daemon...")
+                    self.update_tray_icon('red') # Indicate disconnected/stopped
+                else:
+                    # Connection failed, wait before retry
+                    self.update_tray_icon('red')
+                    
+                if self.running:
+                    time.sleep(2)
+                    
+            except KeyboardInterrupt:
+                self.stop()
+                break
+            except Exception as e:
+                print(f"Error in main loop: {e}")
+                time.sleep(2)
 
         return True
     
     def stop(self):
-        """Stop the client and cleanup daemon"""
+        """Stop the client"""
         print("\nStopping GUI client...")
         self.running = False
         if self.daemon_socket:
-            self.daemon_socket.close()
+            try:
+                self.daemon_socket.close()
+            except:
+                pass
             
         if TRAY_AVAILABLE:
             GLib.idle_add(Gtk.main_quit)
-
-        # Send SIGTERM to daemon for proper cleanup
-        print("Stopping daemon...")
-        subprocess.run(['pkill', '-TERM', '-f', 'douane-daemon'], stderr=subprocess.DEVNULL)
-        time.sleep(1)  # Give daemon time to cleanup
-        print("Stopped")
+        
+        # Note: We do NOT kill the daemon here anymore, as the GUI might be stopped independently
+        # or the user might just be quitting the tray icon.
+        # If the user wants to stop the firewall, they use the menu item "Stop Firewall"
+        pass
 
 
 if __name__ == '__main__':

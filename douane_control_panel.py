@@ -469,11 +469,16 @@ class DouaneControlPanel:
             # Start GUI client if starting
             if action in ['start', 'restart']:
                 # The service starts the daemon. The GUI client is per-user and needs to be started manually or via autostart.
-                # Here we attempt to start it for the current user.
-                subprocess.Popen(['/usr/local/bin/douane-gui-client'], 
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            elif action == 'stop':
-                subprocess.run(['pkill', '-f', 'douane-gui-client'])
+                # Check if already running for this user
+                gui_running = subprocess.run(['pgrep', '-u', str(os.getuid()), '-f', 'douane-gui-client'], 
+                                           capture_output=True).returncode == 0
+                                           
+                if not gui_running:
+                    subprocess.Popen(['/usr/local/bin/douane-gui-client'], 
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            # Note: We do NOT kill the GUI client on stop anymore. 
+            # It will detect the daemon stop and go into "Waiting" mode (Red/Grey icon).
 
             progress.stop()
             progress_dialog.destroy()
