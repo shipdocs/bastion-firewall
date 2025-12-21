@@ -1,5 +1,21 @@
 # Release Notes
 
+## v2.0.17 - Security Hardening
+**Release Date:** 2025-12-21
+
+### 🔒 Security Improvements
+- **Restricted Infrastructure Whitelist**: Only auto-allow DHCP (Ports 67/68) for unidentified applications to ensure devices can obtain IP addresses. DNS (53), NTP (123), and mDNS (5353) are now BLOCKED for unidentified applications to prevent potential data exfiltration. If the application cannot be identified, it cannot send DNS queries.
+
+---
+
+## v2.0.16 - Connectivity Fixes
+**Release Date:** 2025-12-21
+
+### 🐛 Bug Fixes
+- **Fix "No Internet" Detection**: Automatically allow essential infrastructure traffic (DNS, DHCP, NTP, mDNS) even if the application cannot be identified. This prevents the OS from erroneously reporting "No Internet Connection" due to blocked connectivity checks from short-lived system processes.
+
+---
+
 ## v2.0.15 - Deadlock Fix
 **Release Date:** 2025-12-21
 

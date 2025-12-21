@@ -58,6 +58,15 @@ def should_auto_allow(app_name: str, app_path: str, dest_port: int, dest_ip: str
     if dest_ip.startswith('127.') or dest_ip == 'localhost':
         logger.debug(f"Auto-allowing localhost connection: {app_name or 'unknown'}")
         return (True, "Localhost connection")
+        
+    # Check essential infrastructure ports
+    # ONLY Allow DHCP (67/68) for unknown apps. 
+    # DNS (53) and NTP (123) are REMOVED for security reasons (risk of exfiltration).
+    # If the app cannot be identified, we cannot trust its DNS traffic.
+    # DHCP is critical for obtaining an IP and is low risk for exfiltration.
+    if dest_port in [67, 68]:
+        logger.info(f"Auto-allowing infrastructure port {dest_port}: {app_name or 'unknown'}")
+        return (True, f"Infrastructure port {dest_port}")
 
     if not app_name:
         return (False, "")
