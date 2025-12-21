@@ -351,6 +351,14 @@ Enforcement Mode: Connections can be blocked
                         }) + '\n'
                         self.daemon_socket.sendall(response.encode())
                         
+                    elif request['type'] == 'stats_update':
+                        # Update statistics from daemon
+                        stats = request.get('stats', {})
+                        self.connection_count = stats.get('total_connections', 0)
+                        self.allowed_count = stats.get('allowed_connections', 0)
+                        self.blocked_count = stats.get('blocked_connections', 0)
+                        self.update_tray_icon()
+                        
             except Exception as e:
                 print(f"ERROR: {e}")
                 break

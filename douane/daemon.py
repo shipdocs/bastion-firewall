@@ -34,7 +34,15 @@ class DouaneDaemon:
         # Rate limiting and pending requests
         self.pending_requests: Dict[str, float] = {}
         self.last_request_time: Dict[str, float] = {}
-        self.request_lock = threading.Lock()
+        self.request_lock = threading.Lock() # Protects shared state (pending_requests)
+        self.socket_lock = threading.Lock() # Protects socket writes
+
+        # Statistics
+        self.stats = {
+            'total_connections': 0,
+            'allowed_connections': 0,
+            'blocked_connections': 0
+        }
 
     def start(self):
         """Start the daemon"""
@@ -109,11 +117,32 @@ class DouaneDaemon:
                 # For now just keep running.
                 
                 watchdog_counter += 1
-                if watchdog_counter >= 30:
+                if watchdog_counter >= 30: # 30 seconds
                     watchdog_counter = 0
                     self._check_nfqueue_rule()
+                
+                # Send statistics update to GUI every 2 seconds
+                if self.gui_socket and (watchdog_counter % 2 == 0):
+                    self._send_stats_update()
         except KeyboardInterrupt:
             self.stop()
+
+    def _send_stats_update(self):
+        """Send statistics to GUI"""
+        if not self.gui_socket:
+            return
+            
+        try:
+            msg = {
+                'type': 'stats_update',
+                'stats': self.stats
+            }
+            with self.socket_lock:
+                self.gui_socket.sendall(json.dumps(msg).encode() + b'\n')
+        except Exception as e:
+            logger.error(f"Error sending stats: {e}")
+            # Don't stop daemon, just log. Socket might be broken, 
+            # but we usually handle that in main loop or send failure.
 
     def _setup_socket(self):
         """Setup Unix domain socket"""
@@ -150,6 +179,8 @@ class DouaneDaemon:
 
     def _handle_packet(self, pkt_info: PacketInfo) -> bool:
         """Handle a packet decision"""
+        self.stats['total_connections'] += 1
+        
         # Always use current config
         learning_mode = self.config.get('mode') == 'learning'
         
@@ -168,7 +199,13 @@ class DouaneDaemon:
             # Or just "Don't create Deny rules automatically?"
             # Let's stick to: Learning Mode = Always Allow in the end, but maybe prompt.
             if learning_mode:
+                 self.stats['allowed_connections'] += 1
                  return True
+            
+            if cached_decision:
+                self.stats['allowed_connections'] += 1
+            else:
+                self.stats['blocked_connections'] += 1
             return cached_decision
 
         # RATE LIMITING / PENDING
@@ -181,12 +218,14 @@ class DouaneDaemon:
             
             if cache_key in self.last_request_time:
                 if now - self.last_request_time[cache_key] < 5.0:
+                    self.stats['allowed_connections'] += 1 # Auto-allow is technically an allow
                     return True # Auto-allow recent
                     
         # WL CHECK
         auto_allow, reason = should_auto_allow(app_name, app_path, pkt_info.dest_port, pkt_info.dest_ip)
         if auto_allow:
             logger.info(f"Auto-allowing {app_name} ({reason})")
+            self.stats['allowed_connections'] += 1
             return True
 
         # In learning mode, if we don't know the app, we log/notify but ALLOW.
@@ -200,7 +239,12 @@ class DouaneDaemon:
         """Communicate with GUI"""
         if not self.gui_socket:
             logger.warning("No GUI connected, using default action")
-            return True if learning_mode else False
+            allowed = True if learning_mode else False
+            if allowed:
+                self.stats['allowed_connections'] += 1
+            else:
+                self.stats['blocked_connections'] += 1
+            return allowed
 
         app_category = get_app_category(app_name, app_path)
         request = {
@@ -218,7 +262,8 @@ class DouaneDaemon:
             self.last_request_time[cache_key] = time.time()
 
         try:
-            self.gui_socket.sendall(json.dumps(request).encode() + b'\n')
+            with self.socket_lock:
+                self.gui_socket.sendall(json.dumps(request).encode() + b'\n')
             
             if learning_mode:
                 # In learning mode, we essentially "Allow Temporary" immediately
@@ -265,6 +310,11 @@ class DouaneDaemon:
             allow = data.get('allow', False)
             permanent = data.get('permanent', False)
             
+            if allow:
+                self.stats['allowed_connections'] += 1
+            else:
+                self.stats['blocked_connections'] += 1
+            
             with self.request_lock:
                 self.pending_requests.pop(cache_key, None)
 
@@ -279,16 +329,47 @@ class DouaneDaemon:
             logger.error(f"GUI communication error: {e}")
             with self.request_lock:
                 self.pending_requests.pop(cache_key, None)
-            return True if learning_mode else False
+            
+            # Default action on error
+            allowed = True if learning_mode else False
+            if allowed:
+                self.stats['allowed_connections'] += 1
+            else:
+                self.stats['blocked_connections'] += 1
+            return allowed
 
     def stop(self):
         """Stop daemon"""
+        if not self.running:
+             return
+             
         self.running = False
+        logger.info("Stopping daemon...")
+        
+        # Close GUI socket first to unblock any pending recv
+        if self.gui_socket:
+            try:
+                self.gui_socket.shutdown(socket.SHUT_RDWR)
+                self.gui_socket.close()
+            except:
+                pass
+            self.gui_socket = None
+
+        if self.server_socket:
+            try:
+                self.server_socket.close()
+            except:
+                pass
+            self.server_socket = None
+            
         if self.packet_processor:
             self.packet_processor.stop()
+            
         IPTablesManager.cleanup_nfqueue(queue_num=1)
-        if self.server_socket:
-            self.server_socket.close()
+        
         if os.path.exists(self.SOCKET_PATH):
-            os.remove(self.SOCKET_PATH)
+            try:
+                os.remove(self.SOCKET_PATH)
+            except:
+                pass
         logger.info("Daemon stopped")

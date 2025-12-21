@@ -53,7 +53,7 @@ Application → Outbound Connection Attempt
    - Internal Rule Engine (Decoupled from UFW)
    - Coordinates packet processing and GUI
 
-3. **douane_gui_improved.py** - User interface
+3. **douane-gui-client** - User interface
    - Enhanced GUI dialogs
    - Rule management interface
    - Timeout handling
@@ -104,13 +104,13 @@ sudo apt-get install -y \
 pip3 install -r requirements.txt
 
 # 3. Test the GUI
-python3 douane_gui_improved.py --test
+douane-gui-client --test
 
 # 4. Configure UFW (IMPORTANT: Read warnings!)
 sudo ./setup_firewall.sh
 
 # 5. Run the firewall
-sudo python3 douane_firewall.py
+sudo douane-daemon
 ```
 
 ## Configuration
@@ -143,7 +143,7 @@ Edit `/etc/douane/config.json` (or `config.json` in the project directory):
 
 ```bash
 # Start manually
-sudo python3 douane_firewall.py
+sudo douane-daemon
 
 # Or use systemd
 sudo systemctl start douane-firewall
@@ -178,7 +178,7 @@ When an application tries to connect:
 
 ```bash
 # View rule manager GUI
-python3 douane_gui_improved.py --rules
+douane-control-panel
 
 # View UFW rules
 sudo ufw status verbose
@@ -248,7 +248,7 @@ The setup script automatically allows:
 
 2. Test GUI manually:
    ```bash
-   python3 douane_gui_improved.py --test
+   douane-gui-client --test
    ```
 
 3. Check for tkinter:

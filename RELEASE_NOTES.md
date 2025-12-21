@@ -1,5 +1,30 @@
 # Release Notes
 
+## v2.0.15 - Deadlock Fix
+**Release Date:** 2025-12-21
+
+### 🐛 Bug Fixes
+- **Fix Release Hang**: Addressed a deadlock condition where the daemon would hang on stop/restart because the packet processing thread was waiting for socket I/O, while the stop sequence waited for the thread to finish. Sockets are now closed immediately on stop to unblock all threads.
+
+---
+
+## v2.0.14 - Restart Fix
+**Release Date:** 2025-12-21
+
+### 🐛 Bug Fixes
+- **Fix Restart Hang**: Fixed an issue where restarting the firewall (especially after changing modes) could hang due to the daemon waiting for a GUI response. The shutdown process is now much more robust.
+
+---
+
+## v2.0.13 - Real-time Statistics
+**Release Date:** 2025-12-21
+
+### ✨ New Features
+- **Real-time Statistics**: The system tray icon now shows live connection statistics (Total, Allowed, Blocked) when hovering or clicking "Show Statistics".
+- **Live Updates**: Statistics in the GUI update automatically every 2 seconds without reopening the window.
+
+---
+
 ## v2.0.12 - Tray Icon Persistence
 **Release Date:** 2025-12-21
 
