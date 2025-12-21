@@ -567,10 +567,17 @@ Please feel free to submit a Pull Request or open an Issue.
 
 ## 📚 Documentation
 
+### User Documentation
 - **[QUICKSTART.md](QUICKSTART.md)** - Get started in 5 minutes ⚡
-- **[PACKAGING.md](PACKAGING.md)** - Build and distribute packages 📦
 - **[PRODUCTION_GUIDE.md](PRODUCTION_GUIDE.md)** - Complete production deployment guide 🚀
+- **[FAQ.md](FAQ.md)** - Frequently asked questions ❓
+- **[RELEASE_NOTES.md](RELEASE_NOTES.md)** - Latest release information 📋
+
+### Developer Documentation
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Developer guide and contribution guidelines 👨‍💻
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture with diagrams 🏗️
 - **[IMPLEMENTATION.md](IMPLEMENTATION.md)** - Technical implementation details 🔧
+- **[PACKAGING.md](PACKAGING.md)** - Build and distribute packages 📦
 - **[FAQ.md](FAQ.md)** - Frequently asked questions ❓
 - **[RELEASE_NOTES.md](RELEASE_NOTES.md)** - What's new in v2.0.0 🎉
 
