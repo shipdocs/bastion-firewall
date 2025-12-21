@@ -241,6 +241,22 @@ if ls /usr/share/applications/douane*.desktop >/dev/null 2>&1; then
     print_success "Desktop entries removed"
 fi
 
+# Remove autostart entries
+if ls /etc/xdg/autostart/douane*.desktop >/dev/null 2>&1; then
+    print_info "Removing autostart entries..."
+    rm -f /etc/xdg/autostart/douane*.desktop
+    print_success "Autostart entries removed"
+fi
+
+# Also remove user-specific autostart entries
+for user_home in /home/*; do
+    if [ -d "$user_home/.config/autostart" ]; then
+        if ls "$user_home/.config/autostart/douane"*.desktop >/dev/null 2>&1; then
+            rm -f "$user_home/.config/autostart/douane"*.desktop
+        fi
+    fi
+done
+
 # Remove AppStream metadata
 if [ -f "/usr/share/metainfo/com.douane.firewall.metainfo.xml" ]; then
     print_info "Removing AppStream metadata..."

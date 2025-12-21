@@ -1,0 +1,18 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Douane Firewall Tray Icon
+GenericName=Firewall Tray Icon
+Comment=System tray icon for Douane Firewall - shows status and provides quick controls
+Exec=/usr/local/bin/douane-gui-client
+Icon=security-high
+Terminal=false
+Categories=System;Security;Network;
+Keywords=firewall;security;network;tray;
+StartupNotify=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=5
+X-KDE-autostart-after=panel
+Hidden=false
+

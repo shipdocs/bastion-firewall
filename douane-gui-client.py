@@ -185,14 +185,25 @@ class DouaneGUIClient:
         # Separator
         menu.append(Gtk.SeparatorMenuItem())
 
-        # Stop
+        # Start/Stop/Restart
+        item_start = Gtk.MenuItem(label="Start Firewall")
+        item_start.connect("activate", lambda _: self.start_firewall_service())
+        menu.append(item_start)
+
+        item_restart = Gtk.MenuItem(label="Restart Firewall")
+        item_restart.connect("activate", lambda _: self.restart_firewall_service())
+        menu.append(item_restart)
+
         item_stop = Gtk.MenuItem(label="Stop Firewall")
-        item_stop.connect("activate", lambda _: self.stop_firewall())
+        item_stop.connect("activate", lambda _: self.stop_firewall_service())
         menu.append(item_stop)
 
-        # Quit
-        item_quit = Gtk.MenuItem(label="Quit")
-        item_quit.connect("activate", lambda _: self.quit_application())
+        # Separator
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Quit (only quit tray icon, not firewall)
+        item_quit = Gtk.MenuItem(label="Quit Tray Icon")
+        item_quit.connect("activate", lambda _: self.quit_tray_only())
         menu.append(item_quit)
 
         menu.show_all()
@@ -265,23 +276,61 @@ Enforcement Mode: Connections can be blocked
         except:
             print("Error opening logs")
 
-    def stop_firewall(self):
-        """Stop the firewall"""
-        print("\nStopping firewall...")
+    def start_firewall_service(self):
+        """Start the firewall via systemctl"""
+        print("\nStarting firewall service...")
+        try:
+            subprocess.run(['pkexec', 'systemctl', 'start', 'douane-firewall'], check=True)
+            print("✓ Firewall service started")
+            # Update icon to orange (connecting)
+            self.update_tray_icon('orange')
+        except subprocess.CalledProcessError as e:
+            print(f"✗ Failed to start firewall: {e}")
+        except Exception as e:
+            print(f"✗ Error starting firewall: {e}")
+
+    def restart_firewall_service(self):
+        """Restart the firewall via systemctl"""
+        print("\nRestarting firewall service...")
+        try:
+            subprocess.run(['pkexec', 'systemctl', 'restart', 'douane-firewall'], check=True)
+            print("✓ Firewall service restarted")
+            # Update icon to orange (connecting)
+            self.update_tray_icon('orange')
+        except subprocess.CalledProcessError as e:
+            print(f"✗ Failed to restart firewall: {e}")
+        except Exception as e:
+            print(f"✗ Error restarting firewall: {e}")
+
+    def stop_firewall_service(self):
+        """Stop the firewall via systemctl"""
+        print("\nStopping firewall service...")
+        try:
+            subprocess.run(['pkexec', 'systemctl', 'stop', 'douane-firewall'], check=True)
+            print("✓ Firewall service stopped")
+            # Update icon to red (stopped)
+            self.update_tray_icon('red')
+        except subprocess.CalledProcessError as e:
+            print(f"✗ Failed to stop firewall: {e}")
+        except Exception as e:
+            print(f"✗ Error stopping firewall: {e}")
+
+    def quit_tray_only(self):
+        """Quit only the tray icon, leave firewall running"""
+        print("\nQuitting tray icon (firewall keeps running)...")
         self.running = False
-        
+
         if TRAY_AVAILABLE:
             GLib.idle_add(Gtk.main_quit)
-            
-        # Send SIGTERM to daemon for proper cleanup
-        subprocess.run(['pkill', '-TERM', '-f', 'douane-daemon'])
-        time.sleep(1)  # Give daemon time to cleanup
-        print("Firewall stopped")
-        sys.exit(0)
 
-    def quit_application(self):
-        """Quit application"""
-        self.stop_firewall()
+        # Close socket connection but don't kill daemon
+        if self.daemon_socket:
+            try:
+                self.daemon_socket.close()
+            except:
+                pass
+
+        sys.exit(0)
 
     def connect_to_daemon(self):
         """Connect to the daemon"""
@@ -397,40 +446,54 @@ Enforcement Mode: Connections can be blocked
     def start(self):
         """Start the GUI client with persistent connection loop"""
         print("=" * 60)
-        print("Douane Firewall GUI Client")
+        print("Douane Firewall GUI Client (Tray Icon)")
         print("=" * 60)
         print("")
+        print("Tray icon will run independently and auto-connect to daemon")
+        print("Use tray menu to Start/Stop/Restart the firewall service")
+        print("")
 
-        # Setup system tray once
+        # Setup system tray once - this runs independently
         self.setup_system_tray()
-        
-        # Initial attempt to start daemon if not running (standard behavior for fresh start)
-        # If this fails, we just enter the loop and wait for it
-        if not os.path.exists(self.socket_path):
-             self.start_daemon()
+
+        # Don't auto-start daemon - let user control via tray menu
+        # This makes tray icon independent and always running
 
         self.running = True
-        
+
         while self.running:
             try:
                 # Try to connect
                 if self.connect_to_daemon():
-                    # Update tray to indicate Active
+                    # Update tray to green (connected and running)
                     self.update_tray_icon('green')
-                    
+                    print("✓ Connected to daemon")
+
                     # Handle requests (blocks until connection drops)
                     self.handle_requests()
-                    
+
                     # If we return here, connection dropped
-                    print("Connection lost. Waiting for daemon...")
+                    print("⚠ Connection lost. Waiting for daemon...")
                     self.update_tray_icon('red') # Indicate disconnected/stopped
                 else:
                     # Connection failed, wait before retry
-                    self.update_tray_icon('red')
-                    
+                    # Show orange if daemon might be starting, red if definitely stopped
+                    daemon_running = os.path.exists(self.socket_path)
+                    if daemon_running:
+                        self.update_tray_icon('orange')  # Socket exists but can't connect
+                        print("⚠ Daemon socket exists but can't connect, retrying...")
+                    else:
+                        self.update_tray_icon('red')  # Daemon not running
+                        # Only print this once every 10 attempts to avoid spam
+                        if not hasattr(self, '_connection_attempts'):
+                            self._connection_attempts = 0
+                        self._connection_attempts += 1
+                        if self._connection_attempts % 10 == 1:
+                            print("⚠ Daemon not running. Use tray menu to start firewall.")
+
                 if self.running:
                     time.sleep(2)
-                    
+
             except KeyboardInterrupt:
                 self.stop()
                 break
