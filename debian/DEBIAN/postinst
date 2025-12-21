@@ -37,8 +37,19 @@ if [ "$FRESH_INSTALL" = true ]; then
     echo "============================================================"
     echo ""
 
-    # Ask about starting mode
-    if whiptail --title "Bastion Firewall Setup" --yes-button "Learning Mode" --no-button "Enforcement Mode" --yesno \
+    # Check if running in non-interactive mode
+    if [ "$DEBIAN_FRONTEND" = "noninteractive" ]; then
+        # Non-interactive defaults
+        MODE="learning"
+        AUTOSTART=true
+        START_NOW=false
+        echo "✓ Non-interactive mode: Using defaults"
+        echo "  - Mode: Learning (safe)"
+        echo "  - Autostart: Enabled"
+        echo "  - Start now: No (will start at next login)"
+    else
+        # Ask about starting mode
+        if whiptail --title "Bastion Firewall Setup" --yes-button "Learning Mode" --no-button "Enforcement Mode" --yesno \
 "Welcome to Bastion Firewall - Your Last Line of Defense!
 
 LEARNING MODE (Recommended):
@@ -53,15 +64,15 @@ ENFORCEMENT MODE (Advanced):
   • May block critical services if misconfigured
 
 Choose your initial mode:" 18 70; then
-        MODE="learning"
-        echo "✓ Selected: Learning Mode (safe)"
-    else
-        MODE="enforcement"
-        echo "✓ Selected: Enforcement Mode (blocking enabled)"
-    fi
+            MODE="learning"
+            echo "✓ Selected: Learning Mode (safe)"
+        else
+            MODE="enforcement"
+            echo "✓ Selected: Enforcement Mode (blocking enabled)"
+        fi
 
-    # Ask about autostart
-    if whiptail --title "Bastion Firewall Setup" --yes-button "Enable Autostart" --no-button "Manual Start" --yesno \
+        # Ask about autostart
+        if whiptail --title "Bastion Firewall Setup" --yes-button "Enable Autostart" --no-button "Manual Start" --yesno \
 "Start Bastion Firewall automatically at login?
 
 ENABLE AUTOSTART (Recommended):
@@ -71,23 +82,24 @@ ENABLE AUTOSTART (Recommended):
 MANUAL START:
   • Start from application menu when needed
   • You control when it runs" 14 70; then
-        AUTOSTART=true
-        echo "✓ Autostart: Enabled"
-    else
-        AUTOSTART=false
-        echo "✓ Autostart: Disabled"
-    fi
+            AUTOSTART=true
+            echo "✓ Autostart: Enabled"
+        else
+            AUTOSTART=false
+            echo "✓ Autostart: Disabled"
+        fi
 
-    # Ask about starting now
-    if whiptail --title "Bastion Firewall Setup" --yes-button "Start Now" --no-button "Start Later" --yesno \
+        # Ask about starting now
+        if whiptail --title "Bastion Firewall Setup" --yes-button "Start Now" --no-button "Start Later" --yesno \
 "Start Bastion Firewall now?
 
 This will launch the firewall GUI client immediately." 10 70; then
-        START_NOW=true
-        echo "✓ Will start firewall after installation"
-    else
-        START_NOW=false
-        echo "✓ Will not start firewall now"
+            START_NOW=true
+            echo "✓ Will start firewall after installation"
+        else
+            START_NOW=false
+            echo "✓ Will not start firewall now"
+        fi
     fi
 
     # Create config file
