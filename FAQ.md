@@ -44,7 +44,7 @@ pip3 install -r requirements.txt
 sudo ufw enable
 
 # 4. Run the application
-sudo python3 ufw_firewall_gui.py
+/usr/local/bin/douane-gui-client
 ```
 
 ### Why does it need root privileges?
@@ -173,7 +173,7 @@ sudo ufw delete [number]
 1. Check that you're running in a graphical session
 2. Verify tkinter is installed: `python3 -c "import tkinter"`
 3. Check X11 DISPLAY variable: `echo $DISPLAY`
-4. Try running with: `sudo -E python3 ufw_firewall_gui.py` (preserves environment)
+4. Try running with: `douane-gui-client`
 
 ### UFW commands fail
 
@@ -217,7 +217,7 @@ sudo ufw allow out to any port 80 proto tcp comment 'HTTP'
 ### How do I see the logs?
 
 ```bash
-sudo tail -f /var/log/ufw_firewall_gui.log
+sudo tail -f /var/log/douane-daemon.log
 ```
 
 ### Can I customize the GUI?
