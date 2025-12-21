@@ -5,7 +5,7 @@
 
 set -e
 
-VERSION="2.0.10"
+VERSION="2.0.11"
 
 # Colors
 GREEN='\033[0;32m'

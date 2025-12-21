@@ -1,5 +1,5 @@
 Name:           douane-firewall
-Version:        2.0.10
+Version:        2.0.11
 Release:        1%{?dist}
 Summary:        Application Firewall for Linux
 License:        GPLv3

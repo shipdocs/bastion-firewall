@@ -224,14 +224,24 @@ class DouaneControlPanel:
     def update_status(self):
         """Update firewall status from system"""
         try:
-            # Check for daemon process
-            result = subprocess.run(['pgrep', '-f', 'douane-daemon'], capture_output=True)
-            if result.returncode == 0:
+            # Check systemd status
+            # systemctl is-active returns the current state keyword (active, inactive, etc.)
+            result = subprocess.run(['systemctl', 'is-active', 'douane-firewall'], capture_output=True, text=True)
+            status = result.stdout.strip()
+            
+            if status == 'active':
                 self.status_label.config(text="✓ Firewall is RUNNING", foreground='green')
+            elif status == 'activating':
+                self.status_label.config(text="⟳ Firewall is STARTING...", foreground='orange')
+            elif status == 'deactivating':
+                self.status_label.config(text="⟳ Firewall is STOPPING...", foreground='orange')
+            elif status == 'failed':
+                self.status_label.config(text="⚠ Firewall FAILED", foreground='red')
             else:
+                # inactive or unknown
                 self.status_label.config(text="✗ Firewall is STOPPED", foreground='red')
-        except:
-            self.status_label.config(text="✗ Status unknown", foreground='orange')
+        except Exception as e:
+            self.status_label.config(text=f"ERROR: {str(e)}", foreground='red')
 
     def refresh_all(self):
         """Refresh all status information"""

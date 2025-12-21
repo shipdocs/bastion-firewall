@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="2.0.10"
+VERSION="2.0.11"
 NAME="douane-firewall"
 BUILD_DIR="rpmbuild"
 
