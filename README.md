@@ -12,9 +12,10 @@ Douane is a **production-ready** application firewall that gives Linux users the
 
 ![Debian](https://img.shields.io/badge/Debian%2FUbuntu-Supported-green) ![Fedora](https://img.shields.io/badge/Fedora%2FRHEL-Supported-blue) ![Generic](https://img.shields.io/badge/Generic%20Linux-Works-orange)
 
-> **Latest Updates (v2.0.10):**
+> **Latest Updates (v2.0.11):**
 > - ✅ **Universal Linux Support** - Works on Debian, Fedora, Arch
 > - ✅ **Improved Startup** - No more password prompts on boot!
+> - ✅ **Control Panel Fix** - Accurate status lights and buttons
 > - ✅ **Tray Icon Fix** - Switched to Ayatana AppIndicator3 for GNOME/Zorin support
 > - ✅ **Beautiful progress dialogs** - Visual feedback for start/stop/restart operations
 > - ✅ **Automatic rule reload** - Delete rules and they take effect immediately (SIGHUP)
