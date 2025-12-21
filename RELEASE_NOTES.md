@@ -1,5 +1,13 @@
 # Release Notes
 
+## v2.0.11 - Control Panel Polish
+**Release Date:** 2025-12-21
+
+### 🐛 Bug Fixes
+- **Control Panel Status Sync**: Fixed an issue where the Control Panel would display an incorrect "Stopped" or "Unknown" status when toggling the firewall. It now accurately reflects the systemd service state (Running, Starting, Stopping, Stopped).
+
+---
+
 ## v2.0.10 - Startup & Polish
 **Release Date:** 2025-12-21
 
