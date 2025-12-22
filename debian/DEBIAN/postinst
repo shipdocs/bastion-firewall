@@ -9,23 +9,12 @@ NC='\033[0m'
 print_success() { echo -e "${GREEN}✓ $1${NC}"; }
 print_error() { echo -e "${RED}✗ $1${NC}"; }
 
-# SECURITY: Create bastion user/group with proper permissions
+# Create bastion user/group if they don't exist
 if ! getent group bastion >/dev/null; then
     groupadd -r bastion
-    print_success "Created bastion group"
 fi
 if ! getent passwd bastion >/dev/null; then
     useradd -r -g bastion -d /var/lib/bastion -s /usr/sbin/nologin -c "Bastion Firewall User" bastion
-    print_success "Created bastion user"
-fi
-
-# Add first regular user to bastion group for convenience
-FIRST_USER=$(getent passwd 1000 | cut -d: -f1)
-if [ -n "$FIRST_USER" ]; then
-    if ! groups "$FIRST_USER" | grep -q bastion; then
-        usermod -a -G bastion "$FIRST_USER"
-        print_success "Added user $FIRST_USER to bastion group (requires logout)"
-    fi
 fi
 
 # Set up configuration directory
@@ -36,44 +25,19 @@ if [ ! -f /etc/bastion/config.json ]; then
     else
         echo '{"log_level": "INFO", "rules_file": "/etc/bastion/rules.json"}' > /etc/bastion/config.json
     fi
-    # SECURITY FIX: Restrict config permissions to root only
-    chmod 600 /etc/bastion/config.json
-    print_success "Created config with secure permissions (600)"
+    chmod 644 /etc/bastion/config.json
 fi
 
 # Set up rules file
 if [ ! -f /etc/bastion/rules.json ]; then
     echo '{"applications": {}, "services": {}}' > /etc/bastion/rules.json
-    # SECURITY FIX: Restrict rules permissions to root only
-    chmod 600 /etc/bastion/rules.json
-    print_success "Created rules with secure permissions (600)"
-fi
-
-# SECURITY FIX: Update permissions on existing files during upgrades
-# This ensures that existing installations get the security hardening
-if [ -f /etc/bastion/config.json ]; then
-    # Check if permissions need updating
-    CURRENT_PERMS=$(stat -c %a /etc/bastion/config.json)
-    if [ "$CURRENT_PERMS" != "600" ]; then
-        chmod 600 /etc/bastion/config.json
-        print_success "Updated config permissions to 600 (was $CURRENT_PERMS)"
-    fi
-fi
-
-if [ -f /etc/bastion/rules.json ]; then
-    # Check if permissions need updating
-    CURRENT_PERMS=$(stat -c %a /etc/bastion/rules.json)
-    if [ "$CURRENT_PERMS" != "600" ]; then
-        chmod 600 /etc/bastion/rules.json
-        print_success "Updated rules permissions to 600 (was $CURRENT_PERMS)"
-    fi
+    chmod 644 /etc/bastion/rules.json
 fi
 
 # Set permissions for logs
 mkdir -p /var/log/bastion
-chown -R root:bastion /var/log/bastion
+chown -R bastion:bastion /var/log/bastion
 chmod 750 /var/log/bastion
-print_success "Set up log directory with restricted permissions"
 
 # Reload systemd
 systemctl daemon-reload
@@ -92,24 +56,3 @@ if [ -d /home ]; then
         fi
     done
 fi
-
-echo ""
-echo "======================================================================"
-echo "  Bastion Firewall Installation Complete"
-echo "======================================================================"
-echo ""
-echo "SECURITY NOTES:"
-echo "  - Config/rules files are now root-only (600 permissions)"
-echo "  - Socket will be restricted to bastion group (660 permissions)"
-echo "  - First user added to bastion group automatically"
-echo ""
-echo "IMPORTANT: You must log out and log back in for group membership"
-echo "           to take effect before the GUI can connect to the daemon."
-echo ""
-echo "To add more users: sudo usermod -a -G bastion USERNAME"
-echo "To start: bastion-gui or from application menu"
-echo ""
-echo "Documentation: /usr/share/doc/bastion-firewall/"
-echo "Security Audit: /usr/share/doc/bastion-firewall/SECURITY_AUDIT.md"
-echo "======================================================================"
-echo ""
