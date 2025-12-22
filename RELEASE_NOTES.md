@@ -1,5 +1,22 @@
 # Release Notes
 
+## v1.2.1 - eBPF & Stability
+**Release Date:** 2025-12-22
+
+### 🔒 Security & Performance
+- **eBPF Traffic identification**: Implemented kernel-level traffic monitoring using eBPF (Extended Berkeley Packet Filter).
+  - Eliminates "race conditions" where short-lived processes (like curl or build tools) would disappear before identification.
+  - Significantly reduces "Unknown Application" popups.
+  - **Zero Overhead**: Captures process info directly in the kernel without expensive /proc scanning.
+- **Kernel Compatibility**: Includes fixes for **Linux Kernel 6.9+** (struct bpf_wq definition).
+
+### ✨ Improvements
+- **Modern Notifications**: Replaced old `QMessageBox` popups with sleek, dark-themed, auto-closing notification dialogs for better UX.
+- **Crash Fixes**: Resolved `AttributeError` in Control Panel when enabling/disabling UFW.
+- **Dependency Update**: Added `python3-bpfcc` and `linux-headers-generic` dependencies.
+
+---
+
 ## v2.0.18 - Major Security Hardening & Critical Bug Fixes
 **Release Date:** 2025-12-21
 
@@ -11,7 +28,7 @@
 - **Impact**: During wait period, packets queued in NFQUEUE but never processed, causing complete network failure
 - **Fix**: Restructured daemon startup:
   - ✅ Packet processor starts **immediately** in background thread
-  - ✅ GUI connection acceptor runs in separate background thread
+                    <img src="https://img.shields.io/badge/Version-1.2.1-brightgreen" alt="Version 1.2.1"> - ✅ GUI connection acceptor runs in separate background thread
   - ✅ Intelligent fallback for system services when GUI not connected
   - ✅ DNS to localhost resolver (127.0.0.53) **always allowed** for all applications
 - **Result**: Internet works perfectly without GUI, ping/curl/wget all functional
@@ -338,9 +355,7 @@ If upgrading from v1.x:
 - Modernization and v2.0 features by Martin (shipdocs)
 - Community feedback and testing
 
----
-
-## Version 1.0.0 (Initial Release)
+--> - 🎯- **Version**: 1.2.1 (Initial Release)
 
 - Basic packet interception with netfilter/iptables
 - GUI popups for connection requests

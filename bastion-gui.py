@@ -1,540 +1,170 @@
 #!/usr/bin/env python3
 """
-Bastion Firewall GUI Client - Runs as user
-
-This client:
-- Runs as your user (has access to DISPLAY)
-- Connects to the daemon via Unix socket
-- Shows GUI popups for connection requests
-- Sends decisions back to daemon
-- Starts daemon with sudo if needed
+Bastion Firewall GUI Client - Qt Implementation
+Runs as user, connects to daemon, handles tray icon and popups.
 """
 
-import os
 import sys
+import os
 import json
 import socket
-import subprocess
-import time
-import threading
 import signal
-from pathlib import Path
-from tkinter import messagebox
-import tkinter as tk
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
+from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer, QSocketNotifier
+from bastion.gui_qt import FirewallDialog
 
-# Application Indicator Support (Zorin 18 / GNOME)
-TRAY_AVAILABLE = False
-try:
-    import gi
-    gi.require_version('Gtk', '3.0')
-    gi.require_version('AyatanaAppIndicator3', '0.1')
-    from gi.repository import Gtk, AyatanaAppIndicator3, GLib
-    TRAY_AVAILABLE = True
-except (ImportError, ValueError):
-    print("Warning: AyatanaAppIndicator3 not found. Tray icon will be disabled.")
-    print("Install with: sudo apt install libayatana-appindicator3-1 gir1.2-ayatanaappindicator3-0.1 python3-gi")
-
-# Import GUI module
-try:
-    from bastion.gui import ImprovedFirewallDialog
-except ImportError:
-    # Try local import if package structure is different
-    try:
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from bastion.gui import ImprovedFirewallDialog
-    except ImportError as e:
-        print(f"ERROR: Could not import GUI module: {e}")
-        sys.exit(1)
-
-
-# Simple ConnectionInfo class (avoid importing modules that require root)
-class ConnectionInfo:
-    def __init__(self, app_name, app_path, dest_ip, dest_port, protocol, app_category=None):
-        self.app_name = app_name
-        self.app_path = app_path
-        self.dest_ip = dest_ip
-        self.dest_port = dest_port
-        self.protocol = protocol
-        self.app_category = app_category
-
-
-class DouaneGUIClient:
-    """GUI client that shows popups and communicates with daemon"""
-
-    def __init__(self):
+class BastionClient(QObject):
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
         self.socket_path = '/tmp/bastion-daemon.sock'
-        self.daemon_socket = None
-        self.running = False
-        self.config = self.load_config()
-        self.indicator = None
-        self.connection_count = 0
-        self.blocked_count = 0
-        self.allowed_count = 0
-        self.tray_thread = None
+        self.sock = None
+        self.notifier = None
+        self.buffer = ""
+        self.connected = False
         
-    def load_config(self):
-        """Load configuration"""
-        config_path = Path('/etc/bastion/config.json')
-        if config_path.exists():
-            try:
-                with open(config_path) as f:
-                    return json.load(f)
-            except:
-                pass
-        return {'mode': 'learning', 'timeout_seconds': 30}
-    
-    def start_daemon(self):
-        """Start the daemon with sudo"""
-        print("Starting Douane daemon (will ask for sudo password)...")
+        # Tray Icon
+        self.tray_icon = QSystemTrayIcon()
+        self.tray_icon.setIcon(QIcon.fromTheme("security-high"))
+        self.tray_icon.setVisible(True)
         
-        # Check if daemon is already running
-        if os.path.exists(self.socket_path):
-            try:
-                # Try to connect
-                test_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                test_sock.connect(self.socket_path)
-                test_sock.close()
-                print("Daemon already running!")
-                return True
-            except:
-                # Socket exists but daemon not running, remove it
-                os.remove(self.socket_path)
+        # Menu
+        self.menu = QMenu()
         
-        # Start daemon with pkexec (GUI sudo) or sudo
-        # Try installed path first, then local
-        daemon_paths = [
-            '/usr/bin/bastion-daemon',
-            os.path.join(os.path.dirname(__file__), 'bastion-daemon.py')
-        ]
+        self.action_status = self.menu.addAction("Status: Connecting...")
+        self.action_status.setEnabled(False)
+        self.menu.addSeparator()
+        
+        self.action_cp = self.menu.addAction("Control Panel")
+        self.action_cp.triggered.connect(self.open_control_panel)
+        
+        self.menu.addSeparator()
+        
+        self.action_start = self.menu.addAction("Start Firewall")
+        self.action_start.triggered.connect(lambda: self.run_service("start"))
+        
+        self.action_stop = self.menu.addAction("Stop Firewall")
+        self.action_stop.triggered.connect(lambda: self.run_service("stop"))
+        
+        self.action_restart = self.menu.addAction("Restart Firewall")
+        self.action_restart.triggered.connect(lambda: self.run_service("restart"))
+        
+        self.menu.addSeparator()
+        self.action_quit = self.menu.addAction("Quit Tray")
+        self.action_quit.triggered.connect(self.app.quit)
+        
+        self.tray_icon.setContextMenu(self.menu)
+        
+        # Connect Timer
+        self.connect_timer = QTimer()
+        self.connect_timer.timeout.connect(self.try_connect)
+        self.connect_timer.start(2000)
+        
+        # Initial connection attempt
+        self.try_connect()
 
-        daemon_path = None
-        for path in daemon_paths:
-            if os.path.exists(path):
-                daemon_path = path
-                break
-
-        if not daemon_path:
-            print("ERROR: Could not find bastion-daemon")
-            return False
-
-        # Try pkexec first (GUI password prompt)
-        try:
-            subprocess.Popen(['pkexec', 'python3', daemon_path],
-                           stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE)
-            print("Daemon started with pkexec")
-            # Give daemon time to start and create socket
-            time.sleep(2)
-            return True
-        except FileNotFoundError:
-            # pkexec not available, try sudo
-            try:
-                subprocess.Popen(['sudo', 'python3', daemon_path],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
-                print("Daemon started with sudo")
-                # Give daemon time to start and create socket
-                time.sleep(2)
-                return True
-            except Exception as e:
-                print(f"ERROR: Could not start daemon: {e}")
-                return False
-    
-    def setup_system_tray(self):
-        """Setup system tray icon using AppIndicator3"""
-        if not TRAY_AVAILABLE:
-            print("System tray not available")
+    def try_connect(self):
+        if self.connected:
             return
-
-        # Create Indicator
-        # ID, Icon Name, Category
-        self.indicator = AyatanaAppIndicator3.Indicator.new(
-            "bastion-firewall",
-            "security-high",  # Standard icon name (usually a shield or lock)
-            AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS
-        )
-        self.indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
-        self.indicator.set_title("Bastion Firewall")
-
-        # Create Menu
-        menu = Gtk.Menu()
-
-        # Connections Item (Disabled/Info)
-        self.stats_item = Gtk.MenuItem(label=f"Connections: {self.connection_count}")
-        self.stats_item.set_sensitive(False)
-        menu.append(self.stats_item)
-        
-        # Separator
-        menu.append(Gtk.SeparatorMenuItem())
-
-        # Control Panel
-        item_cp = Gtk.MenuItem(label="Control Panel")
-        item_cp.connect("activate", lambda _: self.show_control_panel())
-        menu.append(item_cp)
-
-        # Statistics
-        item_stats = Gtk.MenuItem(label="Show Statistics")
-        item_stats.connect("activate", lambda _: self.show_statistics())
-        menu.append(item_stats)
-
-        # Logs
-        item_logs = Gtk.MenuItem(label="View Logs")
-        item_logs.connect("activate", lambda _: self.view_logs())
-        menu.append(item_logs)
-
-        # Separator
-        menu.append(Gtk.SeparatorMenuItem())
-
-        # Start/Stop/Restart
-        item_start = Gtk.MenuItem(label="Start Firewall")
-        item_start.connect("activate", lambda _: self.start_firewall_service())
-        menu.append(item_start)
-
-        item_restart = Gtk.MenuItem(label="Restart Firewall")
-        item_restart.connect("activate", lambda _: self.restart_firewall_service())
-        menu.append(item_restart)
-
-        item_stop = Gtk.MenuItem(label="Stop Firewall")
-        item_stop.connect("activate", lambda _: self.stop_firewall_service())
-        menu.append(item_stop)
-
-        # Separator
-        menu.append(Gtk.SeparatorMenuItem())
-
-        # Quit (only quit tray icon, not firewall)
-        item_quit = Gtk.MenuItem(label="Quit Tray Icon")
-        item_quit.connect("activate", lambda _: self.quit_tray_only())
-        menu.append(item_quit)
-
-        menu.show_all()
-        self.indicator.set_menu(menu)
-        
-        print("✓ System tray icon created (AyatanaAppIndicator3)")
-
-        # Run Gtk main loop in a separate thread
-        self.tray_thread = threading.Thread(target=Gtk.main, daemon=True)
-        self.tray_thread.start()
-
-    def update_tray_icon(self, color='green'):
-        """Update tray icon"""
-        if self.indicator and TRAY_AVAILABLE:
-            # Update icon based on status
-            icon_name = "security-high"
-            if color == 'red':
-                icon_name = "security-low" # Or security-medium, or dialog-warning
-            elif color == 'orange':
-                icon_name = "security-medium"
             
-            # Update GUI in main thread
-            GLib.idle_add(self.indicator.set_icon, icon_name)
+        if not os.path.exists(self.socket_path):
+            self.update_status("Daemon not running", "security-low")
+            return
             
-            # Update stats text
-            stats_text = f"Conn: {self.connection_count} (✓{self.allowed_count} ✗{self.blocked_count})"
-            GLib.idle_add(self.stats_item.set_label, stats_text)
-
-    def show_control_panel(self):
-        """Show control panel window"""
         try:
-            subprocess.Popen(['python3', '/usr/bin/bastion-control-panel'])
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.connect(self.socket_path)
+            self.sock.setblocking(False)
+            
+            self.notifier = QSocketNotifier(self.sock.fileno(), QSocketNotifier.Type.Read)
+            self.notifier.activated.connect(self.on_ready_read)
+            
+            self.connected = True
+            self.connect_timer.stop()
+            self.update_status("Connected", "security-high")
+            print("Connected to daemon")
+            
         except Exception as e:
-            print(f"Error opening control panel: {e}")
-            # Fallback to showing statistics
-            self.show_statistics()
+            print(f"Connection failed: {e}")
+            self.update_status("Connection failed", "security-medium")
 
-    def show_statistics(self):
-        """Show statistics window"""
-        # We need to run tkinter in the main thread or a thread that isn't the Gtk thread
-        # Since this method might be called from Gtk thread, we use a simple subprocess or just print for now
-        # But we can use tkinter here carefully as long as we create a new root
-        
-        def _show():
-            try:
-                root = tk.Tk()
-                root.withdraw() # Hide main window
-                stats_msg = f"""Bastion Firewall Statistics
+    def update_status(self, text, icon_name):
+        self.action_status.setText(f"Status: {text}")
+        self.tray_icon.setIcon(QIcon.fromTheme(icon_name))
 
-Mode: {self.config.get('mode', 'learning').title()}
-Total Connections: {self.connection_count}
-Allowed: {self.allowed_count}
-Blocked: {self.blocked_count}
-
-Learning Mode: Connections are always allowed
-Enforcement Mode: Connections can be blocked
-"""
-                messagebox.showinfo("Bastion Firewall Statistics", stats_msg)
-                root.destroy()
-            except Exception as e:
-                print(f"Error showing stats: {e}")
-
-        # Run in a separate thread to avoid blocking Gtk
-        threading.Thread(target=_show).start()
-
-    def view_logs(self):
-        """Open log file"""
+    def on_ready_read(self):
         try:
-            subprocess.Popen(['xdg-open', '/var/log/bastion-daemon.log'])
-        except:
-            print("Error opening logs")
-
-    def start_firewall_service(self):
-        """Start the firewall via systemctl"""
-        print("\nStarting firewall service...")
-        try:
-            subprocess.run(['pkexec', 'systemctl', 'start', 'bastion-firewall'], check=True)
-            print("✓ Firewall service started")
-            # Update icon to orange (connecting)
-            self.update_tray_icon('orange')
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Failed to start firewall: {e}")
-        except Exception as e:
-            print(f"✗ Error starting firewall: {e}")
-
-    def restart_firewall_service(self):
-        """Restart the firewall via systemctl"""
-        print("\nRestarting firewall service...")
-        try:
-            subprocess.run(['pkexec', 'systemctl', 'restart', 'bastion-firewall'], check=True)
-            print("✓ Firewall service restarted")
-            # Update icon to orange (connecting)
-            self.update_tray_icon('orange')
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Failed to restart firewall: {e}")
-        except Exception as e:
-            print(f"✗ Error restarting firewall: {e}")
-
-    def stop_firewall_service(self):
-        """Stop the firewall via systemctl"""
-        print("\nStopping firewall service...")
-        try:
-            subprocess.run(['pkexec', 'systemctl', 'stop', 'bastion-firewall'], check=True)
-            print("✓ Firewall service stopped")
-            # Update icon to red (stopped)
-            self.update_tray_icon('red')
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Failed to stop firewall: {e}")
-        except Exception as e:
-            print(f"✗ Error stopping firewall: {e}")
-
-    def quit_tray_only(self):
-        """Quit only the tray icon, leave firewall running"""
-        print("\nQuitting tray icon (firewall keeps running)...")
-        self.running = False
-
-        if TRAY_AVAILABLE:
-            GLib.idle_add(Gtk.main_quit)
-
-        # Close socket connection but don't kill daemon
-        if self.daemon_socket:
-            try:
-                self.daemon_socket.close()
-            except:
-                pass
-
-        sys.exit(0)
-
-    def connect_to_daemon(self):
-        """Connect to the daemon"""
-        print("Connecting to daemon...")
-
-        # Wait for socket to appear
-        for i in range(10):
-            if os.path.exists(self.socket_path):
-                break
-            time.sleep(0.5)
-        else:
-            print("ERROR: Daemon socket not found")
-            return False
-
-        # Connect
-        try:
-            self.daemon_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.daemon_socket.connect(self.socket_path)
-            print("Connected to daemon!")
-            return True
-        except Exception as e:
-            # make this less alarmist as we might retry
-            # print(f"ERROR: Could not connect to daemon: {e}") 
-            return False
-    
-    def handle_requests(self):
-        """Handle connection requests from daemon"""
-        print("Waiting for connection requests...")
-        print("Mode:", self.config.get('mode', 'learning'))
-        print("")
-        
-        buffer = ""
-        
-        while self.running:
-            try:
-                # Receive data
-                data = self.daemon_socket.recv(4096).decode()
-                if not data:
-                    break
+            data = self.sock.recv(4096).decode()
+            if not data:
+                # Disconnected
+                self.handle_disconnect()
+                return
                 
-                buffer += data
-                
-                # Process complete messages (newline-delimited)
-                while '\n' in buffer:
-                    line, buffer = buffer.split('\n', 1)
-                    request = json.loads(line)
+            self.buffer += data
+            while '\n' in self.buffer:
+                line, self.buffer = self.buffer.split('\n', 1)
+                self.process_message(line)
+        except Exception as e:
+            print(f"Socket error: {e}")
+            self.handle_disconnect()
 
-                    if request['type'] == 'connection_request':
-                        # Update statistics
-                        self.connection_count += 1
-
-                        # Show GUI and get decision
-                        decision, permanent = self.show_dialog(request)
-
-                        # Update statistics based on decision
-                        if decision:
-                            self.allowed_count += 1
-                            self.update_tray_icon('green')
-                        else:
-                            self.blocked_count += 1
-                            self.update_tray_icon('red')
-
-                        # Send response
-                        response = json.dumps({
-                            'allow': decision,
-                            'permanent': permanent
-                        }) + '\n'
-                        self.daemon_socket.sendall(response.encode())
-                        
-                    elif request['type'] == 'stats_update':
-                        # Update statistics from daemon
-                        stats = request.get('stats', {})
-                        self.connection_count = stats.get('total_connections', 0)
-                        self.allowed_count = stats.get('allowed_connections', 0)
-                        self.blocked_count = stats.get('blocked_connections', 0)
-                        self.update_tray_icon()
-                        
-            except Exception as e:
-                print(f"ERROR: {e}")
-                break
-    
-    def show_dialog(self, request):
-        """Show GUI dialog and return decision (decision, permanent)"""
-        # If showing statistics overlaps with this, we might have tkinter threading issues
-        # But ImprovedFirewallDialog creates its own Tk instance which is ... risky but worked before
+    def handle_disconnect(self):
+        print("Disconnected from daemon")
+        self.connected = False
+        if self.notifier:
+            self.notifier.setEnabled(False)
+            self.notifier = None
+        if self.sock:
+            self.sock.close()
+            self.sock = None
         
-        conn_info = ConnectionInfo(
-            app_name=request['app_name'],
-            app_path=request['app_path'],
-            dest_ip=request['dest_ip'],
-            dest_port=request['dest_port'],
-            protocol=request['protocol'],
-            app_category=request.get('app_category')
-        )
+        self.update_status("Disconnected", "security-low")
+        self.connect_timer.start(2000)
 
-        learning_mode = self.config.get('mode') == 'learning'
-
-        # Run dialog in main thread (this function is called from handle_requests which is main thread)
-        dialog = ImprovedFirewallDialog(
-            conn_info,
-            timeout=self.config.get('timeout_seconds', 30),
-            learning_mode=learning_mode
-        )
-
-        decision, permanent = dialog.show()
-
-        # In learning mode:
-        # 1. Always ALLOW the connection (don't block traffic while learning)
-        # 2. BUT if user clicked "Allow Always", we must return permanent=True to save the rule!
-        if learning_mode:
-            if permanent and decision == 'allow':
-                return True, True
-            return True, False
-
-        return (decision == 'allow'), permanent
-    
-    def start(self):
-        """Start the GUI client with persistent connection loop"""
-        print("=" * 60)
-        print("Bastion Firewall GUI Client (Tray Icon)")
-        print("=" * 60)
-        print("")
-        print("Tray icon will run independently and auto-connect to daemon")
-        print("Use tray menu to Start/Stop/Restart the firewall service")
-        print("")
-
-        # Setup system tray once - this runs independently
-        self.setup_system_tray()
-
-        # Don't auto-start daemon - let user control via tray menu
-        # This makes tray icon independent and always running
-
-        self.running = True
-
-        while self.running:
-            try:
-                # Try to connect
-                if self.connect_to_daemon():
-                    # Update tray to green (connected and running)
-                    self.update_tray_icon('green')
-                    print("✓ Connected to daemon")
-
-                    # Handle requests (blocks until connection drops)
-                    self.handle_requests()
-
-                    # If we return here, connection dropped
-                    print("⚠ Connection lost. Waiting for daemon...")
-                    self.update_tray_icon('red') # Indicate disconnected/stopped
-                else:
-                    # Connection failed, wait before retry
-                    # Show orange if daemon might be starting, red if definitely stopped
-                    daemon_running = os.path.exists(self.socket_path)
-                    if daemon_running:
-                        self.update_tray_icon('orange')  # Socket exists but can't connect
-                        print("⚠ Daemon socket exists but can't connect, retrying...")
-                    else:
-                        self.update_tray_icon('red')  # Daemon not running
-                        # Only print this once every 10 attempts to avoid spam
-                        if not hasattr(self, '_connection_attempts'):
-                            self._connection_attempts = 0
-                        self._connection_attempts += 1
-                        if self._connection_attempts % 10 == 1:
-                            print("⚠ Daemon not running. Use tray menu to start firewall.")
-
-                if self.running:
-                    time.sleep(2)
-
-            except KeyboardInterrupt:
-                self.stop()
-                break
-            except Exception as e:
-                print(f"Error in main loop: {e}")
-                time.sleep(2)
-
-        return True
-    
-    def stop(self):
-        """Stop the client"""
-        print("\nStopping GUI client...")
-        self.running = False
-        if self.daemon_socket:
-            try:
-                self.daemon_socket.close()
-            except:
+    def process_message(self, line):
+        try:
+            req = json.loads(line)
+            if req['type'] == 'connection_request':
+                self.handle_connection_request(req)
+            elif req['type'] == 'stats_update':
+                # Update stats in menu if needed
                 pass
-            
-        if TRAY_AVAILABLE:
-            GLib.idle_add(Gtk.main_quit)
-        
-        # Note: We do NOT kill the daemon here anymore, as the GUI might be stopped independently
-        # or the user might just be quitting the tray icon.
-        # If the user wants to stop the firewall, they use the menu item "Stop Firewall"
-        pass
+        except json.JSONDecodeError:
+            pass
 
+    def handle_connection_request(self, req):
+        dialog = FirewallDialog(req, timeout=30)
+        result = dialog.exec()
+        
+        decision = (dialog.decision == 'allow')
+        permanent = dialog.permanent
+        
+        # Send response
+        if self.connected and self.sock:
+            resp = json.dumps({'allow': decision, 'permanent': permanent}) + '\n'
+            try:
+                self.sock.sendall(resp.encode())
+            except:
+                self.handle_disconnect()
+
+    def open_control_panel(self):
+        import subprocess
+        subprocess.Popen(['bastion-control-panel'])
+
+    def run_service(self, action):
+        import subprocess
+        try:
+            subprocess.run(['pkexec', 'systemctl', action, 'bastion-firewall'])
+        except Exception as e:
+            QMessageBox.critical(None, "Error", f"Failed to {action} firewall: {e}")
 
 if __name__ == '__main__':
-    # Add signal handler for Ctrl+C
-    signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
+    app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
     
-    client = DouaneGUIClient()
-    try:
-        client.start()
-    except Exception as e:
-        print(f"\nError: {e}")
-        client.stop()
-
-
+    # Handle Ctrl+C
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    
+    client = BastionClient(app)
+    sys.exit(app.exec())
