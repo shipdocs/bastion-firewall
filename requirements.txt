@@ -3,4 +3,9 @@ tabulate>=0.9.0
 NetfilterQueue>=1.1.0
 scapy>=2.5.0
 pystray>=0.19.0
-Pillow>=9.0.0
+# SECURITY FIX: Updated to patch CVE vulnerabilities
+# - Path traversal (CVE-2022-22815, CVE-2022-22816)
+# - Arbitrary code execution (CVE-2023-50447)
+# - Expression injection (CVE-2022-22817)
+# - libwebp OOB write (CVE-2023-4863)
+Pillow>=10.2.0
