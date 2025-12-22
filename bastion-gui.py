@@ -26,6 +26,8 @@ class BastionClient(QObject):
         
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
+        # Initial icon setup using safe loader will happen in first update_status
+        # but let's set a safe default here too
         self.tray_icon.setIcon(QIcon.fromTheme("security-high"))
         self.tray_icon.setVisible(True)
         
@@ -89,9 +91,33 @@ class BastionClient(QObject):
             print(f"Connection failed: {e}")
             self.update_status("Connection failed", "security-medium")
 
+    def get_safe_icon(self, icon_name):
+        """Try to load icon from theme, falling back to standard icons if missing"""
+        # List of fallbacks in order of preference
+        fallbacks = [
+            icon_name,
+            'security-high',
+            'security-medium', 
+            'system-lock-screen', 
+            'changes-prevent',
+            'emblem-locked', 
+            'network-wired', 
+            'applications-internet'
+        ]
+        
+        for name in fallbacks:
+            if not name: continue
+            icon = QIcon.fromTheme(name)
+            # Check if icon actually has available sizes (exists)
+            if not icon.isNull() and icon.availableSizes():
+                return icon
+                
+        # If all else fails, return a generic fallback (or keep empty which shows dots)
+        return QIcon.fromTheme('system-help')
+
     def update_status(self, text, icon_name):
         self.action_status.setText(f"Status: {text}")
-        self.tray_icon.setIcon(QIcon.fromTheme(icon_name))
+        self.tray_icon.setIcon(self.get_safe_icon(icon_name))
 
     def on_ready_read(self):
         try:
