@@ -38,6 +38,21 @@ class InboundFirewallDetector:
         """
         # Check UFW (Debian/Ubuntu)
         if shutil.which('ufw'):
+            # Try systemd first (no root required)
+            try:
+                result = subprocess.run(['systemctl', 'is-active', 'ufw'],
+                                      capture_output=True, text=True, timeout=5)
+                if result.stdout.strip() == 'active':
+                    return {
+                        'has_protection': True,
+                        'firewall': 'ufw',
+                        'status': 'active',
+                        'recommendation': None
+                    }
+            except Exception as e:
+                logger.warning(f"Error checking UFW systemd status: {e}")
+
+            # Fallback to direct status check (might work if user is root or has permissions)
             try:
                 result = subprocess.run(['ufw', 'status'], 
                                       capture_output=True, text=True, timeout=5)
@@ -60,6 +75,20 @@ class InboundFirewallDetector:
         
         # Check firewalld (Fedora/RHEL/CentOS)
         if shutil.which('firewall-cmd'):
+            # Try systemd first
+            try:
+                result = subprocess.run(['systemctl', 'is-active', 'firewalld'],
+                                      capture_output=True, text=True, timeout=5)
+                if result.stdout.strip() == 'active':
+                     return {
+                        'has_protection': True,
+                        'firewall': 'firewalld',
+                        'status': 'active',
+                        'recommendation': None
+                    }
+            except Exception as e:
+                logger.warning(f"Error checking firewalld systemd status: {e}")
+
             try:
                 result = subprocess.run(['firewall-cmd', '--state'], 
                                       capture_output=True, text=True, timeout=5)
@@ -186,20 +215,16 @@ class InboundFirewallDetector:
             (success, message) tuple
         """
         try:
-            commands = [
-                # Set defaults
-                ['pkexec', 'ufw', 'default', 'deny', 'incoming'],
-                ['pkexec', 'ufw', 'default', 'allow', 'outgoing'],
-
-                # Enable UFW
-                ['pkexec', 'ufw', '--force', 'enable'],
-            ]
-
-            for cmd in commands:
-                logger.info(f"Running: {' '.join(cmd)}")
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                if result.returncode != 0:
-                    return (False, f"Command failed: {' '.join(cmd)}\n{result.stderr}")
+            # Combine commands to avoid multiple password prompts
+            # We use sh -c to chain the commands
+            shell_cmd = "ufw default deny incoming && ufw default allow outgoing && ufw --force enable"
+            cmd = ['pkexec', 'sh', '-c', shell_cmd]
+            
+            logger.info(f"Running: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0:
+                return (False, f"Command failed: {shell_cmd}\n{result.stderr}")
 
             return (True, "UFW configured with stateful rules (ESTABLISHED,RELATED allowed, NEW denied)")
 
