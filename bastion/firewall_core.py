@@ -14,6 +14,7 @@ import struct
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 import psutil
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,6 @@ class ConnectionCache:
         self.ttl = ttl
         
     def get(self, src_port, protocol):
-        import time
         now = time.time()
         
         # Cleanup old entries while we are here (lazy cleanup)
@@ -79,7 +79,6 @@ class ConnectionCache:
             # SECURITY FIX (VULN-003): Validate PID still exists and matches cached path
             # This prevents race conditions where port is reused by different process
             try:
-                import psutil
                 process = psutil.Process(entry['pid'])
                 current_path = process.exe()
                 
@@ -102,7 +101,6 @@ class ConnectionCache:
         return None
         
     def set(self, src_port, protocol, pid, name, path):
-        import time
         key = (src_port, protocol)
         self.cache[key] = {
             'pid': pid,
