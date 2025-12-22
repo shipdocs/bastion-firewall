@@ -471,7 +471,7 @@ class DashboardWindow(QMainWindow):
         
         sb_layout.addStretch()
         
-        ver = QLabel("v1.3.0")
+        ver = QLabel("v1.3.2")
         ver.setObjectName("muted")
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sb_layout.addWidget(ver)
@@ -863,8 +863,12 @@ class DashboardWindow(QMainWindow):
         should_enable = self.chk_autostart.isChecked()
         action = "enable" if should_enable else "disable"
         try:
-            # Just enable/disable, don't start/stop
+            # 1. System Service (Daemon)
             subprocess.run(['pkexec', 'systemctl', action, 'bastion-firewall'], check=True)
+            
+            # 2. User GUI (Tray) - Manage ~/.config/autostart
+            self._manage_gui_autostart(should_enable)
+            
             self.refresh_status() # Updates text
         except Exception as e:
             # Revert checkbox state
@@ -874,6 +878,35 @@ class DashboardWindow(QMainWindow):
             # Modern error notification
             from .notification import show_notification
             show_notification(self, "Error", f"Failed to {action} autostart: {e}")
+
+    def _manage_gui_autostart(self, enable: bool):
+        try:
+            autostart_dir = Path.home() / ".config/autostart"
+            autostart_dir.mkdir(parents=True, exist_ok=True)
+            desktop_file = autostart_dir / "bastion-tray.desktop"
+            
+            if enable:
+                content = """[Desktop Entry]
+Type=Application
+Name=Bastion Firewall Tray Icon
+Comment=System tray icon for Bastion Firewall
+Exec=/usr/bin/bastion-gui
+Icon=security-high
+Terminal=false
+Categories=System;Security;Network;
+Hidden=false
+X-GNOME-Autostart-enabled=true
+"""
+                with open(desktop_file, "w") as f:
+                    f.write(content)
+                
+                # Make executable just in case
+                desktop_file.chmod(0o755)
+            else:
+                if desktop_file.exists():
+                    desktop_file.unlink()
+        except Exception as e:
+            print(f"Failed to manage GUI autostart: {e}")
 
     def enable_ufw(self):
         # Modern notification for start
