@@ -155,7 +155,27 @@ class DouaneDaemon:
             
         self.server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server_socket.bind(self.SOCKET_PATH)
-        os.chmod(self.SOCKET_PATH, 0o666)
+        
+        # SECURITY FIX: Restrict socket permissions to prevent unauthorized access
+        # Only root and users in the 'bastion' group can connect
+        # Changed from 0o666 (world-writable) to 0o660 (group-writable only)
+        os.chmod(self.SOCKET_PATH, 0o660)
+        
+        # Try to set group ownership to 'bastion' if the group exists
+        # This allows GUI client (running as user in bastion group) to connect
+        try:
+            import grp
+            bastion_gid = grp.getgrnam('bastion').gr_gid
+            os.chown(self.SOCKET_PATH, 0, bastion_gid)
+            logger.info(f"Socket permissions set to 0660, owner root:bastion")
+        except KeyError:
+            # bastion group doesn't exist, fall back to user-only (0o600)
+            # This is more restrictive but prevents unauthorized access
+            os.chmod(self.SOCKET_PATH, 0o600)
+            logger.warning("'bastion' group not found, socket restricted to root only (0600)")
+        except Exception as e:
+            logger.warning(f"Could not set socket group ownership: {e}")
+            
         self.server_socket.listen(1)
 
     def reload_config(self):
