@@ -334,8 +334,34 @@ class IPTablesManager:
         ]
 
         try:
+            # 1. Insert NFQUEUE rule (will optionally be pushed down by bypass rules)
             result = subprocess.run(rule, capture_output=True, text=True, check=True)
             logger.info(f"Added iptables NFQUEUE rule: {' '.join(rule)}")
+
+            # 2. Optimization: Bypass NFQUEUE for root and systemd services
+            # "If root is compromised, we are compromised" -> minimal risk, high performance gain
+            bypass_rules = [
+                # Allow root (UID 0) - manages system updates, cron, etc.
+                ['iptables', '-I', 'OUTPUT', '1', 
+                 '-m', 'owner', '--uid-owner', '0', 
+                 '-m', 'comment', '--comment', 'BASTION_BYPASS',
+                 '-j', 'ACCEPT'],
+                
+                # Allow systemd-network (GID) - handles DHCP, etc.
+                ['iptables', '-I', 'OUTPUT', '1', 
+                 '-m', 'owner', '--gid-owner', 'systemd-network',
+                 '-m', 'comment', '--comment', 'BASTION_BYPASS',
+                 '-j', 'ACCEPT']
+            ]
+
+            for bypass in bypass_rules:
+                try:
+                    subprocess.run(bypass, capture_output=True, text=True, check=True)
+                    logger.info(f"Added bypass rule: {' '.join(bypass)}")
+                except subprocess.CalledProcessError as e:
+                    # Non-fatal: some distros might lack systemd-network group
+                    logger.debug(f"Could not add bypass rule (safe to ignore): {e}")
+
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to add iptables rule: {e.stderr}")
@@ -343,22 +369,44 @@ class IPTablesManager:
 
     @staticmethod
     def remove_nfqueue(queue_num=1):
-        """Remove iptables NFQUEUE rules"""
+        """Remove iptables NFQUEUE and bypass rules"""
         import subprocess
 
-        rule = [
+        # 1. Remove NFQUEUE rule
+        nfqueue_rule = [
             'iptables', '-D', 'OUTPUT',
             '-m', 'state', '--state', 'NEW',
             '-j', 'NFQUEUE', '--queue-num', str(queue_num)
         ]
 
         try:
-            subprocess.run(rule, capture_output=True, text=True, check=True)
+            subprocess.run(nfqueue_rule, capture_output=True, text=True, check=True)
             logger.info("Removed iptables NFQUEUE rule")
-            return True
         except subprocess.CalledProcessError:
-            # Rule might not exist, that's okay
-            return False
+            pass
+
+        # 2. Remove BASTION_BYPASS rules
+        # We need to find them first because we can't delete by index efficiently/safely
+        try:
+            # Query rules with our comment
+            cmd = ['iptables', '-S', 'OUTPUT']
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            
+            for line in result.stdout.split('\n'):
+                if 'BASTION_BYPASS' in line:
+                    # Line format: -A OUTPUT ...
+                    parts = line.split()
+                    if len(parts) > 2 and parts[0] == '-A':
+                        del_cmd = ['iptables', '-D'] + parts[2:]
+                        try:
+                            subprocess.run(del_cmd, capture_output=True, check=True)
+                            logger.info(f"Removed bypass rule for: {line}")
+                        except subprocess.CalledProcessError:
+                            pass
+        except subprocess.CalledProcessError:
+            pass
+            
+        return True
 
     @staticmethod
     def cleanup_nfqueue(queue_num=1):
