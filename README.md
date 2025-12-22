@@ -4,7 +4,7 @@
 
 Bastion is a **production-ready** application firewall built specifically for **Zorin OS 18** (and compatible with all Debian-based distributions). Like a medieval bastion protecting a fortress, Bastion stands guard over your system's network connections, giving you the same outbound connection control you had on Windows.
 
-![Zorin OS](https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue) ![Debian](https://img.shields.io/badge/Debian%2FUbuntu-Supported-green) ![License](https://img.shields.io/badge/License-GPLv3-blue) ![Version](https://img.shields.io/badge/Version-1.0.0-brightgreen)
+![Zorin OS](https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue) ![Debian](https://img.shields.io/badge/Debian%2FUbuntu-Supported-green) ![License](https://img.shields.io/badge/License-GPLv3-blue) ![Version](https://img.shields.io/badge/Version-1.0.5-brightgreen)
 
 ---
 
@@ -22,7 +22,7 @@ Bastion intercepts **every** outbound connection attempt and shows you a GUI dia
 
 ---
 
-> **Latest Release (v1.0.0 - Initial Bastion Release):**
+> **Latest Release (v1.0.5):**
 > - 🏰 **Rebranded** - Professional new identity: "Your Last Line of Defense"
 > - 🎯 **Zorin OS 18** - Built specifically for Zorin OS 18
 > - 🎨 **Independent Tray Icon** - Runs independently, auto-connects to daemon
@@ -32,6 +32,9 @@ Bastion intercepts **every** outbound connection attempt and shows you a GUI dia
 > - 🔒 **Security Hardened** - 5-phase security implementation (score: 2/10 LOW RISK)
 > - 🛡️ **UFW Integration** - Complete inbound + outbound protection
 > - 📚 **Comprehensive Docs** - ROADMAP, ARCHITECTURE, FAQ, and more
+> - ✅ **Smart Caching** - Connection Identification Cache (120s TTL) for reliability
+> - ✅ **Robust Retry** - Enhanced race-condition handling for TCP connections
+> - ✅ **Inbound Status** - Improved detection and setup for UFW
 > - ✅ **Production Ready** - Stable, tested, and ready for daily use
 >
 > See [ROADMAP.md](ROADMAP.md) for future plans and [FAQ.md](FAQ.md) for common questions.
@@ -125,7 +128,7 @@ Bastion Firewall:
 │                      ↓                                       │
 │              User Decision (Allow/Deny)                     │
 │                      ↓                                       │
-│          Save to /etc/douane/rules.json                     │
+│          Save to /etc/bastion/rules.json                     │
 │          (Internal Enforcement)                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -181,19 +184,19 @@ cd Bastion
 ./build_deb.sh
 
 # Install
-sudo dpkg -i douane-firewall_2.0.15_all.deb
+sudo dpkg -i bastion-firewall_1.0.5_all.deb
 
 # If there are dependency issues, fix them:
 sudo apt-get install -f
 ```
 
 The package installs:
-- `/usr/local/bin/douane-daemon` - Root daemon
-- `/usr/local/bin/douane-gui-client` - GUI client
-- `/usr/local/bin/douane-control-panel` - Control panel
-- `/etc/douane/config.json` - Configuration
-- `/usr/share/applications/douane-firewall.desktop` - Application menu entry
-- `/usr/share/applications/douane-control-panel.desktop` - Control panel menu entry
+- `/usr/bin/bastion-daemon` - Root daemon
+- `/usr/bin/bastion-gui` - GUI client
+- `/usr/bin/bastion-control-panel` - Control panel
+- `/etc/bastion/config.json` - Configuration
+- `/usr/share/applications/com.bastion.firewall.desktop` - Application menu entry
+- `/usr/share/applications/bastion-control-panel.desktop` - Control panel menu entry
 
 ### Method 2: RPM Package (Fedora/RHEL/CentOS)
 
@@ -214,7 +217,8 @@ cd Bastion
 ./build_deb.sh
 
 # Install the package
-sudo dpkg -i douane-firewall_2.0.15_all.deb
+# Install the package
+sudo dpkg -i bastion-firewall_1.0.5_all.deb
 ./build_rpm.sh    # For Fedora/RHEL
 
 # Install the built package
@@ -278,7 +282,7 @@ sudo python3 douane_firewall.py
 **From Command Line:**
 ```bash
 # Start the GUI client (recommended)
-/usr/local/bin/douane-gui-client
+/usr/bin/bastion-gui
 ```
 
 **Open Control Panel:**
