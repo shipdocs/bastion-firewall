@@ -42,7 +42,52 @@ class PacketInfo:
     
     def __str__(self):
         return (f"PacketInfo({self.app_name or 'unknown'} [{self.pid}] -> "
-                f"{self.dest_ip}:{self.dest_port} via {self.protocol})")
+                f"{self.dest_ip}:{self.dest_port} (src:{self.src_port}) via {self.protocol})")
+
+
+class ConnectionCache:
+    """
+    Cache identified connections to handle retransmissions and consistent identification.
+    
+    Stores: (src_port, protocol) -> (pid, app_name, app_path, timestamp)
+    
+    Since we intercept NEW packets, we might see retransmissions of the SYN,
+    or we might look up a connection once and want to remember it for a short time.
+    Local source ports are unique per protocol.
+    """
+    def __init__(self, ttl=60):
+        self.cache = {}
+        self.ttl = ttl
+        
+    def get(self, src_port, protocol):
+        import time
+        now = time.time()
+        
+        # Cleanup old entries while we are here (lazy cleanup)
+        # In a high-volume system, we'd use a separate cleanup thread, 
+        # but for a personal firewall this is fine.
+        keys_to_delete = [k for k, v in self.cache.items() if now - v['time'] > self.ttl]
+        for k in keys_to_delete:
+            del self.cache[k]
+            
+        key = (src_port, protocol)
+        if key in self.cache:
+            entry = self.cache[key]
+            # Verify PID still exists? Optional, but safer to assume 
+            # port reuse is slower than our TTL for *different* apps.
+            return entry
+        return None
+        
+    def set(self, src_port, protocol, pid, name, path):
+        import time
+        key = (src_port, protocol)
+        self.cache[key] = {
+            'pid': pid,
+            'name': name,
+            'path': path,
+            'time': time.time()
+        }
+
 
 
 class ApplicationIdentifier:
@@ -82,6 +127,37 @@ class ApplicationIdentifier:
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
                             pass
             
+            # Fallback for connectionless protocols (UDP) or initial packets
+            # where strict connection info isn't available in process table.
+            # Many UDP apps bind to 0.0.0.0:port and send to various destinations
+            # without establishing a connected socket (so raddr is empty).
+            for conn in connections:
+                if conn.pid and conn.laddr and conn.laddr.port == src_port:
+                    # Check IP match (exact or wildcard)
+                    # We accept if local socket is bound to the specific source IP
+                    # OR if it's bound to all interfaces (0.0.0.0 / ::)
+                    is_ip_match = (conn.laddr.ip == src_ip or 
+                                 conn.laddr.ip == '0.0.0.0' or 
+                                 conn.laddr.ip == '::')
+                    
+                    if is_ip_match:
+                        try:
+                            # Verify valid process
+                            process = psutil.Process(conn.pid)
+                            path = process.exe()
+                            
+                            # Only return if we can actually get the path
+                            if path:
+                                logger.debug(f"Found loose match for {src_ip}:{src_port} -> pid {conn.pid} ({process.name()})")
+                                return {
+                                    'pid': conn.pid,
+                                    'name': process.name(),
+                                    'exe_path': path,
+                                    'cmdline': ' '.join(process.cmdline())
+                                }
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+
             return None
             
         except Exception as e:
@@ -115,6 +191,7 @@ class PacketProcessor:
         """
         self.decision_callback = decision_callback
         self.identifier = ApplicationIdentifier()
+        self.cache = ConnectionCache(ttl=120) # 2 minute cache
         self.nfqueue = None
         
         if not NETFILTER_AVAILABLE:
@@ -157,17 +234,46 @@ class PacketProcessor:
                 protocol=protocol
             )
 
-            # Try to identify the application
-            app_info = self.identifier.find_process_by_socket(
-                packet.src, src_port, packet.dst, dest_port, protocol
-            )
+            # 1. Check Cache First
+            if src_port and protocol:
+                cached_app = self.cache.get(src_port, protocol)
+                if cached_app:
+                    pkt_info.pid = cached_app['pid']
+                    pkt_info.app_name = cached_app['name']
+                    pkt_info.app_path = cached_app['path']
+                    logger.debug(f"Cache hit for {src_port}/{protocol}: {pkt_info.app_name}")
 
-            if app_info:
-                pkt_info.pid = app_info['pid']
-                pkt_info.app_name = app_info['name']
-                pkt_info.app_path = app_info['exe_path']
-            else:
-                logger.warning(f"Could not identify application for packet: {pkt_info}")
+            # 2. If not in cache, try to identify
+            if not pkt_info.app_path:
+                # We use a retry mechanism to handle race conditions where the
+                # socket is created but not yet visible in /proc (common for new TCP)
+                app_info = None
+                for attempt in range(5):
+                    # Try strict match first
+                    app_info = self.identifier.find_process_by_socket(
+                        packet.src, src_port, packet.dst, dest_port, protocol
+                    )
+                    
+                    if app_info:
+                        break
+                        
+                    # If not found and it's TCP, wait a bit and retry
+                    # This helps with "SYN_SENT" sockets that might lag in psutil
+                    if protocol == 'tcp' and attempt < 4:
+                        import time
+                        time.sleep(0.05)  # Wait 50ms (total wait up to 200ms)
+                
+                if app_info:
+                    pkt_info.pid = app_info['pid']
+                    pkt_info.app_name = app_info['name']
+                    pkt_info.app_path = app_info['exe_path']
+                    
+                    # Save to cache
+                    if src_port and protocol:
+                        self.cache.set(src_port, protocol, 
+                                     app_info['pid'], app_info['name'], app_info['exe_path'])
+                else:
+                    logger.warning(f"Could not identify application for packet: {pkt_info}")
 
             # Get decision from callback
             allow = self.decision_callback(pkt_info)
