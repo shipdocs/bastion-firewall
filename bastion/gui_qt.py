@@ -849,19 +849,31 @@ class DashboardWindow(QMainWindow):
         
         try:
             if self.log_path.exists():
-                res = subprocess.run(f"wc -l {self.log_path}", shell=True, capture_output=True, text=True)
-                total = res.stdout.strip().split()[0]
+                # SECURITY FIX: Use list arguments instead of shell=True to prevent command injection
+                res = subprocess.run(['wc', '-l', str(self.log_path)], capture_output=True, text=True)
+                total = res.stdout.strip().split()[0] if res.returncode == 0 else "0"
                 self.stat_connections.findChild(QLabel, "").setText(total)
                 
-                res = subprocess.run(f"grep -c 'decision: deny' {self.log_path}", shell=True, capture_output=True, text=True)
-                denied = res.stdout.strip()
+                res = subprocess.run(['grep', '-c', 'decision: deny', str(self.log_path)], 
+                                   capture_output=True, text=True)
+                denied = res.stdout.strip() if res.returncode == 0 else "0"
                 self.stat_blocked.findChild(QLabel, "").setText(denied)
-        except:
-            pass
+        except Exception as e:
+            # Log the error but don't crash the GUI
+            import logging
+            logging.getLogger(__name__).error(f"Error updating statistics: {e}")
 
     def toggle_autostart(self):
         should_enable = self.chk_autostart.isChecked()
         action = "enable" if should_enable else "disable"
+        
+        # SECURITY: Validate action parameter to prevent command injection
+        ALLOWED_ACTIONS = ['enable', 'disable', 'start', 'stop', 'restart']
+        if action not in ALLOWED_ACTIONS:
+            logger.error(f"Invalid systemctl action: {action}")
+            QMessageBox.critical(self, "Security Error", f"Invalid action: {action}")
+            return
+            
         try:
             # 1. System Service (Daemon)
             subprocess.run(['pkexec', 'systemctl', action, 'bastion-firewall'], check=True)

@@ -54,6 +54,8 @@ class ConnectionCache:
     Since we intercept NEW packets, we might see retransmissions of the SYN,
     or we might look up a connection once and want to remember it for a short time.
     Local source ports are unique per protocol.
+    
+    SECURITY: Validates PIDs before returning cached entries to prevent race conditions.
     """
     def __init__(self, ttl=60):
         self.cache = {}
@@ -73,9 +75,30 @@ class ConnectionCache:
         key = (src_port, protocol)
         if key in self.cache:
             entry = self.cache[key]
-            # Verify PID still exists? Optional, but safer to assume 
-            # port reuse is slower than our TTL for *different* apps.
-            return entry
+            
+            # SECURITY FIX (VULN-003): Validate PID still exists and matches cached path
+            # This prevents race conditions where port is reused by different process
+            try:
+                import psutil
+                process = psutil.Process(entry['pid'])
+                current_path = process.exe()
+                
+                # If PID exists but path changed, this is a different process!
+                # Port was reused - invalidate cache entry
+                if current_path != entry['path']:
+                    logger.warning(f"PID {entry['pid']} reused port {src_port} - cache invalidated")
+                    del self.cache[key]
+                    return None
+                    
+                # PID and path match - cache is valid
+                return entry
+                
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                # Process no longer exists - invalidate cache
+                logger.debug(f"Cached PID {entry['pid']} no longer exists - cache invalidated")
+                del self.cache[key]
+                return None
+                
         return None
         
     def set(self, src_port, protocol, pid, name, path):
