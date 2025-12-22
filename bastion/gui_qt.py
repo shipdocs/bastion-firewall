@@ -471,7 +471,7 @@ class DashboardWindow(QMainWindow):
         
         sb_layout.addStretch()
         
-        ver = QLabel("v1.2.1")
+        ver = QLabel("v1.3.0")
         ver.setObjectName("muted")
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sb_layout.addWidget(ver)
