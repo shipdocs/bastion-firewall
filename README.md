@@ -4,7 +4,7 @@
 
 Bastion is a **production-ready** application firewall built specifically for **Zorin OS 18** (and compatible with all Debian-based distributions). Like a medieval bastion protecting a fortress, Bastion stands guard over your system's network connections, giving you the same outbound connection control you had on Windows.
 
-![Zorin OS](https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue) ![Debian](https://img.shields.io/badge/Debian%2FUbuntu-Supported-green) ![License](https://img.shields.io/badge/License-GPLv3-blue) ![Version](https://img.shields.io/badge/Version-1.2.1-brightgreen)
+![Zorin OS](https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue) ![Debian](https://img.shields.io/badge/Debian%2FUbuntu-Supported-green) ![License](https://img.shields.io/badge/License-GPLv3-blue) ![Version](https://img.shields.io/badge/Version-1.3.0-brightgreen)
 
 ---
 
@@ -27,9 +27,9 @@ Bastion intercepts **every** outbound connection attempt and shows you a GUI dia
 
 ---
 
-> **Latest Release (v1.2.1):**
+> **Latest Release (v1.3.0):**
 > - 🏰 **Rebranded** - Professional new identity: "Your Last Line of Defense"
-> - 🎯- **Version**: 1.2.1
+> - 🎯- **Version**: 1.3.0
 - **Status**: Stable
 - **License**: GPL-3.0
 - **Platform**: Zorin OS 18 (Ubuntu 24.04 LTS), Debian, Fedora
@@ -192,7 +192,7 @@ cd Bastion
 ./build_deb.sh
 
 # Install
-sudo dpkg -i bastion-firewall_1.2.1_all.deb
+sudo dpkg -i bastion-firewall_1.3.0_all.deb
 
 # If there are dependency issues, fix them:
 sudo apt-get install -f
@@ -226,7 +226,7 @@ cd Bastion
 
 # Install the package
 # Install the package
-sudo dpkg -i bastion-firewall_1.2.1_all.deb
+sudo dpkg -i bastion-firewall_1.3.0_all.deb
 ./build_rpm.sh    # For Fedora/RHEL
 
 # Install the built package
