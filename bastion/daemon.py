@@ -9,6 +9,7 @@ import time
 import subprocess
 from pathlib import Path
 from typing import Dict, Optional
+from collections import deque
 import threading
 
 from .config import ConfigManager
@@ -17,6 +18,54 @@ from .firewall_core import PacketProcessor, PacketInfo, IPTablesManager
 from .service_whitelist import should_auto_allow, get_app_category
 
 logger = logging.getLogger(__name__)
+
+
+class RateLimiter:
+    """
+    Rate limiter to prevent DoS attacks via packet flooding.
+    
+    SECURITY: Prevents malicious applications from:
+    - Flooding GUI with popup dialogs
+    - Exhausting daemon memory
+    - Causing NFQUEUE to drop legitimate packets
+    """
+    def __init__(self, max_requests_per_second: int = 10, window_seconds: int = 1):
+        self.max_requests = max_requests_per_second
+        self.window = window_seconds
+        self.requests = deque()
+        self.lock = threading.Lock()
+        
+    def allow_request(self) -> bool:
+        """
+        Check if a new request should be allowed based on rate limits.
+        
+        Returns:
+            True if request is within rate limit, False otherwise
+        """
+        with self.lock:
+            now = time.time()
+            
+            # Remove requests older than the window
+            while self.requests and now - self.requests[0] > self.window:
+                self.requests.popleft()
+            
+            # Check if we've exceeded the limit
+            if len(self.requests) >= self.max_requests:
+                logger.warning(f"Rate limit exceeded: {len(self.requests)} requests in {self.window}s")
+                return False
+            
+            # Add this request
+            self.requests.append(now)
+            return True
+    
+    def get_current_rate(self) -> int:
+        """Get current request rate"""
+        with self.lock:
+            now = time.time()
+            # Count requests in current window
+            recent = sum(1 for req_time in self.requests if now - req_time <= self.window)
+            return recent
+
 
 class DouaneDaemon:
     """Core Daemon Logic"""
@@ -36,12 +85,17 @@ class DouaneDaemon:
         self.last_request_time: Dict[str, float] = {}
         self.request_lock = threading.Lock() # Protects shared state (pending_requests)
         self.socket_lock = threading.Lock() # Protects socket writes
+        
+        # SECURITY: Global rate limiter to prevent DoS attacks (VULN-009)
+        # Limits GUI popup requests to 10 per second by default
+        self.rate_limiter = RateLimiter(max_requests_per_second=10, window_seconds=1)
 
         # Statistics
         self.stats = {
             'total_connections': 0,
             'allowed_connections': 0,
-            'blocked_connections': 0
+            'blocked_connections': 0,
+            'rate_limited': 0  # Track rate-limited requests
         }
 
     def start(self):
@@ -279,6 +333,16 @@ class DouaneDaemon:
 
     def _ask_gui(self, pkt_info, app_name, app_path, cache_key, learning_mode) -> bool:
         """Communicate with GUI"""
+        
+        # SECURITY: Apply global rate limiting to prevent DoS (VULN-009)
+        if not self.rate_limiter.allow_request():
+            logger.warning(f"Rate limit exceeded - dropping packet from {app_name or 'unknown'}")
+            logger.warning(f"Current rate: {self.rate_limiter.get_current_rate()} requests/second")
+            self.stats['rate_limited'] += 1
+            self.stats['blocked_connections'] += 1
+            # Drop packet to prevent flooding
+            return False
+        
         if not self.gui_socket:
             logger.warning(f"No GUI connected for {app_name or 'unknown'} -> {pkt_info.dest_ip}:{pkt_info.dest_port}")
 
