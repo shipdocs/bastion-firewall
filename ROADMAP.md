@@ -68,7 +68,7 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
   iptables -A OUTPUT -m owner --uid-owner 0 -j ACCEPT  # Root processes
   iptables -A OUTPUT -m owner --gid-owner systemd-network -j ACCEPT  # System services
   ```
-- [ ] Add decision caching with configurable TTL (currently 60s)
+- [x] Add decision caching with configurable TTL (implemented: 120s)
 - [ ] Optimize rule lookup with hash-based indexing
 - [ ] Profile packet processing pipeline and identify bottlenecks
 - [ ] Implement lazy loading for rules database
