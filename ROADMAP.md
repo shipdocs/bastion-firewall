@@ -134,11 +134,11 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
 **Goal**: Replace NetfilterQueue with eBPF for 10x performance improvement
 
 **Tasks**:
-- [ ] Research eBPF XDP (eXpress Data Path) for packet filtering
-- [ ] Implement eBPF program for kernel-level filtering
-- [ ] Add fallback to NetfilterQueue for older kernels (< 4.18)
-- [ ] Benchmark eBPF vs NetfilterQueue performance
-- [ ] Update documentation with eBPF requirements
+- [x] Research eBPF XDP (eXpress Data Path) for packet filtering
+- [x] Implement eBPF program for kernel-level filtering
+- [x] Add fallback to NetfilterQueue for older kernels (< 4.18)
+- [x] Benchmark eBPF vs NetfilterQueue performance
+- [x] Update documentation with eBPF requirements
 
 **Benefits**:
 - **Performance**: Process packets in kernel space (no context switch)
@@ -301,6 +301,12 @@ Pick an item from the roadmap and start contributing! 🚀
 - ✅ GitHub Pages documentation site
 - ✅ Zorin OS 18 primary target platform
 
+### v1.3.0 (December 2024) ✅ RELEASED
+- ✅ **eBPF Implementation**: High-performance kernel-level identification
+- ✅ **Stability**: Resolved critical race conditions
+- ✅ **Modern UI**: Dark-themed notifications
+- ✅ **Dependencies**: Updated for newer kernels
+
 ### v1.1.0 (Q1 2025)
 - Performance optimizations
 - Kernel-level filtering for known apps
@@ -315,7 +321,6 @@ Pick an item from the roadmap and start contributing! 🚀
 - Application categorization
 
 ### v2.0.0 (Q3-Q4 2025)
-- eBPF implementation (breaking change)
 - Distributed architecture
 - Machine learning integration
 - Enterprise features
