@@ -274,8 +274,9 @@ Pick an item from the roadmap and start contributing! 🚀
 1. ✅ **Package management & distribution** - COMPLETED (v1.0.0)
 2. ✅ **Rebranding to Bastion** - COMPLETED (v1.0.0)
 3. ✅ **Software Centre integration** - COMPLETED (v1.0.0)
-4. 🔄 **Performance optimization** - Kernel-level filtering
+4. 🔄 **Performance optimization** - Kernel-level filtering (Partially COMPLETED v1.1.0)
 5. 🔄 **Test coverage** - Integration tests
+6. 📅 **Control Panel UI Overhaul** - Modern, slick, full-screen interface
 
 ### Medium Priority (Q2-Q3 2025)
 6. **Container support** - Docker/Podman compatibility
