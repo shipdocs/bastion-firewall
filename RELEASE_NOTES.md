@@ -1,5 +1,21 @@
 # Release Notes
 
+## v1.3.2 - Tray Icon Stability
+**Release Date:** 2025-12-22
+
+### 🐛 Bug Fixes
+- **Tray Icon Fix**: Resolved issue where the tray icon would appear as "3 dots" or missing on some environments. Implemented robust theme fallback logic to ensure an icon always loads (security-high -> system-lock-screen -> generic).
+
+---
+
+## v1.3.1 - Startup & Persistence Fixes
+**Release Date:** 2025-12-22
+
+### 🐛 Bug Fixes
+- **Startup Settings**: Fixed issue where "Run on Startup" would enable the daemon but not the Tray Icon. Now correctly creates a user autostart entry (`~/.config/autostart/bastion-tray.desktop`) to ensure the GUI appears on boot.
+
+---
+
 ## v1.3.0 - Major Feature: eBPF Core
 **Release Date:** 2025-12-22
 
