@@ -35,7 +35,25 @@ Based on comprehensive project analysis (Score: 9.0/10), this document tracks pl
 - ✅ Clean upgrade path from Douane
 - ✅ No "silly issues" with lingering processes
 - ✅ Professional package management
-- ✅ Easy installation for end users
+- ✅ Easy installation for each users
+
+### 1b. User Experience Polish ✅ COMPLETED
+
+**Goal**: Seamless interaction and correct system state reflection
+
+**Completed Tasks**:
+- ✅ **Inbound Protection Reliability**:
+  - Fixed status detection (using `systemctl` instead of root-only commands)
+  - Consolidated password prompts (1 prompt instead of 3 for UFW setup)
+  - Accurate "Active/Inactive" status reporting
+- ✅ **Control Panel Improvements**:
+  - Real-time status polling
+  - Layout fixes for 100% button visibility
+
+**Impact**:
+- ✅ "It just works" feeling
+- ✅ Reduced user frustration
+- ✅ Professional polish level
 
 ---
 
