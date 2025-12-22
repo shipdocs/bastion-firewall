@@ -217,7 +217,8 @@ class InboundFirewallDetector:
         try:
             # Combine commands to avoid multiple password prompts
             # We use sh -c to chain the commands
-            shell_cmd = "ufw default deny incoming && ufw default allow outgoing && ufw --force enable"
+            # 'ufw --force reset' ensures no stray open ports exist (Safe Mode)
+            shell_cmd = "ufw --force reset && ufw default deny incoming && ufw default allow outgoing && ufw --force enable"
             cmd = ['pkexec', 'sh', '-c', shell_cmd]
             
             logger.info(f"Running: {' '.join(cmd)}")

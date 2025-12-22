@@ -4,7 +4,7 @@
 
 Bastion is a **production-ready** application firewall built specifically for **Zorin OS 18** (and compatible with all Debian-based distributions). Like a medieval bastion protecting a fortress, Bastion stands guard over your system's network connections, giving you the same outbound connection control you had on Windows.
 
-![Zorin OS](https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue) ![Debian](https://img.shields.io/badge/Debian%2FUbuntu-Supported-green) ![License](https://img.shields.io/badge/License-GPLv3-blue) ![Version](https://img.shields.io/badge/Version-1.0.5-brightgreen)
+![Zorin OS](https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue) ![Debian](https://img.shields.io/badge/Debian%2FUbuntu-Supported-green) ![License](https://img.shields.io/badge/License-GPLv3-blue) ![Version](https://img.shields.io/badge/Version-1.2.1-brightgreen)
 
 ---
 
@@ -13,19 +13,27 @@ Bastion is a **production-ready** application firewall built specifically for **
 Bastion intercepts **every** outbound connection attempt and shows you a GUI dialog to decide which applications can access the network. No more silent data exfiltration, no more mystery connections.
 
 **Key Features:**
-- 🛡️ **Real-time Protection** - Intercepts all outbound connections
-- 🎨 **Beautiful GUI** - Windows-like permission dialogs
-- 🚦 **Visual Status** - Tray icon shows firewall status (🟢 running, 🔴 stopped, 🟠 connecting)
-- ⚙️ **Easy Control** - Start/Stop/Restart from tray menu
-- 🔒 **Security Hardened** - 5-phase security implementation
+- 🛡️- **Modern Control Panel**:
+    - Sleek, dark-themed Qt 6 interface
+    - Real-time status monitoring
+    - Rule management table
+- **Smart Popups**:
+    - "Always on Top" decision dialogs
+    - 4-way decisions: Allow Once/Always, Deny Once/Always
+    - Keyboard shortcuts for rapid decisions
+- **Robust Security**:
+    - Kernel-level packet interception (Netfilter)security implementation
 - 📊 **Low Risk** - Security score: 2/10 (was 7.5/10)
 
 ---
 
-> **Latest Release (v1.0.5):**
+> **Latest Release (v1.2.1):**
 > - 🏰 **Rebranded** - Professional new identity: "Your Last Line of Defense"
-> - 🎯 **Zorin OS 18** - Built specifically for Zorin OS 18
-> - 🎨 **Independent Tray Icon** - Runs independently, auto-connects to daemon
+> - 🎯- **Version**: 1.2.1
+- **Status**: Stable
+- **License**: GPL-3.0
+- **Platform**: Zorin OS 18 (Ubuntu 24.04 LTS), Debian, Fedora
+- **GUI**: Modern Qt 6 Interfacey Icon** - Runs independently, auto-connects to daemon
 > - 🚦 **Visual Status** - Green (running), Red (stopped), Orange (connecting)
 > - ⚙️ **Working Controls** - Start/Stop/Restart via systemctl
 > - 🚀 **Auto-Start** - Tray icon starts automatically at login
@@ -184,7 +192,7 @@ cd Bastion
 ./build_deb.sh
 
 # Install
-sudo dpkg -i bastion-firewall_1.0.5_all.deb
+sudo dpkg -i bastion-firewall_1.2.1_all.deb
 
 # If there are dependency issues, fix them:
 sudo apt-get install -f
@@ -218,7 +226,7 @@ cd Bastion
 
 # Install the package
 # Install the package
-sudo dpkg -i bastion-firewall_1.0.5_all.deb
+sudo dpkg -i bastion-firewall_1.2.1_all.deb
 ./build_rpm.sh    # For Fedora/RHEL
 
 # Install the built package
@@ -260,11 +268,14 @@ sudo python3 douane_firewall.py
 - X11 or Wayland (for GUI)
 - Root/sudo privileges
 
-**Dependencies:**
-- python3-tk - GUI framework
-- NetfilterQueue - Packet interception
-- scapy - Packet parsing
-- psutil - Process identification
+**Depend## 🛠️ Tech Stack
+
+- **Core**: Python 3.12+
+- **GUI**: PyQt6 (Qt 6)
+- **Firewall**: NetfilterQueue (libnetfilter_queue)
+- **Packaging**: .deb (Debian/Ubuntu), .rpm (Fedora/RHEL)
+- **System**: systemd, PolicyKit
+ification
 - iptables - Packet filtering
 - ufw - Firewall management
 
