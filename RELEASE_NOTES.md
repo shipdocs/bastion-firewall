@@ -1,6 +1,6 @@
 # Release Notes
 
-## v1.2.1 - eBPF & Stability
+## v1.3.0 - Major Feature: eBPF Core
 **Release Date:** 2025-12-22
 
 ### 🔒 Security & Performance
@@ -355,7 +355,7 @@ If upgrading from v1.x:
 - Modernization and v2.0 features by Martin (shipdocs)
 - Community feedback and testing
 
---> - 🎯- **Version**: 1.2.1 (Initial Release)
+--> - 🎯- **Version**: 1.3.0 (Initial Release)
 
 - Basic packet interception with netfilter/iptables
 - GUI popups for connection requests
