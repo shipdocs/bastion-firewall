@@ -191,6 +191,13 @@ class PacketProcessor:
         """
         self.decision_callback = decision_callback
         self.identifier = ApplicationIdentifier()
+        # Initialize eBPF identifier (will fallback gracefully if unavailable)
+        try:
+            from .ebpf import EBPFIdentifier
+            self.ebpf = EBPFIdentifier()
+        except ImportError:
+            self.ebpf = None
+        
         self.cache = ConnectionCache(ttl=120) # 2 minute cache
         self.nfqueue = None
         
@@ -241,14 +248,39 @@ class PacketProcessor:
                     pkt_info.pid = cached_app['pid']
                     pkt_info.app_name = cached_app['name']
                     pkt_info.app_path = cached_app['path']
+                    pkt_info.app_path = cached_app['path']
                     logger.debug(f"Cache hit for {src_port}/{protocol}: {pkt_info.app_name}")
 
-            # 2. If not in cache, try to identify
+            # 2. Try eBPF (High Performance, solves race condition)
+            if not pkt_info.app_path and self.ebpf and self.ebpf.available:
+                ebpf_info = self.ebpf.lookup(
+                    packet.src, packet.dst, src_port, dest_port, protocol
+                )
+                if ebpf_info:
+                    pkt_info.pid = ebpf_info['pid']
+                    pkt_info.app_name = ebpf_info['comm']
+                    # eBPF gives us comm (process name) but not full path.
+                    # We can use PID to get path quickly without scanning all connections.
+                    proc_info = self.identifier.get_process_info(pkt_info.pid)
+                    if proc_info:
+                        pkt_info.app_path = proc_info['exe_path']
+                        # Update name to full name if possible
+                        if proc_info.get('name'):
+                            pkt_info.app_name = proc_info['name']
+                    
+                    logger.debug(f"eBPF hit: {pkt_info.app_name} (PID {pkt_info.pid})")
+                    
+                    # Update cache
+                    if src_port and protocol:
+                        self.cache.set(src_port, protocol, 
+                                     pkt_info.pid, pkt_info.app_name, pkt_info.app_path)
+
+            # 3. If not in cache and BPF missed, try legacy /proc scan
             if not pkt_info.app_path:
                 # We use a retry mechanism to handle race conditions where the
                 # socket is created but not yet visible in /proc (common for new TCP)
                 app_info = None
-                for attempt in range(5):
+                for attempt in range(10):
                     # Try strict match first
                     app_info = self.identifier.find_process_by_socket(
                         packet.src, src_port, packet.dst, dest_port, protocol
@@ -259,9 +291,9 @@ class PacketProcessor:
                         
                     # If not found and it's TCP, wait a bit and retry
                     # This helps with "SYN_SENT" sockets that might lag in psutil
-                    if protocol == 'tcp' and attempt < 4:
+                    if protocol == 'tcp' and attempt < 9:
                         import time
-                        time.sleep(0.05)  # Wait 50ms (total wait up to 200ms)
+                        time.sleep(0.05)  # Wait 50ms (total wait up to 500ms)
                 
                 if app_info:
                     pkt_info.pid = app_info['pid']

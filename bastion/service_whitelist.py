@@ -115,7 +115,14 @@ def should_auto_allow(app_name: str, app_path: str, dest_port: int, dest_ip: str
                     logger.info(f"Auto-allowing localhost service: {app_name}:{dest_port}")
                     return (True, f"Localhost service: {service_name}")
 
-        # Unknown localhost connection - ask user (prevents tunnel bypass)
+        if dest_port > 1024:
+            # Ephemeral/High ports on localhost are typically IPC (Inter-Process Communication)
+            # Blocking them for "unknown" apps (short-lived processes) causes excessive popups
+            # for unlikely threats. Auto-allow to improve UX.
+            logger.info(f"Auto-allowing anonymous localhost IPC: {app_name or 'unidentified'} -> {dest_ip}:{dest_port}")
+            return (True, "Anonymous Localhost IPC")
+
+        # Unknown localhost connection on privileged port - ask user (prevents tunnel bypass)
         logger.warning(f"Unknown localhost connection: {app_name or 'unidentified'} -> {dest_ip}:{dest_port}")
         return (False, "")
 
