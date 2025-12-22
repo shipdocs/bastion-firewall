@@ -73,10 +73,11 @@ class RuleManager:
                 
                 # SECURITY: Use O_EXCL to prevent race conditions
                 # O_NOFOLLOW prevents following symlinks during creation
+                # Use 0o600 (root-only) even for temp file to prevent information disclosure
                 fd = os.open(
                     temp_path, 
                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                    0o644
+                    0o600  # SECURITY FIX: root-only permissions for temp file
                 )
                 
                 with os.fdopen(fd, 'w') as f:

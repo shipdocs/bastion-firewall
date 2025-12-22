@@ -80,12 +80,14 @@ class ConfigManager:
         if 'log_file' in config:
             log_file = Path(config['log_file'])
             # SECURITY: Prevent path traversal - must be absolute and in safe locations
-            safe_log_dirs = ['/var/log', '/tmp', '/home']
+            # Only /var/log is considered safe for production logs
+            # Removed /tmp (world-writable) and /home (user-writable) for security
+            safe_log_dirs = ['/var/log']
             try:
                 log_file = log_file.resolve()  # Resolve symlinks
                 is_safe = any(str(log_file).startswith(safe_dir) for safe_dir in safe_log_dirs)
                 if not is_safe:
-                    logger.warning(f"Log file path {log_file} not in safe directory, ignoring")
+                    logger.warning(f"Log file path {log_file} not in safe directory (/var/log), ignoring")
                 else:
                     validated['log_file'] = str(log_file)
             except Exception as e:
