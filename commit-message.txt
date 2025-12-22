@@ -1,7 +1,5 @@
-feat: Release v1.2.1 with eBPF and Stability Improvements
+feat: Release v1.3.2 - Tray Icon & Startup Fixes
 
-- eBPF Traffic Identification: Implemented kernel-level monitoring for zero-latency, race-condition-free app identification.
-- Fixed Control Panel crash (AttributeError) when enabling UFW.
-- Modernized notifications: Switched to auto-closing, dark-themed dialogs.
-- Updated dependencies: Added python3-bpfcc and kernel headers.
-- bumped version to 1.2.1.
+- Fixed tray icon appearing as "3 dots" on some systems by implementing robust theme fallback logic
+- Fixed startup settings not persisting GUI autostart (now creates ~/.config/autostart/bastion-tray.desktop)
+- Version bump to 1.3.2
