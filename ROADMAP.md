@@ -1,354 +1,200 @@
-# Bastion Firewall - Future Improvements Roadmap
+# 🏰 Bastion Security Suite - Roadmap
 
-Based on comprehensive project analysis (Score: 9.0/10), this document tracks planned improvements to take Bastion from excellent to exceptional.
+**Vision**: Transform Bastion from an application firewall into a comprehensive **desktop security suite** for Linux — filling gaps that enterprise tools cover on Windows but are missing on the Linux desktop.
+
+---
 
 ## 📊 Current Status
 
-- **Version**: 1.0.0 (Initial Release)
-- **Quality Score**: 9.0/10
-- **Production Ready**: ✅ Yes
-- **Documentation**: ✅ Comprehensive
-- **Security**: ✅ Hardened (2/10 risk score)
-- **Platform**: Zorin OS 18 (Ubuntu 24.04 LTS base)
-- **Package Management**: ✅ Robust install/upgrade/uninstall
-- **Software Centre**: ✅ Full integration
+| Component | Status | Version |
+|-----------|--------|---------|
+| **Outbound Firewall** | ✅ Production | v1.4.1 |
+| **Inbound Firewall (UFW)** | ✅ Integrated | v1.4.0 |
+| **eBPF Process ID** | ✅ Implemented | v1.3.0 |
+| **GUI & Tray** | ✅ Polished | v1.4.1 |
+| **Platform** | Zorin OS 18 (Ubuntu 24.04 LTS) | |
 
 ---
 
-## 🎯 Short-Term Goals (Q1 2025)
+## 🎯 The Vision: Security Suite Architecture
 
-### 1. Package Management & Distribution ✅ COMPLETED
-
-**Goal**: Robust installation and Software Centre integration
-
-**Completed Tasks**:
-- ✅ Complete rebranding from Douane to Bastion Firewall
-- ✅ Robust process cleanup (preinst/prerm/postrm scripts)
-- ✅ Handle legacy Douane installations gracefully
-- ✅ Software Centre integration with AppStream metadata
-- ✅ Auto-cleanup of old processes during install/upgrade
-- ✅ Proper socket and iptables rule cleanup
-- ✅ GitHub release with .deb package
-- ✅ GitHub Pages documentation site
-
-**Impact**:
-- ✅ Clean upgrade path from Douane
-- ✅ No "silly issues" with lingering processes
-- ✅ Professional package management
-- ✅ Easy installation for each users
-
-### 1b. User Experience Polish ✅ COMPLETED
-
-**Goal**: Seamless interaction and correct system state reflection
-
-**Completed Tasks**:
-- ✅ **Inbound Protection Reliability**:
-  - Fixed status detection (using `systemctl` instead of root-only commands)
-  - Consolidated password prompts (1 prompt instead of 3 for UFW setup)
-  - Accurate "Active/Inactive" status reporting
-- ✅ **Control Panel Improvements**:
-  - Real-time status polling
-  - Layout fixes for 100% button visibility
-
-**Impact**:
-- ✅ "It just works" feeling
-- ✅ Reduced user frustration
-- ✅ Professional polish level
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    BASTION SECURITY SUITE                       │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐       │
+│  │   Outbound    │  │    Inbound    │  │     USB       │       │
+│  │   Firewall    │  │   Firewall    │  │   Control     │       │
+│  │   (Bastion)   │  │    (UFW)      │  │  🆕 v1.5.0    │       │
+│  └───────────────┘  └───────────────┘  └───────────────┘       │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐       │
+│  │   Startup     │  │   Intrusion   │  │    File       │       │
+│  │   Auditing    │  │  Prevention   │  │  Integrity    │       │
+│  │  🆕 v1.6.0    │  │  🆕 v1.7.0    │  │  🆕 v1.8.0    │       │
+│  └───────────────┘  └───────────────┘  └───────────────┘       │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐       │
+│  │   Network     │  │   Security    │  │   Flatpak/    │       │
+│  │   Anomaly     │  │    Audit      │  │ Snap Sandbox  │       │
+│  │  🔮 v2.0.0    │  │  🔮 v2.0.0    │  │  🔮 v2.1.0    │       │
+│  └───────────────┘  └───────────────┘  └───────────────┘       │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-### 2. Performance Optimization
+## 🛡️ Module 1: USB Device Control (v1.5.0) — NEXT UP
 
-**Goal**: Reduce packet processing latency by 50%
+**Why**: BadUSB attacks are real. No good Linux desktop solution exists. Windows has enterprise tools; Linux has nothing user-friendly.
 
-**Tasks**:
-- [ ] Implement kernel-level filtering for known applications
-  ```bash
-  # Skip userspace processing for trusted apps
-  iptables -A OUTPUT -m owner --uid-owner 0 -j ACCEPT  # Root processes
-  iptables -A OUTPUT -m owner --gid-owner systemd-network -j ACCEPT  # System services
-  ```
-- [x] Add decision caching with configurable TTL (implemented: 120s)
-- [ ] Optimize rule lookup with hash-based indexing
-- [ ] Profile packet processing pipeline and identify bottlenecks
-- [ ] Implement lazy loading for rules database
+**Features**:
+| Feature | Description |
+|---------|-------------|
+| **Device Whitelisting** | Only allow known/trusted USB devices |
+| **New Device Prompts** | "Unknown USB keyboard detected - Allow?" |
+| **BadUSB Protection** | Block HID devices pretending to be keyboards |
+| **Device History** | Log all USB insertions with timestamps |
+| **Quick Actions** | Allow once, allow always, block always |
 
-**Expected Impact**:
-- Fast path: ~0.1ms → ~0.05ms
-- Medium path: ~1ms → ~0.5ms
-- Reduced CPU usage by 30%
+**User Education**: Explain *why* this matters — USB attacks are used in targeted attacks, public charging stations, etc.
+
+**Implementation**: See [USB_DEVICE_CONTROL.md](USB_DEVICE_CONTROL.md)
 
 ---
 
-### 3. Test Coverage Expansion
+## 🚀 Module 2: Startup Auditing (v1.6.0)
 
-**Goal**: Achieve 80%+ code coverage
+**Why**: Malware installs persistence. Users don't know what starts on boot.
 
-**Tasks**:
-- [ ] Add integration tests for complete workflow
-  - Daemon startup/shutdown
-  - GUI connection and communication
-  - Packet interception and verdict delivery
-  - Rule persistence across restarts
-- [ ] Add GUI threading tests
-  - Test popup display without blocking
-  - Test concurrent decision requests
-  - Test GUI disconnect/reconnect scenarios
-- [ ] Add packaging tests
-  - Test Debian package installation/removal
-  - Test RPM package installation/removal
-  - Test upgrade scenarios
-- [ ] Automate testing in CI/CD pipeline
-  - GitHub Actions for automated testing
-  - Test on multiple distributions (Ubuntu, Fedora, Debian)
+**Features**:
+| Feature | Description |
+|---------|-------------|
+| **Monitor Autostart** | Watch `~/.config/autostart`, systemd user units, cron |
+| **New Entry Alerts** | "Chrome wants to start on boot - Allow?" |
+| **Persistence Detection** | Flag suspicious mechanisms (hidden files, unusual locations) |
+| **Startup Manager** | View/disable all startup items from one place |
+| **Baseline Comparison** | Alert when something new appears |
 
-**Expected Impact**:
-- Catch regressions early
-- Improve code quality
-- Faster development cycles
+**Locations to Monitor**:
+```
+~/.config/autostart/*.desktop
+~/.local/share/systemd/user/*.service
+/etc/xdg/autostart/*.desktop
+crontab -l
+~/.bashrc, ~/.profile (for suspicious additions)
+```
 
 ---
 
-### 4. Container Support
+## 🔒 Module 3: Intrusion Prevention (v1.7.0)
 
-**Goal**: Full Docker/Podman compatibility
+**Why**: fail2ban is essential for servers, but desktop users don't know they need it.
 
-**Tasks**:
-- [ ] Detect Docker environment
-- [ ] Integrate with Docker network interfaces (docker0, bridge)
-- [ ] Handle container-specific networking (veth pairs)
-- [ ] Document container use cases and limitations
-- [ ] Add Docker Compose example for testing
+**Features**:
+| Feature | Description |
+|---------|-------------|
+| **SSH Protection** | Monitor `/var/log/auth.log`, auto-block after X failures |
+| **Service Protection** | Protect VNC, xrdp, any listening service |
+| **Geo-blocking** | Optional: block IPs from specific countries |
+| **Attack Dashboard** | Show blocked IPs, attempt counts, geo-location |
+| **Whitelist** | Never block trusted IPs (home, office) |
 
-**Expected Impact**:
-- Support containerized workloads
-- Enable testing in isolated environments
-- Expand user base to DevOps/container users
-
----
-
-## 🔮 Medium-Term Goals (Q2-Q3 2025)
-
-### 5. eBPF Implementation
-
-**Goal**: Replace NetfilterQueue with eBPF for 10x performance improvement
-
-**Tasks**:
-- [x] Research eBPF XDP (eXpress Data Path) for packet filtering
-- [x] Implement eBPF program for kernel-level filtering
-- [x] Add fallback to NetfilterQueue for older kernels (< 4.18)
-- [x] Benchmark eBPF vs NetfilterQueue performance
-- [x] Update documentation with eBPF requirements
-
-**Benefits**:
-- **Performance**: Process packets in kernel space (no context switch)
-- **Efficiency**: ~10-100x faster than userspace processing
-- **Modern**: Leverage latest Linux kernel features
-
-**Challenges**:
-- Requires kernel 4.18+ with eBPF support
-- More complex development and debugging
-- Need to maintain NetfilterQueue fallback
+**Integration**: Works alongside UFW inbound rules.
 
 ---
 
-### 6. CLI Mode (Headless Server Support)
+## 📁 Module 4: File Integrity Monitoring (v1.8.0)
 
-**Goal**: Enable Bastion on servers without GUI
+**Why**: Rootkits and malware modify system files. AIDE/Tripwire are server tools with no GUI.
 
-**Tasks**:
-- [ ] Develop daemon-only mode (no GUI requirement)
-- [ ] Implement REST API for remote management
-  - GET /rules - List all rules
-  - POST /rules - Add new rule
-  - DELETE /rules/{id} - Remove rule
-  - GET /status - Daemon status
-  - GET /logs - Recent activity
-- [ ] Add CLI tool for rule management
-  ```bash
-  bastion-cli list
-  bastion-cli allow /usr/bin/nginx
-  bastion-cli deny /usr/bin/suspicious-app
-  bastion-cli status
-  ```
-- [ ] Implement batch rule import/export
-- [ ] Add web-based management UI (optional)
+**Features**:
+| Feature | Description |
+|---------|-------------|
+| **Critical File Watch** | `/etc/passwd`, `/etc/shadow`, sudoers, SSH keys |
+| **Binary Verification** | Alert if `/usr/bin/*` changes unexpectedly |
+| **Config Drift** | Track firewall rules, SSH config changes |
+| **Baseline Creation** | Snapshot known-good state after install |
+| **Change Alerts** | "⚠️ /etc/passwd was modified - Review?" |
 
-**Expected Impact**:
-- Support headless servers
-- Enable automation and scripting
-- Expand to enterprise server environments
+**Watched Paths**:
+```
+/etc/passwd, /etc/shadow, /etc/sudoers, /etc/sudoers.d/*
+/etc/ssh/sshd_config
+~/.ssh/authorized_keys
+/usr/bin/*, /usr/sbin/* (hash verification)
+Bastion's own rules and config
+```
 
 ---
 
-### 7. Advanced Features
+## 🔮 Future Modules (v2.0.0+)
 
-**Goal**: Add enterprise-grade functionality
+### Network Anomaly Detection
+| Feature | Description |
+|---------|-------------|
+| **Baseline Learning** | Learn normal patterns per app |
+| **Data Exfil Alerts** | "Firefox uploading 500MB to unknown server" |
+| **DNS Monitoring** | Detect DNS tunneling, suspicious queries |
+| **Beaconing Detection** | Catch malware calling home on intervals |
 
-**Tasks**:
-- [ ] **Time-based rules**
-  - Temporary blocks (e.g., "Allow for 1 hour")
-  - Scheduled rules (e.g., "Block social media during work hours")
-- [ ] **Application categorization**
-  - Group policies (e.g., "Allow all browsers")
-  - Category-based rules (Web, Email, Development, etc.)
-- [ ] **Network zone awareness**
-  - Different rules for LAN vs WAN
-  - Trusted network detection (home, office, public WiFi)
-  - Automatic rule switching based on network
-- [ ] **Enhanced logging**
-  - Structured logging (JSON format)
-  - Log rotation and compression
-  - Integration with syslog/journald
+### Security Audit Dashboard
+| Feature | Description |
+|---------|-------------|
+| **Hardening Score** | Like Lynis, but with GUI (score out of 100) |
+| **One-Click Fixes** | "SSH allows root login - Fix?" |
+| **SUID Scanner** | Find potentially dangerous binaries |
+| **Open Ports** | What's listening, should it be? |
 
----
-
-## 🌟 Long-Term Vision (Q4 2025+)
-
-### 8. Distributed Architecture
-
-**Goal**: Enterprise-grade multi-system management
-
-**Tasks**:
-- [ ] Central management console for multiple systems
-- [ ] Rule synchronization between machines
-- [ ] Centralized logging and reporting
-- [ ] Role-based access control (RBAC)
-- [ ] Audit trail and compliance reporting
-
-**Use Cases**:
-- Corporate IT managing 100+ workstations
-- Security teams monitoring network activity
-- Compliance requirements (GDPR, HIPAA, etc.)
+### Flatpak/Snap Sandbox Awareness
+| Feature | Description |
+|---------|-------------|
+| **Permission Audit** | "Spotify has full filesystem access - Restrict?" |
+| **Sandbox Escapes** | Alert on unusual portal requests |
+| **App Isolation Score** | Rate how isolated each app is |
 
 ---
 
-### 9. Machine Learning Integration
+## 📅 Release Schedule
 
-**Goal**: Intelligent threat detection and automation
-
-**Tasks**:
-- [ ] Behavioral analysis for anomaly detection
-  - Learn normal application behavior
-  - Detect unusual connection patterns
-  - Alert on suspicious activity
-- [ ] Automatic rule suggestions
-  - Suggest rules based on usage patterns
-  - Recommend blocking rarely-used apps
-- [ ] Reputation-based blocking
-  - Integration with threat intelligence feeds
-  - Automatic blocking of known malicious IPs/domains
-  - Community-driven reputation database
-
-**Benefits**:
-- Reduce user decision fatigue
-- Proactive threat detection
-- Smarter firewall that learns over time
+| Version | Module | Target | Status |
+|---------|--------|--------|--------|
+| v1.4.1 | GUI & Tray Polish | Dec 2024 | ✅ Released |
+| **v1.5.0** | **USB Device Control** | **Q1 2025** | 🔜 Next |
+| v1.6.0 | Startup Auditing | Q1 2025 | 📅 Planned |
+| v1.7.0 | Intrusion Prevention | Q2 2025 | 📅 Planned |
+| v1.8.0 | File Integrity | Q2 2025 | 📅 Planned |
+| v2.0.0 | Anomaly + Audit Dashboard | Q3 2025 | 🔮 Future |
 
 ---
 
-## 📈 Success Metrics
+## 🎯 What Makes Bastion Unique
 
-- **Performance**: Packet processing latency < 0.5ms average
-- **Test Coverage**: > 80% code coverage
-- **User Adoption**: 1000+ active installations
-- **Community**: 50+ GitHub stars, 10+ contributors
-- **Quality Score**: 9.5/10 → 10/10
+| Feature | OpenSnitch | Bastion |
+|---------|------------|---------|
+| Outbound Firewall | ✅ | ✅ |
+| Inbound (UFW) Integration | ❌ | ✅ |
+| USB Device Control | ❌ | 🔜 v1.5.0 |
+| Startup Auditing | ❌ | 🔜 v1.6.0 |
+| Intrusion Prevention | ❌ | 🔜 v1.7.0 |
+| File Integrity | ❌ | 🔜 v1.8.0 |
+| Zorin OS Optimized | ❌ | ✅ |
+| Single Binary (Python) | ❌ (Go+Python) | ✅ |
+
+**Bastion's Differentiator**: Not just a firewall — a **complete desktop security suite**.
 
 ---
 
 ## 🤝 Contributing
 
-Want to help implement these features? Check out:
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Developer guide
-- [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture
-- [IMPLEMENTATION.md](IMPLEMENTATION.md) - Technical details
+Each module has its own implementation plan:
+- [USB_DEVICE_CONTROL.md](USB_DEVICE_CONTROL.md) - USB protection (v1.5.0)
+- More coming soon...
 
-Pick an item from the roadmap and start contributing! 🚀
-
----
-
-## 📝 Implementation Priority
-
-### High Priority (Q1 2025)
-1. ✅ **Package management & distribution** - COMPLETED (v1.0.0)
-2. ✅ **Rebranding to Bastion** - COMPLETED (v1.0.0)
-3. ✅ **Software Centre integration** - COMPLETED (v1.0.0)
-4. 🔄 **Performance optimization** - Kernel-level filtering (Partially COMPLETED v1.1.0)
-5. 🔄 **Test coverage** - Integration tests
-6. 📅 **Control Panel UI Overhaul** - Modern, slick, full-screen interface
-
-### Medium Priority (Q2-Q3 2025)
-6. **Container support** - Docker/Podman compatibility
-7. **CLI mode** - Headless server support
-8. **Advanced features** - Time-based rules, categorization
-9. **eBPF implementation** - Major performance upgrade
-
-### Low Priority (Q4 2025+)
-10. **Distributed architecture** - Enterprise features
-11. **Machine learning** - Intelligent automation
+Want to help? Pick a module and start contributing! 🚀
 
 ---
 
-## 📊 Version Planning
-
-### v1.0.0 (December 2024) ✅ RELEASED
-- ✅ Complete rebranding from Douane to Bastion Firewall
-- ✅ Robust package management (preinst/prerm/postrm)
-- ✅ Software Centre integration
-- ✅ Clean upgrade path from legacy Douane
-- ✅ GitHub release with .deb package
-- ✅ GitHub Pages documentation site
-- ✅ Zorin OS 18 primary target platform
-
-### v1.3.0 (December 2024) ✅ RELEASED
-- ✅ **eBPF Implementation**: High-performance kernel-level identification
-- ✅ **Stability**: Resolved critical race conditions
-- ✅ **Modern UI**: Dark-themed notifications
-- ✅ **Dependencies**: Updated for newer kernels
-
-### v1.1.0 (Q1 2025)
-- Performance optimizations
-- Kernel-level filtering for known apps
-- Improved test coverage
-- Container detection and documentation
-- GUI auto-start improvements
-
-### v1.2.0 (Q2 2025)
-- CLI mode for headless servers
-- REST API for remote management
-- Time-based rules
-- Application categorization
-
-### v2.0.0 (Q3-Q4 2025)
-- Distributed architecture
-- Machine learning integration
-- Enterprise features
-
----
-
-## 📋 Notes
-
-- This roadmap is flexible and priorities may change based on user feedback
-- Community contributions are welcome for any item
-- Each major feature will have its own development branch
-- Performance benchmarks will be published for each optimization
-- Breaking changes will only be introduced in major versions
-
-**Last Updated**: 2024-12-21
-**Current Version**: 1.0.0
-**Project Score**: 9.0/10
-**Target Score**: 10/10
+**Last Updated**: 2024-12-23
+**Current Version**: v1.4.1 (Pre-release)
+**Stable Version**: v1.4.0
 **Repository**: https://github.com/shipdocs/bastion-firewall
-**Platform**: Zorin OS 18 (Ubuntu 24.04 LTS base)
-
----
-
-## 🎯 How to Use This Roadmap
-
-1. **Users**: See what features are coming and when
-2. **Contributors**: Pick items to work on and submit PRs
-3. **Maintainers**: Track progress and prioritize work
-4. **Stakeholders**: Understand project direction and timeline
-
-For questions or suggestions, open a discussion or contact the maintainer.
+**Platform**: Zorin OS 18 (Ubuntu 24.04 LTS)
