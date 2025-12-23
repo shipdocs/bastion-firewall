@@ -20,64 +20,41 @@ class RuleManager:
         self.load_rules()
         
     def load_rules(self) -> None:
-        """Load rules from disk"""
+        """Load rules from disk, rejecting symlinks."""
         with self._lock:
-            if self.RULES_PATH.exists():
-                try:
-                    # SECURITY: Check if rules file is a symlink to prevent symlink attacks
-                    if self.RULES_PATH.is_symlink():
-                        logger.error(f"Rules file {self.RULES_PATH} is a symlink, refusing to load")
-                        logger.error("This could be a symlink attack. Using empty ruleset.")
-                        self._rules = {}
-                        return
-                        
-                    with open(self.RULES_PATH) as f:
-                        self._rules = json.load(f)
-                        logger.info(f"Loaded {len(self._rules)} saved rules")
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON in rules file: {e}")
-                    self._rules = {}
-                except Exception as e:
-                    logger.error(f"Error loading rules: {e}")
-                    self._rules = {}
-            else:
+            if not self.RULES_PATH.exists():
+                self._rules = {}
+                return
+            if self.RULES_PATH.is_symlink():
+                logger.error("Rules file is a symlink, refusing to load")
+                self._rules = {}
+                return
+            try:
+                with open(self.RULES_PATH) as f:
+                    self._rules = json.load(f)
+                    logger.info(f"Loaded {len(self._rules)} rules")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.error(f"Error loading rules: {e}")
                 self._rules = {}
 
     def save_rules(self) -> None:
-        """
-        Save rules to disk with security checks.
-        
-        SECURITY: Prevents symlink attacks by:
-        1. Creating temporary file with O_EXCL flag
-        2. Checking for existing symlinks
-        3. Using atomic rename operation
-        """
+        """Save rules atomically, rejecting symlinks."""
         with self._lock:
             try:
-                # SECURITY: Check if target is a symlink before writing
                 if self.RULES_PATH.exists() and self.RULES_PATH.is_symlink():
-                    logger.error(f"Rules file {self.RULES_PATH} is a symlink, refusing to save")
-                    logger.error("This could be a symlink attack. Rules NOT saved.")
+                    logger.error(f"Rules file is a symlink, refusing to save")
                     return
-                
-                # Create parent directory if needed
+
                 self.RULES_PATH.parent.mkdir(parents=True, exist_ok=True)
-                
-                # SECURITY: Write to temporary file first, then atomic rename
-                # This prevents partial writes and symlink TOCTOU attacks
                 temp_path = self.RULES_PATH.with_suffix('.tmp')
-                
-                # Remove temp file if it exists
+
                 if temp_path.exists():
                     temp_path.unlink()
-                
-                # SECURITY: Use O_EXCL to prevent race conditions
-                # O_NOFOLLOW prevents following symlinks during creation
-                # Use 0o600 (root-only) even for temp file to prevent information disclosure
+
                 fd = os.open(
                     temp_path,
                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                    0o600  # SECURITY FIX: root-only permissions for temp file
+                    0o600
                 )
 
                 with os.fdopen(fd, 'w') as f:
