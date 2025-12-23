@@ -453,8 +453,11 @@ class DashboardWindow(QMainWindow):
         # Logo/Brand
         brand_layout = QHBoxLayout()
         brand_layout.setContentsMargins(25, 0, 0, 20)
-        logo = QLabel("🛡️")
-        logo.setStyleSheet("font-size: 24px;")
+        # Use castle icon from resources
+        logo = QLabel()
+        from .icon_manager import IconManager
+        logo_pixmap = IconManager.get_icon().pixmap(28, 28)
+        logo.setPixmap(logo_pixmap)
         title = QLabel("Bastion")
         title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {COLORS['header']}; margin-left: 10px;")
         brand_layout.addWidget(logo)
@@ -530,49 +533,62 @@ class DashboardWindow(QMainWindow):
         card_out = QFrame(objectName="card")
         card_out_layout = QVBoxLayout(card_out)
         card_out_layout.setContentsMargins(20, 20, 20, 20)
-        
-        card_out_header = QHBoxLayout()
-        icon_out = QLabel("🏰")
-        icon_out.setStyleSheet("font-size: 32px;")
-        card_out_header.addWidget(icon_out)
-        
+
+        # Card title - fixed label
+        from .icon_manager import IconManager
+        card_out_title_layout = QHBoxLayout()
+        icon_out = QLabel()
+        icon_pixmap = IconManager.get_icon().pixmap(24, 24)
+        icon_out.setPixmap(icon_pixmap)
+        card_out_title_layout.addWidget(icon_out)
+        lbl_out_title = QLabel("Outbound")
+        lbl_out_title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['header']};")
+        card_out_title_layout.addWidget(lbl_out_title)
+        card_out_title_layout.addStretch()
+        card_out_layout.addLayout(card_out_title_layout)
+
+        # Status - dynamic
         self.lbl_status_title = QLabel("Checking...")
-        self.lbl_status_title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {COLORS['text_primary']};")
-        card_out_header.addWidget(self.lbl_status_title)
-        card_out_header.addStretch()
-        card_out_layout.addLayout(card_out_header)
-        
+        self.lbl_status_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['text_primary']}; margin-top: 8px;")
+        card_out_layout.addWidget(self.lbl_status_title)
+
         self.lbl_status_desc = QLabel("Bastion Outbound Firewall")
-        self.lbl_status_desc.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        self.lbl_status_desc.setStyleSheet(f"color: {COLORS['text_secondary']}; margin-bottom: 10px;")
         card_out_layout.addWidget(self.lbl_status_desc)
-        
+
         self.btn_toggle = QPushButton("Start")
         self.btn_toggle.setObjectName("action_btn")
         self.btn_toggle.clicked.connect(self.toggle_firewall)
         card_out_layout.addWidget(self.btn_toggle)
-        
+
         status_cards.addWidget(card_out)
 
         # 2. UFW (Inbound) Card
         card_in = QFrame(objectName="card")
         card_in_layout = QVBoxLayout(card_in)
         card_in_layout.setContentsMargins(20, 20, 20, 20)
-        
-        card_in_header = QHBoxLayout()
-        icon_in = QLabel("🛡️")
-        icon_in.setStyleSheet("font-size: 32px;")
-        card_in_header.addWidget(icon_in)
-        
+
+        # Card title - fixed label
+        card_in_title_layout = QHBoxLayout()
+        icon_in = QLabel()
+        icon_in_pixmap = IconManager.get_icon().pixmap(24, 24)
+        icon_in.setPixmap(icon_in_pixmap)
+        card_in_title_layout.addWidget(icon_in)
+        lbl_in_title = QLabel("Inbound")
+        lbl_in_title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['header']};")
+        card_in_title_layout.addWidget(lbl_in_title)
+        card_in_title_layout.addStretch()
+        card_in_layout.addLayout(card_in_title_layout)
+
+        # Status - dynamic
         self.lbl_inbound_title = QLabel("Checking...")
-        self.lbl_inbound_title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {COLORS['text_primary']};")
-        card_in_header.addWidget(self.lbl_inbound_title)
-        card_in_header.addStretch()
-        card_in_layout.addLayout(card_in_header)
-        
-        self.lbl_inbound_desc = QLabel("Inbound Protection (UFW)")
-        self.lbl_inbound_desc.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        self.lbl_inbound_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['text_primary']}; margin-top: 8px;")
+        card_in_layout.addWidget(self.lbl_inbound_title)
+
+        self.lbl_inbound_desc = QLabel("UFW Inbound Firewall")
+        self.lbl_inbound_desc.setStyleSheet(f"color: {COLORS['text_secondary']}; margin-bottom: 10px;")
         card_in_layout.addWidget(self.lbl_inbound_desc)
-        
+
         self.btn_inbound = QPushButton("Configure")
         self.btn_inbound.setObjectName("action_btn")
         self.btn_inbound.clicked.connect(lambda: self.navigate(self.nav_btns[3], "Settings")) # Go to settings
@@ -804,22 +820,22 @@ class DashboardWindow(QMainWindow):
 
             if is_active:
                 self.lbl_status_title.setText("Protected")
-                self.lbl_status_title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {COLORS['success']};")
-                
-                desc = "Bastion is active."
+                self.lbl_status_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['success']}; margin-top: 8px;")
+
+                desc = "Blocking unauthorized outbound connections"
                 if is_enabled:
-                    desc += " (Autostart ON)"
+                    desc += " • Autostart ON"
                 else:
-                    desc += " (Autostart OFF)"
+                    desc += " • Autostart OFF"
                 self.lbl_status_desc.setText(desc)
-                
-                self.btn_toggle.setText("Stop Outbound")
+
+                self.btn_toggle.setText("Stop")
                 self.btn_toggle.setStyleSheet(f"background-color: {COLORS['danger']}; color: white; border: none; padding: 6px 12px; border-radius: 4px;")
             else:
-                self.lbl_status_title.setText("Unprotected")
-                self.lbl_status_title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {COLORS['danger']};")
-                self.lbl_status_desc.setText("Firewall is stopped.")
-                self.btn_toggle.setText("Start Outbound")
+                self.lbl_status_title.setText("Stopped")
+                self.lbl_status_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['danger']}; margin-top: 8px;")
+                self.lbl_status_desc.setText("Outbound traffic is not monitored")
+                self.btn_toggle.setText("Start")
                 self.btn_toggle.setStyleSheet(f"background-color: {COLORS['success']}; color: white; border: none; padding: 6px 12px; border-radius: 4px;")
         except:
             self.lbl_status_title.setText("Error")
@@ -831,13 +847,16 @@ class DashboardWindow(QMainWindow):
             self.inbound_status = InboundFirewallDetector.detect_firewall()
             if self.inbound_status.get('status') == 'active':
                 self.lbl_inbound_title.setText("Protected")
-                self.lbl_inbound_title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {COLORS['success']};")
-                self.lbl_ufw_status.setText(f"Status: <b>Active</b> using {self.inbound_status.get('firewall')}")
+                self.lbl_inbound_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['success']}; margin-top: 8px;")
+                fw_name = self.inbound_status.get('firewall', 'UFW')
+                self.lbl_inbound_desc.setText(f"Blocking unauthorized inbound • {fw_name}")
+                self.lbl_ufw_status.setText(f"Status: <b>Active</b> using {fw_name}")
                 self.btn_ufw_enable.setVisible(False)
                 self.btn_ufw_disable.setVisible(True)
             else:
                 self.lbl_inbound_title.setText("Exposed")
-                self.lbl_inbound_title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {COLORS['warning']};")
+                self.lbl_inbound_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['warning']}; margin-top: 8px;")
+                self.lbl_inbound_desc.setText("Inbound traffic is not filtered")
                 self.lbl_ufw_status.setText("Status: <b>Inactive</b>. Enable UFW to block inbound threats.")
                 self.btn_ufw_enable.setVisible(True)
                 self.btn_ufw_disable.setVisible(False)
