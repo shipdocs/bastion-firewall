@@ -425,7 +425,7 @@ def _require_root() -> None:
     is used as a library while still enforcing root for runtime execution.
     """
     if os.geteuid() != 0:
-        print("ERROR: This application must be run as root (use sudo)")
+        print("ERROR: This application must be run as root (use sudo)", file=sys.stderr)
         sys.exit(1)
 
 
