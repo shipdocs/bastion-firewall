@@ -11,7 +11,7 @@ import logging
 from typing import Optional, Callable
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
+    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QFrame, QRadioButton, QButtonGroup, QWidget, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 )
@@ -42,178 +42,240 @@ COLORS = {
 class USBPromptDialog(QDialog):
     """
     Popup dialog for new USB device decisions.
-    
-    Shows device info, warns about high-risk devices,
-    and allows user to allow/block with scope selection.
+    Matches FirewallDialog styling exactly.
     """
-    
+
     def __init__(self, device: USBDeviceInfo, timeout: int = 30):
         super().__init__()
         self.device = device
         self.timeout = timeout
         self.time_remaining = timeout
-        
+
         # Result
         self.verdict: Optional[Verdict] = None
         self.scope: Scope = 'device'
-        
+
         self.init_ui()
         if timeout > 0:
             self.start_timer()
-    
+
     def init_ui(self):
         self.setWindowTitle("Bastion - New USB Device")
-        self.setFixedSize(480, 400)
+        self.setFixedSize(500, 550)  # Slightly taller for scope options
+
+        # Determine accent color based on risk
+        accent_color = COLORS["danger"] if self.device.is_high_risk else COLORS["accent"]
+
+        # EXACT same styling as FirewallDialog
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {COLORS["background"]};
-                border: 2px solid {COLORS["warning"] if self.device.is_high_risk else COLORS["accent"]};
+                border: 1px solid {accent_color};
             }}
             QLabel {{
                 color: {COLORS["text_primary"]};
             }}
             QFrame#info_box {{
                 background-color: {COLORS["card"]};
-                border-radius: 8px;
+                border-radius: 6px;
                 border: 1px solid {COLORS["card_border"]};
-                padding: 12px;
             }}
             QRadioButton {{
                 color: {COLORS["text_primary"]};
                 spacing: 8px;
+                font-size: 13px;
             }}
             QRadioButton::indicator {{
                 width: 16px;
                 height: 16px;
             }}
         """)
-        
+
+        # EXACT same window flags as FirewallDialog
         self.setWindowFlags(
             Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.Dialog
         )
-        
-        layout = QVBoxLayout(self)
-        layout.setSpacing(16)
-        layout.setContentsMargins(24, 24, 24, 24)
-        
-        # Header
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(25, 25, 25, 25)  # Same as FirewallDialog
+        layout.setSpacing(20)  # Same as FirewallDialog
+        self.setLayout(layout)
+
+        # Header - EXACT same style as FirewallDialog
         header_layout = QHBoxLayout()
-        
-        icon = "⚠️" if self.device.is_high_risk else "🔌"
-        icon_label = QLabel(icon)
-        icon_label.setFont(QFont("", 28))
-        
+        icon = QLabel("⚠️" if self.device.is_high_risk else "🔌")
+        icon.setStyleSheet("font-size: 32px;")
+        header_layout.addWidget(icon)
+
         title = QLabel("New USB Device Detected")
         title.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {COLORS['header']};")
-        
-        header_layout.addWidget(icon_label)
         header_layout.addWidget(title)
         header_layout.addStretch()
         layout.addLayout(header_layout)
-        
-        # Device Info Box
-        info_box = QFrame()
-        info_box.setObjectName("info_box")
-        info_layout = QVBoxLayout(info_box)
-        info_layout.setSpacing(8)
-        
-        self._add_info_row(info_layout, "Device:", self.device.product_name)
-        self._add_info_row(info_layout, "Vendor:", self.device.vendor_name)
-        self._add_info_row(info_layout, "Type:", self.device.class_name)
-        self._add_info_row(info_layout, "ID:", f"{self.device.vendor_id}:{self.device.product_id}")
+
+        # Info Box - EXACT same style as FirewallDialog
+        info_frame = QFrame()
+        info_frame.setObjectName("info_box")
+        info_layout = QVBoxLayout(info_frame)
+        info_layout.setContentsMargins(20, 12, 20, 18)  # More bottom padding
+        info_layout.setSpacing(4)  # Less space between title and details
+
+        # Device name as title
+        device_name = self.device.product_name or "Unknown Device"
+        lbl_device = QLabel(device_name)
+        lbl_device.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {accent_color};")
+        info_layout.addWidget(lbl_device)
+
+        # Details rows - same format as FirewallDialog
+        details_layout = QVBoxLayout()
+        details_layout.setSpacing(14)  # More space between rows
+        details_layout.setContentsMargins(0, 0, 0, 0)  # No extra margins
+        vendor_name = self.device.vendor_name or "Unknown"
+        device_type = self.device.class_name
+        device_id = f"{self.device.vendor_id}:{self.device.product_id}"
+
+        self.add_detail_row(details_layout, "Vendor", vendor_name)
+        self.add_detail_row(details_layout, "Type", device_type)
+        self.add_detail_row(details_layout, "ID", device_id)
+
         if self.device.serial:
-            self._add_info_row(info_layout, "Serial:", self.device.serial[:20] + "..." if len(self.device.serial) > 20 else self.device.serial)
-        
-        layout.addWidget(info_box)
-        
+            serial_display = self.device.serial[:20] + "..." if len(self.device.serial) > 20 else self.device.serial
+            self.add_detail_row(details_layout, "Serial", serial_display)
+
+        info_layout.addLayout(details_layout)
+        layout.addWidget(info_frame)
+
         # Warning for high-risk devices
         if self.device.is_high_risk:
             warning = QLabel(
-                "⚠️ This device can act as a keyboard.\n"
-                "Malicious devices can type commands automatically."
+                "⚠️  WARNING: This device can act as a keyboard and type commands "
+                "automatically. Only allow if you trust this device."
             )
             warning.setStyleSheet(f"""
-                background-color: {COLORS['warning']}22;
+                background-color: rgba(229, 192, 123, 0.20);
                 border: 1px solid {COLORS['warning']};
                 border-radius: 6px;
-                padding: 10px;
+                padding: 12px;
                 color: {COLORS['warning']};
+                font-size: 12px;
             """)
             warning.setWordWrap(True)
             layout.addWidget(warning)
-        
+
         # Scope selection
         scope_label = QLabel("Apply decision to:")
-        scope_label.setStyleSheet(f"color: {COLORS['text_secondary']}; margin-top: 8px;")
+        scope_label.setStyleSheet(f"color: {COLORS['text_secondary']}; margin-top: 4px; font-size: 13px;")
         layout.addWidget(scope_label)
-        
+
         self.scope_group = QButtonGroup(self)
-        
+
         self.rb_device = QRadioButton(f"This device only")
         self.rb_model = QRadioButton(f"All {self.device.product_name} devices")
         self.rb_vendor = QRadioButton(f"All {self.device.vendor_name} devices")
-        
+
         self.rb_device.setChecked(True)
         self.scope_group.addButton(self.rb_device, 0)
         self.scope_group.addButton(self.rb_model, 1)
         self.scope_group.addButton(self.rb_vendor, 2)
-        
+
         layout.addWidget(self.rb_device)
         layout.addWidget(self.rb_model)
         layout.addWidget(self.rb_vendor)
-        
-        layout.addStretch()
-        
-        # Buttons
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(12)
-        
-        self.btn_block = self._create_button("Block", COLORS["danger"])
-        self.btn_allow = self._create_button("Allow", COLORS["success"])
-        
-        self.btn_block.clicked.connect(self.block_device)
-        self.btn_allow.clicked.connect(self.allow_device)
-        
-        btn_layout.addWidget(self.btn_block)
-        btn_layout.addWidget(self.btn_allow)
-        layout.addLayout(btn_layout)
-        
-        # Timer label
-        self.timer_label = QLabel(f"Auto-blocking in {self.timeout}s...")
-        self.timer_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 12px;")
-        self.timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.timer_label)
 
-    def _add_info_row(self, layout: QVBoxLayout, label: str, value: str):
-        """Add a label: value row to the info box."""
+        # Buttons - EXACT same style as FirewallDialog
+        btn_grid = QVBoxLayout()
+        btn_grid.setSpacing(10)
+
+        row_allow = QHBoxLayout()
+        btn_allow_once = self.create_button("Allow Once", COLORS['success'], outline=True)
+        btn_allow_once.clicked.connect(self.allow_device)
+        btn_allow_always = self.create_button("Allow Always", COLORS['success'])
+        btn_allow_always.clicked.connect(self.allow_device)
+        row_allow.addWidget(btn_allow_once)
+        row_allow.addWidget(btn_allow_always)
+        btn_grid.addLayout(row_allow)
+
+        row_block = QHBoxLayout()
+        btn_block_once = self.create_button("Block Once", COLORS['danger'], outline=True)
+        btn_block_once.clicked.connect(self.block_device)
+        btn_block_always = self.create_button("Block Always", COLORS['danger'])
+        btn_block_always.clicked.connect(self.block_device)
+        row_block.addWidget(btn_block_once)
+        row_block.addWidget(btn_block_always)
+        btn_grid.addLayout(row_block)
+
+        layout.addLayout(btn_grid)
+
+        # Timer - EXACT same style as FirewallDialog
+        if self.timeout > 0:
+            from PyQt6.QtWidgets import QProgressBar
+            self.progress = QProgressBar()
+            self.progress.setFixedHeight(4)
+            self.progress.setTextVisible(False)
+            self.progress.setStyleSheet(f"""
+                QProgressBar {{
+                    border: none;
+                    background-color: {COLORS['sidebar']};
+                    border-radius: 2px;
+                }}
+                QProgressBar::chunk {{
+                    background-color: {COLORS['text_secondary']};
+                    border-radius: 2px;
+                }}
+            """)
+            self.progress.setRange(0, self.timeout * 10)
+            self.progress.setValue(self.timeout * 10)
+            layout.addWidget(self.progress)
+
+    def add_detail_row(self, layout, label, value):
+        """Add a detail row - same format as FirewallDialog."""
         row = QHBoxLayout()
-        lbl = QLabel(label)
-        lbl.setStyleSheet(f"color: {COLORS['text_secondary']}; min-width: 60px;")
-        val = QLabel(value)
-        val.setStyleSheet(f"color: {COLORS['text_primary']}; font-weight: bold;")
+        row.setSpacing(10)
+        lbl = QLabel(label + ":")
+        lbl.setFixedHeight(24)
+        lbl.setStyleSheet(f"color: {COLORS['text_primary']}; font-weight: bold; min-width: 80px;")
+        val = QLabel(str(value))
+        val.setFixedHeight(24)
+        val.setStyleSheet(f"color: {COLORS['header']};")
+        val.setWordWrap(True)
         row.addWidget(lbl)
-        row.addWidget(val)
-        row.addStretch()
+        row.addWidget(val, 1)  # Give value more stretch
         layout.addLayout(row)
 
-    def _create_button(self, text: str, color: str) -> QPushButton:
-        """Create a styled button."""
+    def create_button(self, text, color, outline=False):
+        """Create a styled button - same as FirewallDialog."""
         btn = QPushButton(text)
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {color};
-                border: none;
-                color: #1e2227;
-                padding: 12px 32px;
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 14px;
-            }}
-            QPushButton:hover {{
-                background-color: {color}dd;
-            }}
-        """)
+        if outline:
+            style = f"""
+                QPushButton {{
+                    background-color: transparent;
+                    border: 2px solid {color};
+                    color: {color};
+                    padding: 8px;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {color}22;
+                }}
+            """
+        else:
+            style = f"""
+                QPushButton {{
+                    background-color: {color};
+                    border: none;
+                    color: #1e2227;
+                    padding: 10px;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {color}dd;
+                }}
+            """
+        btn.setStyleSheet(style)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         return btn
 
@@ -226,19 +288,21 @@ class USBPromptDialog(QDialog):
         return 'device'
 
     def start_timer(self):
-        """Start auto-block countdown timer."""
+        """Start countdown timer - same as FirewallDialog."""
+        if self.timeout <= 0:
+            return
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_timer)
-        self.timer.start(1000)
+        self.timer.start(100)  # Update every 100ms like FirewallDialog
 
     def update_timer(self):
-        """Update countdown and auto-block when expired."""
-        self.time_remaining -= 1
-        if self.time_remaining <= 0:
+        """Update countdown timer - same as FirewallDialog."""
+        current = self.progress.value()
+        if current <= 0:
             self.timer.stop()
             self.block_device()
-        else:
-            self.timer_label.setText(f"Auto-blocking in {self.time_remaining}s...")
+            return
+        self.progress.setValue(current - 1)
 
     def allow_device(self):
         """User chose to allow the device."""
