@@ -373,8 +373,15 @@ class USBControlWidget(QWidget):
         """)
         status_layout = QHBoxLayout(status_card)
 
-        status_icon = QLabel("🔌")
-        status_icon.setFont(QFont("", 24))
+        # Use PNG icon instead of emoji for better compatibility
+        from .icon_manager import IconManager
+        status_icon = QLabel()
+        nav_icon = IconManager.get_nav_icon('USB')
+        if not nav_icon.isNull():
+            status_icon.setPixmap(nav_icon.pixmap(32, 32))
+        else:
+            status_icon.setText("🔌")
+            status_icon.setFont(QFont("", 24))
 
         status_text = QVBoxLayout()
         self.lbl_status = QLabel("USB Protection Active")
@@ -388,23 +395,94 @@ class USBControlWidget(QWidget):
         status_layout.addLayout(status_text)
         status_layout.addStretch()
 
+        # Enable/Disable toggle button
+        self.btn_toggle = QPushButton("Disable")
+        self.usb_enabled = True
+        self.btn_toggle.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['danger']};
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #c0392b;
+            }}
+        """)
+        self.btn_toggle.clicked.connect(self._toggle_usb_protection)
+        status_layout.addWidget(self.btn_toggle)
+
         layout.addWidget(status_card)
 
-        # Allowed devices table
-        allowed_label = QLabel("✅ Allowed Devices")
+        # Allowed devices section
+        allowed_header = QHBoxLayout()
+        allowed_icon = QLabel("●")
+        allowed_icon.setStyleSheet(f"color: {COLORS['success']}; font-size: 12px;")
+        allowed_label = QLabel("Allowed Devices")
         allowed_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['success']};")
-        layout.addWidget(allowed_label)
+        allowed_header.addWidget(allowed_icon)
+        allowed_header.addWidget(allowed_label)
+        allowed_header.addStretch()
+        layout.addLayout(allowed_header)
 
         self.table_allowed = self._create_device_table()
         layout.addWidget(self.table_allowed)
 
-        # Blocked devices table
-        blocked_label = QLabel("🚫 Blocked Devices")
+        # Blocked devices section
+        blocked_header = QHBoxLayout()
+        blocked_icon = QLabel("●")
+        blocked_icon.setStyleSheet(f"color: {COLORS['danger']}; font-size: 12px;")
+        blocked_label = QLabel("Blocked Devices")
         blocked_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['danger']};")
-        layout.addWidget(blocked_label)
+        blocked_header.addWidget(blocked_icon)
+        blocked_header.addWidget(blocked_label)
+        blocked_header.addStretch()
+        layout.addLayout(blocked_header)
 
         self.table_blocked = self._create_device_table()
         layout.addWidget(self.table_blocked)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+
+        # Delete button
+        btn_delete = QPushButton("Delete Selected")
+        btn_delete.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['danger']};
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: #c0392b;
+            }}
+        """)
+        btn_delete.clicked.connect(self._delete_selected)
+        btn_layout.addWidget(btn_delete)
+
+        btn_layout.addStretch()
+
+        btn_refresh = QPushButton("Refresh")
+        btn_refresh.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['sidebar']};
+                color: {COLORS['text_primary']};
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['card_border']};
+            }}
+        """)
+        btn_refresh.clicked.connect(self.refresh)
+        btn_layout.addWidget(btn_refresh)
+
+        layout.addLayout(btn_layout)
 
     def _create_device_table(self) -> QTableWidget:
         """Create a styled device table."""
@@ -418,15 +496,24 @@ class USBControlWidget(QWidget):
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setMaximumHeight(150)
+        table.verticalHeader().setVisible(False)  # Hide row numbers
+        table.setShowGrid(False)  # Hide grid lines for cleaner look
         table.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {COLORS['card']};
                 border: 1px solid {COLORS['card_border']};
                 border-radius: 6px;
-                gridline-color: {COLORS['card_border']};
+                color: {COLORS['text_primary']};
             }}
             QTableWidget::item {{
                 padding: 8px;
+                color: {COLORS['text_primary']};
+                background-color: {COLORS['card']};
+                border-bottom: 1px solid {COLORS['card_border']};
+            }}
+            QTableWidget::item:selected {{
+                background-color: {COLORS['sidebar']};
+                color: {COLORS['text_primary']};
             }}
             QHeaderView::section {{
                 background-color: {COLORS['sidebar']};
@@ -455,6 +542,8 @@ class USBControlWidget(QWidget):
     def _populate_table(self, table: QTableWidget, rules: list[USBRule]):
         """Populate a table with rules."""
         table.setRowCount(len(rules))
+        # Store rule keys for deletion
+        table.rule_keys = []
 
         for i, rule in enumerate(rules):
             table.setItem(i, 0, QTableWidgetItem(rule.product_name))
@@ -468,6 +557,88 @@ class USBControlWidget(QWidget):
             except:
                 date_str = rule.added[:16] if rule.added else "Unknown"
             table.setItem(i, 3, QTableWidgetItem(date_str))
+            # Store key for this row
+            table.rule_keys.append(rule.key)
+
+    def _toggle_usb_protection(self):
+        """Toggle USB protection on/off."""
+        import subprocess
+
+        self.usb_enabled = not self.usb_enabled
+
+        if self.usb_enabled:
+            # Enable: set authorized_default=0 (block new devices)
+            self.btn_toggle.setText("Disable")
+            self.btn_toggle.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['danger']};
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: #c0392b;
+                }}
+            """)
+            self.lbl_status.setText("USB Protection Active")
+            self.lbl_status.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['success']};")
+            # Set default to block
+            try:
+                subprocess.run(['pkexec', 'bash', '-c',
+                    'for d in /sys/bus/usb/devices/usb*/authorized_default; do echo 0 > "$d"; done'],
+                    check=True, capture_output=True)
+            except Exception as e:
+                logger.warning(f"Failed to enable USB protection: {e}")
+        else:
+            # Disable: set authorized_default=1 (allow new devices)
+            self.btn_toggle.setText("Enable")
+            self.btn_toggle.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['success']};
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: #27ae60;
+                }}
+            """)
+            self.lbl_status.setText("USB Protection Disabled")
+            self.lbl_status.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['danger']};")
+            # Set default to allow
+            try:
+                subprocess.run(['pkexec', 'bash', '-c',
+                    'for d in /sys/bus/usb/devices/usb*/authorized_default; do echo 1 > "$d"; done'],
+                    check=True, capture_output=True)
+            except Exception as e:
+                logger.warning(f"Failed to disable USB protection: {e}")
+
+    def _delete_selected(self):
+        """Delete selected rules from both tables."""
+        deleted = False
+
+        # Check allowed table
+        for row in self.table_allowed.selectionModel().selectedRows():
+            idx = row.row()
+            if hasattr(self.table_allowed, 'rule_keys') and idx < len(self.table_allowed.rule_keys):
+                key = self.table_allowed.rule_keys[idx]
+                self.rule_manager.remove_rule(key)
+                deleted = True
+
+        # Check blocked table
+        for row in self.table_blocked.selectionModel().selectedRows():
+            idx = row.row()
+            if hasattr(self.table_blocked, 'rule_keys') and idx < len(self.table_blocked.rule_keys):
+                key = self.table_blocked.rule_keys[idx]
+                self.rule_manager.remove_rule(key)
+                deleted = True
+
+        if deleted:
+            self.refresh()
 
 
 def test_usb_prompt():

@@ -68,17 +68,18 @@ class USBMonitor:
         try:
             context = pyudev.Context()
             monitor = pyudev.Monitor.from_netlink(context)
-            monitor.filter_by(subsystem='usb', device_type='usb_device')
-            
+            # Only filter by subsystem - device_type filter is too restrictive
+            monitor.filter_by(subsystem='usb')
+
             self._observer = pyudev.MonitorObserver(
                 monitor,
-                self._handle_event,
+                callback=self._handle_event,
                 name='bastion-usb-monitor'
             )
             self._observer.daemon = True
             self._observer.start()
             self._running = True
-            
+
             logger.info("USB monitor started")
             return True
             
@@ -102,15 +103,19 @@ class USBMonitor:
     def _handle_event(self, device: 'pyudev.Device'):
         """Handle udev event for USB device."""
         action = device.action
-        
+
         # Only handle add/remove for now
         if action not in ('add', 'remove'):
             return
-        
+
+        # Skip USB interfaces (e.g., "3-4:1.0") - only handle devices (e.g., "3-4")
+        if ':' in device.sys_name:
+            return
+
         try:
             device_info = self._extract_device_info(device)
             if device_info:
-                logger.debug(f"USB {action}: {device_info}")
+                logger.info(f"USB {action}: {device_info.product_name} ({device_info.vendor_id}:{device_info.product_id})")
                 self.callback(device_info, action)
         except Exception as e:
             logger.error(f"Error processing USB event: {e}")

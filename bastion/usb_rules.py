@@ -43,6 +43,17 @@ class USBRule:
     last_seen: Optional[str] = None
     serial: Optional[str] = None
     
+    @property
+    def key(self) -> str:
+        """Generate unique key for this rule based on scope."""
+        if self.scope == 'vendor':
+            return f"{self.vendor_id}:*:*"
+        elif self.scope == 'model':
+            return f"{self.vendor_id}:{self.product_id}:*"
+        else:  # device
+            serial = self.serial or '*'
+            return f"{self.vendor_id}:{self.product_id}:{serial}"
+
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON storage."""
         return {k: v for k, v in asdict(self).items() if v is not None}
@@ -109,21 +120,29 @@ class USBRuleManager:
     - vendor scope: "vendor_id:*" (all devices from vendor)
     """
     
-    # Fixed path - not user controllable
-    DEFAULT_PATH = Path.home() / '.config' / 'bastion' / 'usb_rules.json'
+    # Fixed path - system-wide location (daemon runs as root, GUI needs read access)
+    # Always use /etc/bastion for USB rules - shared between daemon and GUI
+    SYSTEM_PATH = Path('/etc/bastion/usb_rules.json')
+
+    @classmethod
+    def get_default_path(cls) -> Path:
+        """Get the rules path - always /etc/bastion for USB rules."""
+        return cls.SYSTEM_PATH
+
+    DEFAULT_PATH = SYSTEM_PATH
     
-    # File permissions: owner read/write only (0600)
-    FILE_MODE = 0o600
-    DIR_MODE = 0o700
+    # File permissions: owner read/write, group/other read (0644) for GUI access
+    FILE_MODE = 0o644
+    DIR_MODE = 0o755
     
     def __init__(self, db_path: Optional[Path] = None):
         """
         Initialize the rule manager.
-        
+
         Args:
-            db_path: Override path for testing. In production, use DEFAULT_PATH.
+            db_path: Override path for testing. In production, uses get_default_path().
         """
-        self.db_path = db_path or self.DEFAULT_PATH
+        self.db_path = db_path or self.get_default_path()
         self._rules: dict[str, USBRule] = {}
         self._load()
     
@@ -141,13 +160,16 @@ class USBRuleManager:
             return
         
         try:
-            # Check permissions before reading
+            # Check permissions before reading (only warn, don't fail)
             stat = self.db_path.stat()
-            if stat.st_mode & 0o077:  # Group or other has access
-                logger.warning(f"USB rules file has insecure permissions: {oct(stat.st_mode)}")
-                # Fix permissions
-                os.chmod(self.db_path, self.FILE_MODE)
-            
+            if stat.st_mode & 0o002:  # World-writable is a security issue
+                logger.warning(f"USB rules file is world-writable: {oct(stat.st_mode)}")
+                # Try to fix permissions (may fail if not owner)
+                try:
+                    os.chmod(self.db_path, self.FILE_MODE)
+                except (OSError, PermissionError):
+                    pass  # Can't fix, but still try to read
+
             with open(self.db_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
@@ -298,6 +320,23 @@ class USBRuleManager:
         """Get all blocked device rules."""
         return [r for r in self._rules.values() if r.verdict == 'block']
 
+    def remove_rule(self, key: str) -> bool:
+        """
+        Remove a rule by its key.
+
+        Args:
+            key: The rule key (e.g., '04e8:6860:SERIAL123')
+
+        Returns:
+            True if rule was removed, False if not found
+        """
+        if key in self._rules:
+            del self._rules[key]
+            self._save()
+            logger.info(f"Removed USB rule: {key}")
+            return True
+        return False
+
     def clear_all(self):
         """Remove all rules. Use with caution!"""
         self._rules = {}
@@ -384,4 +423,38 @@ class USBAuthorizer:
     def device_exists(cls, bus_id: str) -> bool:
         """Check if device exists in sysfs."""
         return cls._get_auth_path(bus_id).parent.exists()
+
+    @classmethod
+    def set_default_policy(cls, authorize: bool) -> bool:
+        """
+        Set the default USB authorization policy for new devices.
+
+        Args:
+            authorize: True = new devices auto-authorized (insecure default)
+                      False = new devices blocked until explicitly authorized
+
+        Returns:
+            True if at least one controller was configured, False on total failure.
+        """
+        value = '1' if authorize else '0'
+        success_count = 0
+
+        # Find all USB host controllers
+        for usb_host in cls.SYSFS_USB_PATH.glob('usb*'):
+            auth_default = usb_host / 'authorized_default'
+            if auth_default.exists():
+                try:
+                    auth_default.write_text(value)
+                    logger.info(f"Set {usb_host.name} authorized_default={value}")
+                    success_count += 1
+                except (OSError, IOError, PermissionError) as e:
+                    logger.warning(f"Failed to set default policy for {usb_host.name}: {e}")
+
+        if success_count > 0:
+            policy = "authorize" if authorize else "block"
+            logger.info(f"USB default policy set to {policy} ({success_count} controllers)")
+            return True
+        else:
+            logger.error("Failed to set USB default policy on any controller")
+            return False
 

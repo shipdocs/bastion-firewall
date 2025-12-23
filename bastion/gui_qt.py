@@ -465,7 +465,7 @@ class DashboardWindow(QMainWindow):
         brand_layout.addStretch()
         sb_layout.addLayout(brand_layout)
         
-        # Navigation
+        # Navigation with custom icons
         self.nav_btns = []
         self.add_nav_btn(sb_layout, "Status", "📊")
         self.add_nav_btn(sb_layout, "Rules", "📋")
@@ -501,11 +501,25 @@ class DashboardWindow(QMainWindow):
         main_layout.addWidget(self.stack)
         self.nav_btns[0].setChecked(True)
 
-    def add_nav_btn(self, layout, text, icon_char):
-        btn = QPushButton(f"  {icon_char}   {text}")
+    def add_nav_btn(self, layout, text, fallback_emoji):
+        """Add navigation button with custom icon or emoji fallback."""
+        from .icon_manager import IconManager
+
+        btn = QPushButton()
         btn.setObjectName("nav_btn")
         btn.setCheckable(True)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # Try to get custom nav icon
+        icon = IconManager.get_nav_icon(text)
+        if not icon.isNull():
+            btn.setIcon(icon)
+            btn.setIconSize(QSize(20, 20))
+            btn.setText(f"  {text}")
+        else:
+            # Fallback to emoji
+            btn.setText(f"  {fallback_emoji}   {text}")
+
         btn.clicked.connect(lambda: self.navigate(btn, text))
         layout.addWidget(btn)
         self.nav_btns.append(btn)
@@ -599,7 +613,43 @@ class DashboardWindow(QMainWindow):
         card_in_layout.addWidget(self.btn_inbound)
 
         status_cards.addWidget(card_in)
-        
+
+        # 3. USB Device Control Card
+        card_usb = QFrame(objectName="card")
+        card_usb_layout = QVBoxLayout(card_usb)
+        card_usb_layout.setContentsMargins(20, 20, 20, 20)
+
+        # Card title
+        card_usb_title_layout = QHBoxLayout()
+        icon_usb = QLabel()
+        usb_icon = IconManager.get_nav_icon('USB')
+        if not usb_icon.isNull():
+            icon_usb.setPixmap(usb_icon.pixmap(24, 24))
+        else:
+            icon_usb.setText("🔌")
+        card_usb_title_layout.addWidget(icon_usb)
+        lbl_usb_title = QLabel("USB Control")
+        lbl_usb_title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['header']};")
+        card_usb_title_layout.addWidget(lbl_usb_title)
+        card_usb_title_layout.addStretch()
+        card_usb_layout.addLayout(card_usb_title_layout)
+
+        # Status - dynamic
+        self.lbl_usb_title = QLabel("Checking...")
+        self.lbl_usb_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['text_primary']}; margin-top: 8px;")
+        card_usb_layout.addWidget(self.lbl_usb_title)
+
+        self.lbl_usb_desc = QLabel("USB Device Control")
+        self.lbl_usb_desc.setStyleSheet(f"color: {COLORS['text_secondary']}; margin-bottom: 10px;")
+        card_usb_layout.addWidget(self.lbl_usb_desc)
+
+        self.btn_usb = QPushButton("Manage")
+        self.btn_usb.setObjectName("action_btn")
+        self.btn_usb.clicked.connect(lambda: self.navigate(self.nav_btns[2], "USB"))
+        card_usb_layout.addWidget(self.btn_usb)
+
+        status_cards.addWidget(card_usb)
+
         layout.addLayout(status_cards)
         
         # Stats
@@ -877,8 +927,40 @@ class DashboardWindow(QMainWindow):
                 self.btn_ufw_disable.setVisible(False)
         except:
             self.lbl_inbound_title.setText("Unknown")
-            
-        # 3. Update Stats (Approximate from rules and logs)
+
+        # 3. USB Device Control Status
+        try:
+            # Check if USB protection is enabled (authorized_default=0)
+            usb_protected = False
+            usb_controllers = 0
+            for path in Path('/sys/bus/usb/devices').glob('usb*/authorized_default'):
+                usb_controllers += 1
+                try:
+                    val = path.read_text().strip()
+                    if val == '0':
+                        usb_protected = True
+                except:
+                    pass
+
+            # Get rule counts
+            from .usb_rules import USBRuleManager
+            usb_mgr = USBRuleManager()
+            allowed = len(usb_mgr.get_allowed_devices())
+            blocked = len(usb_mgr.get_blocked_devices())
+
+            if usb_protected and usb_controllers > 0:
+                self.lbl_usb_title.setText("Protected")
+                self.lbl_usb_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['success']}; margin-top: 8px;")
+                self.lbl_usb_desc.setText(f"{allowed} allowed, {blocked} blocked devices")
+            else:
+                self.lbl_usb_title.setText("Disabled")
+                self.lbl_usb_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['warning']}; margin-top: 8px;")
+                self.lbl_usb_desc.setText("USB devices not monitored")
+        except Exception as e:
+            self.lbl_usb_title.setText("Unknown")
+            self.lbl_usb_desc.setText("Could not check USB status")
+
+        # 4. Update Stats (Approximate from rules and logs)
         self.stat_rules.findChild(QLabel, "").setText(str(len(self.data_rules)))
         
         try:

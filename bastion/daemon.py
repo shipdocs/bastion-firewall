@@ -248,6 +248,9 @@ class BastionDaemon:
                         gui_socket, addr = self.server_socket.accept()
                         logger.info(f"GUI connected from {addr}")
                         self.gui_socket = gui_socket
+                        # Start reader thread for this connection
+                        reader = threading.Thread(target=self._read_gui_messages, daemon=True)
+                        reader.start()
                     else:
                         time.sleep(1)  # Already connected, just wait
                 except socket.timeout:
@@ -258,6 +261,50 @@ class BastionDaemon:
                     break
         except Exception as e:
             logger.error(f"GUI acceptor thread error: {e}")
+
+    def _read_gui_messages(self):
+        """Read messages from GUI in background (for USB responses etc.)"""
+        buffer = ""
+        try:
+            while self.running and self.gui_socket:
+                try:
+                    data = self.gui_socket.recv(4096)
+                    if not data:
+                        logger.warning("GUI disconnected")
+                        break
+                    buffer += data.decode()
+                    while '\n' in buffer:
+                        line, buffer = buffer.split('\n', 1)
+                        if line.strip():
+                            self._process_gui_message(line)
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    logger.debug(f"GUI read error: {e}")
+                    break
+        except Exception as e:
+            logger.error(f"GUI reader thread error: {e}")
+        finally:
+            # Mark socket as disconnected
+            with self.socket_lock:
+                if self.gui_socket:
+                    try:
+                        self.gui_socket.close()
+                    except:
+                        pass
+                    self.gui_socket = None
+
+    def _process_gui_message(self, line: str):
+        """Process a message from GUI"""
+        try:
+            msg = json.loads(line)
+            msg_type = msg.get('type', '')
+            if msg_type == 'usb_response':
+                self.handle_usb_response(msg)
+            else:
+                logger.debug(f"Unknown GUI message type: {msg_type}")
+        except json.JSONDecodeError:
+            logger.debug(f"Invalid JSON from GUI: {line[:50]}")
 
     def _run_processor(self):
         """Run the packet processor"""
@@ -599,10 +646,13 @@ class BastionDaemon:
         if self.packet_processor:
             self.packet_processor.stop()
 
-        # Stop USB monitor
+        # Stop USB monitor and restore default policy
         if self.usb_monitor:
             self.usb_monitor.stop()
             self.usb_monitor = None
+            # Restore default USB policy to allow (so system works normally without daemon)
+            USBAuthorizer.set_default_policy(authorize=True)
+            logger.info("USB default policy restored to allow")
 
         IPTablesManager.cleanup_nfqueue(queue_num=1)
 
@@ -622,6 +672,13 @@ class BastionDaemon:
             return
 
         try:
+            # Set default policy to BLOCK new USB devices
+            # This ensures devices are blocked until user explicitly allows them
+            if USBAuthorizer.set_default_policy(authorize=False):
+                logger.info("USB default policy: block new devices")
+            else:
+                logger.warning("Could not set USB default policy - devices may auto-authorize")
+
             self.usb_monitor = USBMonitor(callback=self._handle_usb_event)
             if self.usb_monitor.start():
                 logger.info("USB device monitor started")
