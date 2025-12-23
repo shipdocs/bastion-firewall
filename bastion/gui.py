@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Improved Douane GUI - Better user interface for firewall decisions
+Improved Bastion GUI - Better user interface for firewall decisions
 
 This provides an enhanced GUI with:
 - Better visual design
@@ -517,6 +517,6 @@ if __name__ == '__main__':
         manager.show()
     else:
         print("Usage:")
-        print("  python3 douane_gui_improved.py --test   # Test the dialog")
-        print("  python3 douane_gui_improved.py --rules  # Show rule manager")
+        print("  python3 bastion_gui.py --test   # Test the dialog")
+        print("  python3 bastion_gui.py --rules  # Show rule manager")
 
