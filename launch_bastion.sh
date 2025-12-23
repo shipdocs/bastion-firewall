@@ -9,16 +9,15 @@ echo "--- Launching Bastion at $(date) ---"
 echo "User: $(whoami)"
 echo "Environment: $(env)"
 
-if pgrep -f "bastion-daemon" > /dev/null; then
-    echo "Daemon found, opening control panel..."
-    /usr/bin/bastion-control-panel
-else
-    echo "Daemon not found, starting GUI client..."
-    # Not running, start client (Start in background to release terminal if needed)
+# Check if GUI (Tray) is running
+if ! pgrep -f "/usr/bin/bastion-gui" > /dev/null; then
+    echo "Tray icon not running, starting..."
     /usr/bin/bastion-gui &
-    
-    # Wait a bit and open control panel so user sees something
-    sleep 2
-    echo "Opening control panel..."
-    /usr/bin/bastion-control-panel
+    sleep 1
+else
+    echo "Tray icon already running."
 fi
+
+# Always open control panel when launching from menu
+echo "Opening control panel..."
+/usr/bin/bastion-control-panel

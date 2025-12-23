@@ -5,6 +5,7 @@ import socket
 import struct
 import logging
 import os
+import ctypes
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ struct bpf_wq {
 #include <uapi/linux/ptrace.h>
 #include <net/sock.h>
 #include <bcc/proto.h>
+#include <linux/sched.h>
 
 struct ipv4_key_t {
     u32 saddr;
@@ -32,8 +34,9 @@ struct process_info_t {
     char comm[TASK_COMM_LEN];
 };
 
-// Hash map to store connection info: Key -> Process Info
-BPF_HASH(conn_map, struct ipv4_key_t, struct process_info_t, 10240);
+// LRU Hash map to store connection info: Key -> Process Info
+// LRU ensures that if map fills up, old entries are evicted
+BPF_TABLE("lru_hash", struct ipv4_key_t, struct process_info_t, conn_map, 10240);
 
 // Helper to store event
 static void store_event(struct sock *sk, u32 pid, u8 proto) {
@@ -85,6 +88,23 @@ int trace_tcp_connect_return(struct pt_regs *ctx) {
     return 0;
 }
 
+// Clean up map when socket closes
+int trace_tcp_close(struct pt_regs *ctx, struct sock *sk) {
+    struct ipv4_key_t key = {};
+    
+    u16 dport = sk->__sk_common.skc_dport;
+    u16 sport = sk->__sk_common.skc_num;
+    
+    key.saddr = sk->__sk_common.skc_rcv_saddr;
+    key.daddr = sk->__sk_common.skc_daddr;
+    key.sport = sport;
+    key.dport = ntohs(dport); 
+    key.proto = IPPROTO_TCP;
+    
+    conn_map.delete(&key);
+    return 0;
+}
+
 // UDP Sendmsg
 int trace_udp_sendmsg(struct pt_regs *ctx, struct sock *sk) {
     u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -112,6 +132,7 @@ class EBPFIdentifier:
             # Attach probes
             self.b.attach_kprobe(event="tcp_v4_connect", fn_name="trace_tcp_connect_entry")
             self.b.attach_kretprobe(event="tcp_v4_connect", fn_name="trace_tcp_connect_return")
+            self.b.attach_kprobe(event="tcp_close", fn_name="trace_tcp_close")
             self.b.attach_kprobe(event="udp_sendmsg", fn_name="trace_udp_sendmsg")
             
             self.available = True
@@ -132,24 +153,11 @@ class EBPFIdentifier:
         try:
             conn_map = self.b["conn_map"]
             
-            # Prepare key
-            # Note: We iterate because constructing the ctypes key matches strict types
-            # and sometimes endianness or IP format matches are tricky in python-bcc interchange.
-            # Optimization: In high performance, we should construct the key struct directly.
-            # But for stability now, iteration is okay (map size 10k max).
-            # ACTUALLY, iteration is too slow for per-packet logic.
-            # We MUST construct the key.
-            
-            # Key definition (must match C struct)
-            # struct ipv4_key_t { u32 saddr; u32 daddr; u16 sport; u16 dport; u8 proto; };
-            # BPF hash keys are binary data.
-            
             saddr_int = struct.unpack("I", socket.inet_aton(src_ip))[0]
             daddr_int = struct.unpack("I", socket.inet_aton(dest_ip))[0]
             proto_int = 6 if protocol == 'tcp' else 17
             
-            # Use ctypes to create key
-            import ctypes
+            # Use ctypes to create key structure matching C definition
             class IPv4Key(ctypes.Structure):
                 _fields_ = [
                     ("saddr", ctypes.c_uint32),

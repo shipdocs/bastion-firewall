@@ -5,7 +5,7 @@
 
 set -e
 
-VERSION="1.3.2"
+VERSION="1.4.1"
 
 # Colors
 GREEN='\033[0;32m'
@@ -291,10 +291,11 @@ chown -R bastion:bastion /var/log/bastion
 chmod 750 /var/log/bastion
 
 # Reload systemd
+# Reload systemd
 systemctl daemon-reload
-if systemctl is-enabled bastion-firewall >/dev/null 2>&1; then
-    systemctl enable bastion-firewall
-fi
+# Always enable and start/restart the firewall
+systemctl enable bastion-firewall
+systemctl restart bastion-firewall
 
 # Update desktop database
 update-desktop-database || true
