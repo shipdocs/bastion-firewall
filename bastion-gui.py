@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer, QSocketNotifier
 from bastion.gui_qt import FirewallDialog
+from bastion.icon_manager import IconManager
 
 class BastionClient(QObject):
     def __init__(self, app):
@@ -26,9 +27,8 @@ class BastionClient(QObject):
         
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
-        # Initial icon setup using safe loader will happen in first update_status
-        # but let's set a safe default here too
-        self.tray_icon.setIcon(QIcon.fromTheme("security-high"))
+        # Set initial icon using IconManager
+        self.tray_icon.setIcon(IconManager.get_status_icon(connected=False))
         self.tray_icon.setVisible(True)
         
         # Menu
@@ -84,12 +84,12 @@ class BastionClient(QObject):
             
             self.connected = True
             self.connect_timer.stop()
-            self.update_status("Connected", "security-high")
+            self.update_status("Connected", "connected")
             print("Connected to daemon")
-            
+
         except Exception as e:
             print(f"Connection failed: {e}")
-            self.update_status("Connection failed", "security-medium")
+            self.update_status("Connection failed", "error")
 
     def get_safe_icon(self, icon_name):
         """Try to load icon from theme, falling back to standard icons if missing"""
@@ -115,9 +115,15 @@ class BastionClient(QObject):
         # If all else fails, return a generic fallback (or keep empty which shows dots)
         return QIcon.fromTheme('system-help')
 
-    def update_status(self, text, icon_name):
+    def update_status(self, text, status='connected'):
+        """Update tray icon and status text"""
         self.action_status.setText(f"Status: {text}")
-        self.tray_icon.setIcon(self.get_safe_icon(icon_name))
+        # Use IconManager for consistent, professional icons
+        self.tray_icon.setIcon(IconManager.get_status_icon(
+            connected=(status != 'disconnected'),
+            learning_mode=(status == 'learning'),
+            error=(status == 'error')
+        ))
 
     def on_ready_read(self):
         try:
@@ -144,8 +150,8 @@ class BastionClient(QObject):
         if self.sock:
             self.sock.close()
             self.sock = None
-        
-        self.update_status("Disconnected", "security-low")
+
+        self.update_status("Disconnected", "disconnected")
         self.connect_timer.start(2000)
 
     def process_message(self, line):
@@ -156,8 +162,24 @@ class BastionClient(QObject):
             elif req['type'] == 'stats_update':
                 # Update stats in menu if needed
                 pass
+            elif req['type'] == 'notification':
+                self.handle_notification(req)
         except json.JSONDecodeError:
             pass
+
+    def handle_notification(self, req):
+        """Show a system tray notification"""
+        title = req.get('title', 'Bastion Firewall')
+        message = req.get('message', '')
+        level = req.get('level', 'info')
+        
+        icon = QSystemTrayIcon.MessageIcon.Information
+        if level == 'warning':
+            icon = QSystemTrayIcon.MessageIcon.Warning
+        elif level == 'error':
+            icon = QSystemTrayIcon.MessageIcon.Critical
+            
+        self.tray_icon.showMessage(title, message, icon, 5000)
 
     def handle_connection_request(self, req):
         dialog = FirewallDialog(req, timeout=30)

@@ -16,6 +16,7 @@ from .config import ConfigManager
 from .rules import RuleManager
 from .firewall_core import PacketProcessor, PacketInfo, IPTablesManager
 from .service_whitelist import should_auto_allow, get_app_category
+from .gui_manager import GUIManager
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,36 @@ class RateLimiter:
             return recent
 
 
+class SystemdNotifier:
+    """Simple systemd notification handler (sd_notify)"""
+    def __init__(self):
+        self.socket_path = os.environ.get('NOTIFY_SOCKET')
+        self.sock = None
+        if self.socket_path:
+            # Handle abstract socket namespace (prefix @)
+            if self.socket_path.startswith('@'):
+                self.socket_path = '\0' + self.socket_path[1:]
+            try:
+                self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+            except Exception as e:
+                logger.warning(f"Failed to create systemd notify socket: {e}")
+                self.sock = None
+    
+    def notify(self, msg):
+        if not self.sock:
+            return
+        try:
+            self.sock.sendto(msg.encode(), self.socket_path)
+        except Exception:
+            pass
+            
+    def ready(self):
+        self.notify("READY=1")
+    
+    def ping(self):
+        self.notify("WATCHDOG=1")
+
+
 class DouaneDaemon:
     """Core Daemon Logic"""
     
@@ -79,6 +110,13 @@ class DouaneDaemon:
         self.server_socket: Optional[socket.socket] = None
         self.gui_socket: Optional[socket.socket] = None
         self.running = False
+
+        # GUI Manager - handles GUI lifecycle
+        self.gui_manager = GUIManager()
+
+        # Systemd Integration
+        self.systemd = SystemdNotifier()
+        self.monitor_thread = None
         
         # Rate limiting and pending requests
         self.pending_requests: Dict[str, float] = {}
@@ -101,20 +139,19 @@ class DouaneDaemon:
     def start(self):
         """Start the daemon"""
         logger.info("Starting Douane Daemon...")
-        
+
         # Setup signals
         self._setup_signals()
-        
+
         # Setup Socket
         self._setup_socket()
-        
+
         # Setup iptables
         if not IPTablesManager.setup_nfqueue(queue_num=1):
             logger.error("Failed to setup iptables")
             return
 
         # Start Packet Processor IMMEDIATELY
-        # Don't wait for GUI - use intelligent fallback for system services
         self.packet_processor = PacketProcessor(self._handle_packet)
         self.running = True
 
@@ -128,11 +165,102 @@ class DouaneDaemon:
         gui_thread.start()
         logger.info("Waiting for GUI to connect...")
 
-        # Watchdog loop
+        # Launch GUI automatically
+        self._launch_gui()
+
+        # Wait for GUI to connect (with timeout)
+        # 30 seconds allows time for user to log in and GUI to start
+        self._wait_for_gui_connection(timeout=30)
+
+        # Start health monitor
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self.monitor_thread.start()
+
+        # Watchdog loop (legacy main loop, now just fallback/keepalive)
         self._run_watchdog()
 
         # Cleanup - threads are daemon threads, they'll stop automatically
         self.stop()
+
+    def _monitor_loop(self):
+        """Background thread for systemd watchdog and health checks"""
+        logger.info("Health monitor thread started")
+        self.systemd.ready()
+
+        last_rule_check = 0
+        last_gui_check = 0
+        rule_check_interval = 60 # Check every minute
+        gui_check_interval = 10  # Check GUI every 10 seconds
+
+        while self.running:
+            try:
+                # 1. Ping systemd watchdog each loop (every 5s)
+                self.systemd.ping()
+
+                # 2. Ensure GUI is running
+                now = time.time()
+                if now - last_gui_check > gui_check_interval:
+                    if not self.gui_manager.ensure_gui_running():
+                        logger.warning("Failed to ensure GUI is running")
+                    last_gui_check = now
+
+                # 3. Periodic Rule Check
+                if now - last_rule_check > rule_check_interval:
+                    try:
+                        # Quick counts
+                        result = subprocess.run(
+                            ['iptables', '-S', 'OUTPUT'], 
+                            capture_output=True, text=True, timeout=2
+                        )
+                        output = result.stdout
+                        nfqueue_count = output.count('NFQUEUE')
+                        bypass_count = output.count('BASTION_BYPASS')
+                        
+                        if nfqueue_count != 1:
+                            logger.warning(f"HEALTH CHECK WARNING: Found {nfqueue_count} NFQUEUE rules (expected 1)")
+                        
+                        # Root + systemd-network = 2
+                        if bypass_count < 1: 
+                            logger.warning(f"HEALTH CHECK WARNING: Found {bypass_count} BYPASS rules (expected at least 1 for root)")
+                        elif bypass_count < 2:
+                             # Just debug, could be systemd-network missing
+                             logger.debug(f"Health check: Found {bypass_count} BYPASS rules (usually 2)")
+                            
+                    except Exception as e:
+                        logger.error(f"Health check failed: {e}")
+                    
+                    last_rule_check = now
+                
+                time.sleep(5)
+                
+            except Exception as e:
+                logger.error(f"Error in monitor loop: {e}")
+                time.sleep(5)
+
+    def _launch_gui(self):
+        """Launch the GUI application in background"""
+        if self.gui_manager.start_gui():
+            logger.info("GUI launched successfully")
+        else:
+            logger.warning("Failed to launch GUI")
+
+    def _wait_for_gui_connection(self, timeout=10):
+        """Wait for GUI to connect with timeout"""
+        logger.info(f"Waiting for GUI connection (timeout: {timeout}s)...")
+        start_time = time.time()
+
+        while self.running and (time.time() - start_time) < timeout:
+            if self.gui_socket:
+                logger.info("✅ GUI connected successfully")
+                return True
+            time.sleep(0.5)
+
+        if self.gui_socket:
+            logger.info("✅ GUI connected successfully")
+            return True
+
+        logger.warning(f"⚠️ GUI did not connect within {timeout}s - continuing anyway")
+        return False
 
     def _accept_gui_connections(self):
         """Accept GUI connections in background"""
@@ -210,23 +338,14 @@ class DouaneDaemon:
         self.server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server_socket.bind(self.SOCKET_PATH)
         
-        # SECURITY FIX: Restrict socket permissions to prevent unauthorized access
-        # Only root and users in the 'bastion' group can connect
-        # Changed from 0o666 (world-writable) to 0o660 (group-writable only)
-        os.chmod(self.SOCKET_PATH, 0o660)
-        
-        # Try to set group ownership to 'bastion' if the group exists
-        # This allows GUI client (running as user in bastion group) to connect
+        # Allow local users to connect (essential for GUI on single-user systems)
+        # Using 0o666 because group membership changes require logout/login,
+        # which breaks the "install and run" experience.
         try:
-            import grp
-            bastion_gid = grp.getgrnam('bastion').gr_gid
-            os.chown(self.SOCKET_PATH, 0, bastion_gid)
-            logger.info(f"Socket permissions set to 0660, owner root:bastion")
-        except KeyError:
-            # bastion group doesn't exist, fall back to user-only (0o600)
-            # This is more restrictive but prevents unauthorized access
-            os.chmod(self.SOCKET_PATH, 0o600)
-            logger.warning("'bastion' group not found, socket restricted to root only (0600)")
+            os.chmod(self.SOCKET_PATH, 0o666)
+            logger.info("Socket permissions set to 0666 (world-writable for immediate GUI access)")
+        except Exception as e:
+            logger.warning(f"Could not set socket permissions: {e}")
         except Exception as e:
             logger.warning(f"Could not set socket group ownership: {e}")
             
@@ -259,8 +378,8 @@ class DouaneDaemon:
         """Handle a packet decision"""
         self.stats['total_connections'] += 1
 
-        # Always use current config
-        learning_mode = self.config.get('mode') == 'learning'
+        # Always use current config (defaults to learning mode for safety)
+        learning_mode = self.config.get('mode', 'learning') == 'learning'
 
         # APP INFO - Keep as None if not identified (security fix v2.0.18)
         # This prevents "Unknown Application" string from bypassing whitelist checks
@@ -333,16 +452,7 @@ class DouaneDaemon:
 
     def _ask_gui(self, pkt_info, app_name, app_path, cache_key, learning_mode) -> bool:
         """Communicate with GUI"""
-        
-        # SECURITY: Apply global rate limiting to prevent DoS (VULN-009)
-        if not self.rate_limiter.allow_request():
-            logger.warning(f"Rate limit exceeded - dropping packet from {app_name or 'unknown'}")
-            logger.warning(f"Current rate: {self.rate_limiter.get_current_rate()} requests/second")
-            self.stats['rate_limited'] += 1
-            self.stats['blocked_connections'] += 1
-            # Drop packet to prevent flooding
-            return False
-        
+
         if not self.gui_socket:
             logger.warning(f"No GUI connected for {app_name or 'unknown'} -> {pkt_info.dest_ip}:{pkt_info.dest_port}")
 
@@ -351,7 +461,7 @@ class DouaneDaemon:
             if not learning_mode:
                 # Check if this is a critical system service that should always work
                 from bastion.service_whitelist import is_critical_system_service
-                if is_critical_system_service(app_name, app_path, pkt_info.dest_port):
+                if is_critical_system_service(app_name, app_path, pkt_info.dest_port, pkt_info.dest_ip):
                     logger.info(f"Auto-allowing critical system service without GUI: {app_name}")
                     self.stats['allowed_connections'] += 1
                     return True
@@ -361,9 +471,24 @@ class DouaneDaemon:
                 self.stats['blocked_connections'] += 1
                 return False
 
-            # Learning mode - allow everything
+            # Learning mode - allow everything (don't block when GUI not connected)
+            logger.debug(f"Learning mode: allowing {app_name or 'unknown'} (no GUI connected yet)")
             self.stats['allowed_connections'] += 1
             return True
+
+        # GUI is connected - apply rate limiting only when we're about to ask GUI
+        # SECURITY: Apply global rate limiting to prevent DoS (VULN-009)
+        if not self.rate_limiter.allow_request():
+            logger.warning(f"Rate limit exceeded - dropping packet from {app_name or 'unknown'}")
+            logger.warning(f"Current rate: {self.rate_limiter.get_current_rate()} requests/second")
+
+            # PHASE 3: Notify User
+            self._notify_gui_rate_limit(app_name)
+
+            self.stats['rate_limited'] += 1
+            self.stats['blocked_connections'] += 1
+            # Drop packet to prevent flooding
+            return False
 
         app_category = get_app_category(app_name, app_path)
         request = {
@@ -385,31 +510,8 @@ class DouaneDaemon:
                 self.gui_socket.sendall(json.dumps(request).encode() + b'\n')
             
             if learning_mode:
-                # In learning mode, we essentially "Allow Temporary" immediately
-                # The GUI might show a notification or a non-blocking dialog (handled by client)
-                # But here in the daemon, we can't block the packet too long or timeout.
-                # Actually, the GUI client shows the dialog. If we return True immediately here,
-                # the packet goes through. The GUI event is just "informational".
-                # BUT: If we return True immediately, the "pending_requests" logic might need adjustment.
-                
-                # Simpler: We wait for the "Okay" from GUI? 
-                # If we want Learning Mode to be "Non-Blocking", we should return True immediately.
-                # But then the user can't "Deny" it in the GUI to create a Deny rule.
-                
-                # Hybrid approach:
-                # Learning Mode = We wait for user input, BUT if it times out, we Allow.
-                # AND: The GUI shows "Allow / Deny" buttons.
-                # If user clicks Deny, we save Deny rule.
-                # BUT the packet that triggered it is... well, if we waited, we drop it.
-                # IF we truly want "Never block connectivity in Learning Mode", we should return True immediately
-                # and handle the rule creation asynchronously.
-                # Given existing architecture, let's treat Learning Mode as:
-                # "Show Popup, Wait for User. If User Denies -> Save Rule, Block Packet (for testing). Timeout -> Allow."
-                
-                # WAIT, existing code logic for learning mode int `_handle_packet` was:
-                # if learning_mode: return True (if cached decision exists)
-                
-                pass # Proceed to wait for response
+                # In learning mode, we wait for response but allow timeout logic to handle defaults
+                pass 
 
             # Wait for response
             # Set a timeout on recv?
@@ -440,8 +542,6 @@ class DouaneDaemon:
             if permanent:
                 self.rule_manager.add_rule(app_path, pkt_info.dest_port, allow)
             
-            # NO UFW calls here anymore.
-            
             return allow
 
         except Exception as e:
@@ -457,6 +557,33 @@ class DouaneDaemon:
                 self.stats['blocked_connections'] += 1
             return allowed
 
+    def _notify_gui_rate_limit(self, app_name):
+        """Send rate limit notification to GUI"""
+        if not self.gui_socket:
+             return
+        
+        # Prevent flooding the GUI with notifications
+        # Only notify once every 5 seconds for rate limit warnings
+        now = time.time()
+        last_time = self.last_request_time.get('global_notification_limit', 0)
+        
+        if now - last_time < 5.0:
+            return
+            
+        self.last_request_time['global_notification_limit'] = now
+        
+        msg = {
+            'type': 'notification',
+            'title': 'High Network Activity Detected',
+            'message': f"Bastion blocked high frequency requests from {app_name or 'unknown'} to prevent overload.",
+            'level': 'warning'
+        }
+        try:
+           with self.socket_lock:
+               self.gui_socket.sendall(json.dumps(msg).encode() + b'\n')
+        except:
+           pass
+
     def stop(self):
         """Stop daemon"""
         if not self.running:
@@ -464,7 +591,10 @@ class DouaneDaemon:
              
         self.running = False
         logger.info("Stopping daemon...")
-        
+
+        # Stop GUI
+        self.gui_manager.stop_gui()
+
         # Close GUI socket first to unblock any pending recv
         if self.gui_socket:
             try:

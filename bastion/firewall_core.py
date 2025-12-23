@@ -213,10 +213,16 @@ class PacketProcessor:
         self.decision_callback = decision_callback
         self.identifier = ApplicationIdentifier()
         # Initialize eBPF identifier (will fallback gracefully if unavailable)
+        # Initialize eBPF identifier (will fallback gracefully if unavailable)
         try:
             from .ebpf import EBPFIdentifier
             self.ebpf = EBPFIdentifier()
-        except ImportError:
+            if self.ebpf.available:
+                logger.info("High-performance eBPF traffic identification enabled")
+            else:
+                logger.warning("eBPF identification unavailable (using legacy /proc scanning)")
+        except Exception as e:
+            logger.warning(f"Failed to load eBPF module: {e}")
             self.ebpf = None
         
         self.cache = ConnectionCache(ttl=120) # 2 minute cache
@@ -374,10 +380,13 @@ class IPTablesManager:
     def setup_nfqueue(queue_num=1):
         """
         Set up iptables rules to queue outbound packets.
-
-        This adds an iptables rule to send new outbound connections to NFQUEUE.
+        Ensures a clean slate before adding rules to prevent duplicates.
         """
         import subprocess
+
+        # 0. Clean up existing rules first (Idempotency)
+        # This prevents duplicate rules from accumulating (Fixes 16x duplicates issue)
+        IPTablesManager.cleanup_nfqueue(queue_num)
 
         # Rule to queue new outbound connections
         rule = [
@@ -423,90 +432,86 @@ class IPTablesManager:
     @staticmethod
     def remove_nfqueue(queue_num=1):
         """Remove iptables NFQUEUE and bypass rules"""
-        import subprocess
-
-        # 1. Remove NFQUEUE rule
-        nfqueue_rule = [
-            'iptables', '-D', 'OUTPUT',
-            '-m', 'state', '--state', 'NEW',
-            '-j', 'NFQUEUE', '--queue-num', str(queue_num)
-        ]
-
-        try:
-            subprocess.run(nfqueue_rule, capture_output=True, text=True, check=True)
-            logger.info("Removed iptables NFQUEUE rule")
-        except subprocess.CalledProcessError:
-            pass
-
-        # 2. Remove BASTION_BYPASS rules
-        # We need to find them first because we can't delete by index efficiently/safely
-        try:
-            # Query rules with our comment
-            cmd = ['iptables', '-S', 'OUTPUT']
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            
-            for line in result.stdout.split('\n'):
-                if 'BASTION_BYPASS' in line:
-                    # Line format: -A OUTPUT ...
-                    parts = line.split()
-                    if len(parts) > 2 and parts[0] == '-A':
-                        del_cmd = ['iptables', '-D'] + parts[2:]
-                        try:
-                            subprocess.run(del_cmd, capture_output=True, check=True)
-                            logger.info(f"Removed bypass rule for: {line}")
-                        except subprocess.CalledProcessError:
-                            pass
-        except subprocess.CalledProcessError:
-            pass
-            
-        return True
+        # Alias to cleanup_nfqueue for consistent behavior
+        return IPTablesManager.cleanup_nfqueue(queue_num)
 
     @staticmethod
     def cleanup_nfqueue(queue_num=1):
         """
-        Aggressively remove ALL NFQUEUE rules to ensure clean shutdown.
-        This prevents the "WiFi connected but no internet" issue.
+        Aggressively remove ALL NFQUEUE and BASTION_BYPASS rules.
+        Ensures a completely clean state to prevent "connected but no internet".
         """
         import subprocess
 
-        logger.info("Cleaning up iptables NFQUEUE rules...")
+        logger.info("Cleaning up iptables NFQUEUE and BYPASS rules...")
         removed_count = 0
 
-        # Try to remove the specific rule multiple times (in case of duplicates)
-        for _ in range(10):
-            if IPTablesManager.remove_nfqueue(queue_num):
+        # 1. Remove NFQUEUE rules (loop until none left)
+        nfqueue_spec = [
+            '-m', 'state', '--state', 'NEW',
+            '-j', 'NFQUEUE', '--queue-num', str(queue_num)
+        ]
+
+        # Loop to remove duplicates (limit 50 to avoid infinite loop)
+        for _ in range(50):
+            try:
+                cmd = ['iptables', '-D', 'OUTPUT'] + nfqueue_spec
+                subprocess.run(cmd, capture_output=True, check=True)
                 removed_count += 1
-            else:
+            except subprocess.CalledProcessError:
+                # Failure means no more matching rules
                 break
 
-        # Double-check: list all OUTPUT rules and remove any NFQUEUE rules
-        try:
-            result = subprocess.run(
-                ['iptables', '-S', 'OUTPUT'],
-                capture_output=True, text=True, check=True
-            )
-
-            for line in result.stdout.split('\n'):
-                if 'NFQUEUE' in line and '--queue-num' in line:
-                    # Extract the rule and remove it
-                    # Line format: -A OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1
+        # 2. Remove BASTION_BYPASS rules
+        # We loop this to handle multiple rules and shifting indices
+        for _ in range(20):
+            try:
+                # Query all OUTPUT rules
+                result = subprocess.run(
+                    ['iptables', '-S', 'OUTPUT'], 
+                    capture_output=True, text=True, check=True
+                )
+                
+                # Find any rule with our signature
+                bypass_rules = [line for line in result.stdout.split('\n') 
+                              if 'BASTION_BYPASS' in line]
+                
+                if not bypass_rules:
+                    break
+                
+                deleted_in_pass = 0
+                for line in bypass_rules:
+                    # Line format: -A OUTPUT ...
                     parts = line.split()
                     if len(parts) > 2 and parts[0] == '-A':
-                        # Convert -A to -D for deletion
-                        delete_cmd = ['iptables', '-D'] + parts[2:]
+                        # Convert -A (append) to -D (delete)
+                        # parts[1] is the chain name (should be OUTPUT)
+                        # We explicitly use OUTPUT to be safe, or use parts[1]
+                        
+                        # Fix: Ensure we include the chain name in the delete command
+                        # parts looks like: ['-A', 'OUTPUT', '-m', ...]
+                        # We want: iptables -D OUTPUT -m ...
+                        del_cmd = ['iptables', '-D', parts[1]] + parts[2:]
+                        
                         try:
-                            subprocess.run(delete_cmd, capture_output=True, check=True)
+                            subprocess.run(del_cmd, capture_output=True, check=True)
+                            logger.info(f"Removed bypass rule: {' '.join(del_cmd)}")
                             removed_count += 1
-                            logger.info(f"Removed NFQUEUE rule: {' '.join(delete_cmd)}")
-                        except subprocess.CalledProcessError:
+                            deleted_in_pass += 1
+                        except subprocess.CalledProcessError as e:
+                            logger.debug(f"Failed to remove rule: {e}")
                             pass
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"Could not list iptables rules: {e}")
+                
+                if deleted_in_pass == 0:
+                    break
+                    
+            except subprocess.CalledProcessError:
+                break
 
         if removed_count > 0:
-            logger.info(f"Removed {removed_count} NFQUEUE rule(s)")
+            logger.info(f"Cleanup finished. Removed {removed_count} rules")
         else:
-            logger.info("No NFQUEUE rules to remove")
+            logger.debug("No rules needed verification/cleanup")
 
         return removed_count
 
