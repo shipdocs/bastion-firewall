@@ -6,6 +6,8 @@ An application firewall for Linux that gives you control over outbound network c
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Debian%2FUbuntu-green)](https://github.com/shipdocs/bastion-firewall)
 
+![Bastion Firewall Control Panel](screenshots/status.png)
+
 ## Overview
 
 Bastion intercepts outbound connections and prompts you to allow or deny them per application. It uses eBPF for kernel-level process identification and provides a Qt 6 interface for managing rules.
