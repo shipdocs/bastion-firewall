@@ -18,13 +18,8 @@ setup(
         "bastion-gui.py",
         "bastion_control_panel.py"
     ],
-    entry_points={
-        'console_scripts': [
-            'bastion-daemon=bastion_daemon:main',
-            'bastion-gui=bastion_gui_client:main',
-            'bastion-control-panel=bastion_control_panel:main',
-        ],
-    },
+    # Note: entry_points removed because script files use hyphens (bastion-daemon.py)
+    # which cannot be imported as Python modules. Use scripts[] instead.
     data_files=[
         ('/etc/bastion', ['config.json']),
         ('/usr/share/applications', ['bastion-firewall.desktop']),
