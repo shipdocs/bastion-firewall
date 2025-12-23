@@ -1,6 +1,6 @@
 # Security and Code Quality Audit
 
-Date: 2025-02-28
+Date: 2025-12-23
 
 ## Scope
 Manual review of the Python application entrypoint (`bastion_firewall.py`) with a focus on import-time behavior, runtime stability, and operational safety.
