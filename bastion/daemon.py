@@ -73,26 +73,33 @@ class SystemdNotifier:
         self.socket_path = os.environ.get('NOTIFY_SOCKET')
         self.sock = None
         if self.socket_path:
-            # Handle abstract socket namespace (prefix @)
+            # Convert to bytes for proper handling across platforms
             if self.socket_path.startswith('@'):
-                self.socket_path = '\0' + self.socket_path[1:]
+                self.socket_path = b'\0' + self.socket_path[1:].encode()
+            elif isinstance(self.socket_path, str):
+                self.socket_path = self.socket_path.encode()
             try:
                 self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
             except Exception as e:
                 logger.warning(f"Failed to create systemd notify socket: {e}")
                 self.sock = None
     
-    def notify(self, msg):
+    def notify(self, msg: str) -> bool:
+        """Send notification to systemd. Returns True on success."""
         if not self.sock:
-            return
+            return False
         try:
             self.sock.sendto(msg.encode(), self.socket_path)
-        except Exception:
-            pass
-            
+            return True
+        except Exception as e:
+            # Log failures but don't crash - notifications are best-effort
+            logger.debug(f"Systemd notification failed: {e}")
+            return False
+
     def ready(self):
-        self.notify("READY=1")
-    
+        if self.notify("READY=1"):
+            logger.info("Sent systemd READY=1")
+
     def ping(self):
         self.notify("WATCHDOG=1")
 
