@@ -23,26 +23,9 @@ class ConfigManager:
     
     @classmethod
     def validate_config(cls, config: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Validate configuration values to prevent security issues.
-        
-        SECURITY: Prevents:
-        - Path traversal via malicious log paths
-        - Integer overflow via extreme timeout values
-        - Unexpected behavior via invalid mode values
-        
-        Args:
-            config: Raw configuration dictionary
-            
-        Returns:
-            Validated and sanitized configuration
-            
-        Raises:
-            ValueError: If configuration contains invalid values
-        """
+        """Validate and sanitize configuration values."""
         validated = {}
-        
-        # Validate mode
+
         mode = config.get('mode', cls.DEFAULT_CONFIG['mode'])
         if mode not in ['learning', 'enforcement']:
             logger.warning(f"Invalid mode '{mode}', defaulting to 'learning'")

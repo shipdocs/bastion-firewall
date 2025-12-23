@@ -5,7 +5,7 @@
 
 set -e
 
-VERSION="1.4.1"
+VERSION="1.4.2"
 
 # Colors
 GREEN='\033[0;32m'
@@ -154,7 +154,7 @@ cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
   <icon type="stock">security-high</icon>
   <url type="homepage">https://github.com/shipdocs/bastion-firewall</url>
   <url type="bugtracker">https://github.com/shipdocs/bastion-firewall/issues</url>
-  <url type="help">https://github.com/shipdocs/bastion-firewall/blob/master/FAQ.md</url>
+  <url type="help">https://github.com/shipdocs/bastion-firewall/blob/master/README.md</url>
   <developer id="com.bastion">
     <name>Martin</name>
   </developer>
@@ -209,9 +209,8 @@ chmod 644 debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml
 # Copy documentation
 print_step "Copying documentation..."
 cp README.md debian/usr/share/doc/bastion-firewall/
-cp PRODUCTION_GUIDE.md debian/usr/share/doc/bastion-firewall/
-cp FAQ.md debian/usr/share/doc/bastion-firewall/
-cp IMPLEMENTATION.md debian/usr/share/doc/bastion-firewall/
+cp CONTRIBUTING.md debian/usr/share/doc/bastion-firewall/
+cp SECURITY.md debian/usr/share/doc/bastion-firewall/
 cp config.json debian/usr/share/doc/bastion-firewall/config.json.example
 
 # Create copyright file

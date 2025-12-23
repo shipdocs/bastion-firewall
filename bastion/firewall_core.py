@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""
-Firewall Core - Netfilter packet interception and processing
-
-This module handles the low-level packet interception using NetfilterQueue
-and identifies which application is making each connection.
-"""
+"""Netfilter packet interception and application identification."""
 
 import os
 import sys
@@ -28,9 +23,7 @@ except ImportError:
 
 
 class PacketInfo:
-    """Information about a network packet"""
-    
-    def __init__(self, src_ip: str, src_port: int, dest_ip: str, dest_port: int, 
+    def __init__(self, src_ip: str, src_port: int, dest_ip: str, dest_port: int,
                  protocol: str, pid: Optional[int] = None):
         self.src_ip = src_ip
         self.src_port = src_port
@@ -47,58 +40,36 @@ class PacketInfo:
 
 
 class ConnectionCache:
-    """
-    Cache identified connections to handle retransmissions and consistent identification.
-    
-    Stores: (src_port, protocol) -> (pid, app_name, app_path, timestamp)
-    
-    Since we intercept NEW packets, we might see retransmissions of the SYN,
-    or we might look up a connection once and want to remember it for a short time.
-    Local source ports are unique per protocol.
-    
-    SECURITY: Validates PIDs before returning cached entries to prevent race conditions.
-    """
+    """Cache identified connections. Key: (src_port, protocol)"""
+
     def __init__(self, ttl=60):
         self.cache = {}
         self.ttl = ttl
         
     def get(self, src_port, protocol):
         now = time.time()
-        
-        # Cleanup old entries while we are here (lazy cleanup)
-        # In a high-volume system, we'd use a separate cleanup thread, 
-        # but for a personal firewall this is fine.
+
+        # Lazy cleanup
         keys_to_delete = [k for k, v in self.cache.items() if now - v['time'] > self.ttl]
         for k in keys_to_delete:
             del self.cache[k]
-            
+
         key = (src_port, protocol)
-        if key in self.cache:
-            entry = self.cache[key]
-            
-            # SECURITY FIX (VULN-003): Validate PID still exists and matches cached path
-            # This prevents race conditions where port is reused by different process
-            try:
-                process = psutil.Process(entry['pid'])
-                current_path = process.exe()
-                
-                # If PID exists but path changed, this is a different process!
-                # Port was reused - invalidate cache entry
-                if current_path != entry['path']:
-                    logger.warning(f"PID {entry['pid']} reused port {src_port} - cache invalidated")
-                    del self.cache[key]
-                    return None
-                    
-                # PID and path match - cache is valid
-                return entry
-                
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                # Process no longer exists - invalidate cache
-                logger.debug(f"Cached PID {entry['pid']} no longer exists - cache invalidated")
+        if key not in self.cache:
+            return None
+
+        entry = self.cache[key]
+
+        # Validate PID still exists and exe path matches (port reuse check)
+        try:
+            process = psutil.Process(entry['pid'])
+            if process.exe() != entry['path']:
                 del self.cache[key]
                 return None
-                
-        return None
+            return entry
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            del self.cache[key]
+            return None
         
     def set(self, src_port, protocol, pid, name, path):
         key = (src_port, protocol)
