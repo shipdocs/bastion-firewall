@@ -4,7 +4,12 @@
 
 Bastion is a **production-ready** application firewall built specifically for **Zorin OS 18** (and compatible with all Debian-based distributions). Like a medieval bastion protecting a fortress, Bastion stands guard over your system's network connections, giving you the same outbound connection control you had on Windows.
 
-![Zorin OS](https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue) ![Debian](https://img.shields.io/badge/Debian%2FUbuntu-Supported-green) ![License](https://img.shields.io/badge/License-GPLv3-blue) ![Version](https://img.shields.io/badge/Version-1.4.0-brightgreen) ![Security](https://img.shields.io/badge/Security-Hardened-green)
+[![Stable Release](https://img.shields.io/github/v/release/shipdocs/bastion-firewall?label=Stable&color=green)](https://github.com/shipdocs/bastion-firewall/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/release/shipdocs/bastion-firewall?include_prereleases&label=Latest&color=yellow)](https://github.com/shipdocs/bastion-firewall/releases)
+![Zorin OS](https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue)
+![Debian](https://img.shields.io/badge/Debian%2FUbuntu-Supported-green)
+![License](https://img.shields.io/badge/License-GPLv3-blue)
+![Security](https://img.shields.io/badge/Security-Hardened-green)
 
 ---
 
@@ -27,30 +32,30 @@ Bastion intercepts **every** outbound connection attempt and shows you a GUI dia
 
 ---
 
-> **Latest Release (v1.4.0 - Major Security Audit Release):** 🔒
-> 
-> **Security Improvements:**
-> - 🛡️ **11 Vulnerabilities Fixed** - 2 critical, 3 high, 4 medium, 2 low
-> - 🔒 **Security Rating**: HIGH RISK (7.5/10) → LOW-MEDIUM RISK (2/10)
-> - 🔐 **Hardened Permissions** - Config/rules: 600, Socket: 660 (group-only)
-> - 📦 **Dependency Updates** - Pillow 10.2.0 (fixes 5 CVEs)
-> - 📚 **Security Documentation** - 1,681 lines of comprehensive security docs
-> 
-> **Key Features:**
-> - 🎯 **Version**: 1.4.0
-> - **Status**: Production-Ready & Security Hardened
-> - **License**: GPL-3.0
-> - **Platform**: Zorin OS 18 (Ubuntu 24.04 LTS), Debian, Fedora
-> - **GUI**: Modern Qt 6 Interface
-> - 🚦 **Visual Status** - Green (running), Red (stopped), Orange (connecting)
-> - ⚙️ **Working Controls** - Start/Stop/Restart via systemctl
-> - 🚀 **Auto-Start** - Tray icon starts automatically at login
-> - 🛡️ **UFW Integration** - Complete inbound + outbound protection
-> - ✅ **eBPF Traffic Identification** - Kernel-level process tracking
-> - ✅ **Rate Limiting** - DoS protection (10 req/sec)
-> - ✅ **Input Validation** - Comprehensive security checks
-> 
-> See [RELEASE_NOTES.md](RELEASE_NOTES.md) for v1.4.0 details and [SECURITY_AUDIT.md](SECURITY_AUDIT.md) for security analysis.
+## 📦 Downloads
+
+| Release Type | Description | Download |
+|--------------|-------------|----------|
+| **✅ Stable** | Production-ready, fully tested | [![Download Stable](https://img.shields.io/github/v/release/shipdocs/bastion-firewall?label=Download&color=green)](https://github.com/shipdocs/bastion-firewall/releases/latest) |
+| **🧪 Pre-release** | Latest features, testing welcome | [![Download Latest](https://img.shields.io/github/v/release/shipdocs/bastion-firewall?include_prereleases&label=Download&color=yellow)](https://github.com/shipdocs/bastion-firewall/releases) |
+
+> **Note:** Pre-releases contain the latest features and improvements but may have bugs. Use stable releases for production systems.
+
+---
+
+**Key Features:**
+- **Status**: Production-Ready & Security Hardened
+- **License**: GPL-3.0
+- **Platform**: Zorin OS 18 (Ubuntu 24.04 LTS), Debian-based distributions
+- **GUI**: Modern Qt 6 Interface with system tray integration
+- 🚦 **Visual Status** - Green (running), Red (stopped), Orange (connecting)
+- ⚙️ **Working Controls** - Start/Stop/Restart via tray menu
+- 🚀 **Auto-Start** - Tray icon starts automatically at login
+- 🛡️ **UFW Integration** - Complete inbound + outbound protection
+- ✅ **eBPF Traffic Identification** - Kernel-level process tracking
+- ✅ **Rate Limiting** - DoS protection (10 req/sec)
+
+See [RELEASE_NOTES.md](RELEASE_NOTES.md) for release details and [SECURITY_AUDIT.md](SECURITY_AUDIT.md) for security analysis.
 
 ## 🎯 The Problem
 
@@ -189,18 +194,22 @@ sudo apt-get install -y python3 python3-pip iptables gir1.2-ayatanaappindicator3
 ### Method 1: Install from .deb Package (Recommended)
 
 ```bash
-# Clone the repository
-git clone https://github.com/shipdocs/Bastion.git
-cd Bastion
-
-# Build the package
-./build_deb.sh
+# Download the latest .deb from GitHub Releases:
+# https://github.com/shipdocs/bastion-firewall/releases
 
 # Install
-sudo dpkg -i bastion-firewall_1.4.0_all.deb
+sudo dpkg -i bastion-firewall_*.deb
 
 # If there are dependency issues, fix them:
 sudo apt-get install -f
+```
+
+Or build from source:
+```bash
+git clone https://github.com/shipdocs/bastion-firewall.git
+cd bastion-firewall
+./build_deb.sh
+sudo dpkg -i bastion-firewall_*.deb
 ```
 
 The package installs:
@@ -681,23 +690,19 @@ See [PRODUCTION_GUIDE.md](PRODUCTION_GUIDE.md) for more troubleshooting.
 
 ```bash
 # Stop the firewall
-pkill -TERM -f douane
-sudo rm -f /tmp/douane-daemon.sock
+sudo systemctl stop bastion-firewall
+pkill -f bastion-gui
 
 # Uninstall the package
-sudo dpkg --purge douane-firewall
+sudo dpkg --purge bastion-firewall
 
 # Remove configuration and rules (optional)
-sudo rm -rf /etc/douane
-sudo rm -f /var/log/douane-daemon.log
+sudo rm -rf /etc/bastion
+sudo rm -f /var/log/bastion-daemon.log
 
 # Verify iptables rules are cleaned up
 sudo iptables -L OUTPUT -v -n | grep NFQUEUE
 # Should return nothing
-
-# Check UFW rules (optional cleanup)
-sudo ufw status numbered
-# Delete any Bastion-related rules if needed
 ```
 
 The package's `postrm` script automatically:
@@ -711,9 +716,10 @@ See LICENSE file for details.
 
 ## 🔗 Links
 
-- **GitHub**: https://github.com/shipdocs/Bastion
-- **Original project**: [GitLab](https://gitlab.com/douaneapp/Bastion)
-- **Issues**: https://github.com/shipdocs/Bastion/issues
+- **GitHub**: https://github.com/shipdocs/bastion-firewall
+- **Releases**: https://github.com/shipdocs/bastion-firewall/releases
+- **Issues**: https://github.com/shipdocs/bastion-firewall/issues
+- **Website**: https://shipdocs.github.io/bastion-firewall/
 
 ## ⭐ Star This Project
 
