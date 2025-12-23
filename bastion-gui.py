@@ -27,15 +27,26 @@ class BastionClient(QObject):
 
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
-        # Set initial icon using IconManager
-        icon = IconManager.get_status_icon(connected=False)
-        self.tray_icon.setIcon(icon)
-        print(f"[TRAY] Icon set: {icon}, isNull: {icon.isNull()}")
 
         # Check if tray is available
         if not QSystemTrayIcon.isSystemTrayAvailable():
             print("[TRAY] WARNING: System tray not available on this desktop")
 
+        # Set initial icon using IconManager
+        icon = IconManager.get_status_icon(connected=False)
+        print(f"[TRAY] Icon obtained: isNull={icon.isNull()}, availableSizes={icon.availableSizes()}")
+
+        # If icon is null, try to create a pixmap-based icon
+        if icon.isNull():
+            print("[TRAY] Icon is null, trying to create pixmap-based icon")
+            try:
+                pixmap = IconManager.create_status_pixmap('disconnected', size=64)
+                icon = QIcon(pixmap)
+                print(f"[TRAY] Created pixmap icon: isNull={icon.isNull()}")
+            except Exception as e:
+                print(f"[TRAY] Failed to create pixmap icon: {e}")
+
+        self.tray_icon.setIcon(icon)
         self.tray_icon.setVisible(True)
         print(f"[TRAY] Tray icon visible: {self.tray_icon.isVisible()}")
         
