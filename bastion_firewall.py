@@ -25,7 +25,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 # Setup logging
-log_dir = Path.home() / '.config' / 'douane'
+log_dir = Path.home() / '.config' / 'bastion'
 log_dir.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
@@ -248,31 +248,37 @@ class SystemdNotifier:
         self.sock = None
         if self.socket_path:
             # Handle abstract socket namespace (prefix @)
+            # Convert to bytes for proper handling across platforms
             if self.socket_path.startswith('@'):
-                self.socket_path = '\0' + self.socket_path[1:]
+                self.socket_path = b'\0' + self.socket_path[1:].encode()
+            elif isinstance(self.socket_path, str):
+                self.socket_path = self.socket_path.encode()
             try:
                 self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
             except Exception as e:
                 logger.warning(f"Failed to create systemd notify socket: {e}")
                 self.sock = None
-    
-    def notify(self, msg):
+
+    def notify(self, msg: str) -> bool:
+        """Send notification to systemd. Returns True on success."""
         if not self.sock:
-            return
+            return False
         try:
             self.sock.sendto(msg.encode(), self.socket_path)
-        except Exception:
-            # Notifications are best-effort
-            pass
-            
+            return True
+        except Exception as e:
+            # Log failures but don't crash - notifications are best-effort
+            logger.debug(f"Systemd notification failed: {e}")
+            return False
+
     def ready(self):
-        self.notify("READY=1")
-        logger.info("Sent systemd READY=1")
-    
+        if self.notify("READY=1"):
+            logger.info("Sent systemd READY=1")
+
     def ping(self):
         self.notify("WATCHDOG=1")
 
-class DouaneFirewall:
+class BastionFirewall:
     """Main firewall application"""
 
     def __init__(self):
@@ -423,8 +429,21 @@ def _require_root() -> None:
     Keeping the privilege check in a dedicated function prevents import-time
     failures, which improves testability and avoids surprises when the module
     is used as a library while still enforcing root for runtime execution.
+
+    Set BASTION_SKIP_ROOT_CHECK=1 to bypass for testing environments.
     """
+    # Allow bypass for test environments
+    if os.environ.get('BASTION_SKIP_ROOT_CHECK') == '1':
+        logger.warning("Root check bypassed via BASTION_SKIP_ROOT_CHECK")
+        return
+
+    # Check if geteuid is available (Linux/Unix only)
+    if not hasattr(os, 'geteuid'):
+        logger.warning("os.geteuid() not available on this platform, skipping root check")
+        return
+
     if os.geteuid() != 0:
+        logger.error("This application must be run as root (use sudo)")
         print("ERROR: This application must be run as root (use sudo)", file=sys.stderr)
         sys.exit(1)
 
@@ -439,7 +458,7 @@ def main():
     print()
 
     # Create and start firewall
-    firewall = DouaneFirewall()
+    firewall = BastionFirewall()
     firewall.start()
 
 
