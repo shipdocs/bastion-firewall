@@ -22,7 +22,8 @@ class IconManager:
     
     # Icon paths
     ICON_DIR = Path(__file__).parent / 'resources'
-    BASTION_ICON = ICON_DIR / 'bastion-icon.svg'
+    BASTION_ICON_PNG = ICON_DIR / 'bastion-icon.png'
+    BASTION_ICON_SVG = ICON_DIR / 'bastion-icon.svg'
     
     # Status colors
     COLORS = {
@@ -37,10 +38,10 @@ class IconManager:
     def get_icon(cls, status='connected'):
         """
         Get icon for given status
-        
+
         Args:
             status: 'connected', 'disconnected', 'error', 'learning', 'warning'
-            
+
         Returns:
             QIcon object
         """
@@ -49,11 +50,16 @@ class IconManager:
             try:
                 icon = QIcon(str(cls.BASTION_ICON))
                 if not icon.isNull():
+                    logger.debug(f"Loaded custom icon from {cls.BASTION_ICON}")
                     return icon
+                else:
+                    logger.warning(f"Custom icon loaded but is null: {cls.BASTION_ICON}")
             except Exception as e:
                 logger.warning(f"Failed to load custom icon: {e}")
-        
-        # Fallback to theme icons
+        else:
+            logger.warning(f"Custom icon file not found: {cls.BASTION_ICON}")
+
+        # Fallback to theme icons with status-specific colors
         fallback_icons = {
             'connected': 'security-high',
             'disconnected': 'security-low',
@@ -61,9 +67,33 @@ class IconManager:
             'learning': 'dialog-information',
             'warning': 'dialog-warning'
         }
-        
+
         icon_name = fallback_icons.get(status, 'security-high')
-        return QIcon.fromTheme(icon_name)
+        logger.debug(f"Using fallback icon: {icon_name} for status: {status}")
+
+        # Try theme icon
+        icon = QIcon.fromTheme(icon_name)
+        if not icon.isNull():
+            return icon
+
+        # If theme icon fails, try other fallbacks
+        fallback_chain = [
+            'security-high',
+            'security-medium',
+            'system-lock-screen',
+            'emblem-locked',
+            'network-wired'
+        ]
+
+        for fallback in fallback_chain:
+            icon = QIcon.fromTheme(fallback)
+            if not icon.isNull():
+                logger.debug(f"Using fallback icon: {fallback}")
+                return icon
+
+        # Last resort: return empty icon
+        logger.warning("No suitable icon found, returning empty icon")
+        return QIcon()
     
     @classmethod
     def get_status_icon(cls, connected=True, learning_mode=False, error=False):
