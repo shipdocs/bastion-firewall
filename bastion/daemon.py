@@ -16,7 +16,6 @@ from .config import ConfigManager
 from .rules import RuleManager
 from .firewall_core import PacketProcessor, PacketInfo, IPTablesManager
 from .service_whitelist import should_auto_allow, get_app_category
-from .gui_manager import GUIManager
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +110,8 @@ class DouaneDaemon:
         self.gui_socket: Optional[socket.socket] = None
         self.running = False
 
-        # GUI Manager - handles GUI lifecycle
-        self.gui_manager = GUIManager()
+        # NOTE: GUI is NOT started by daemon - it's started by user session via autostart
+        # Daemon only communicates with GUI via Unix socket at /tmp/bastion-daemon.sock
 
         # Systemd Integration
         self.systemd = SystemdNotifier()
@@ -165,9 +164,7 @@ class DouaneDaemon:
         gui_thread.start()
         logger.info("Waiting for GUI to connect...")
 
-        # Launch GUI automatically
-        self._launch_gui()
-
+        # NOTE: GUI is started by user session via autostart, not by daemon
         # Wait for GUI to connect (with timeout)
         # 30 seconds allows time for user to log in and GUI to start
         self._wait_for_gui_connection(timeout=30)
@@ -188,23 +185,15 @@ class DouaneDaemon:
         self.systemd.ready()
 
         last_rule_check = 0
-        last_gui_check = 0
         rule_check_interval = 60 # Check every minute
-        gui_check_interval = 10  # Check GUI every 10 seconds
 
         while self.running:
             try:
                 # 1. Ping systemd watchdog each loop (every 5s)
                 self.systemd.ping()
 
-                # 2. Ensure GUI is running
+                # 2. Periodic Rule Check
                 now = time.time()
-                if now - last_gui_check > gui_check_interval:
-                    if not self.gui_manager.ensure_gui_running():
-                        logger.warning("Failed to ensure GUI is running")
-                    last_gui_check = now
-
-                # 3. Periodic Rule Check
                 if now - last_rule_check > rule_check_interval:
                     try:
                         # Quick counts
@@ -236,13 +225,6 @@ class DouaneDaemon:
             except Exception as e:
                 logger.error(f"Error in monitor loop: {e}")
                 time.sleep(5)
-
-    def _launch_gui(self):
-        """Launch the GUI application in background"""
-        if self.gui_manager.start_gui():
-            logger.info("GUI launched successfully")
-        else:
-            logger.warning("Failed to launch GUI")
 
     def _wait_for_gui_connection(self, timeout=10):
         """Wait for GUI to connect with timeout"""
@@ -592,9 +574,7 @@ class DouaneDaemon:
         self.running = False
         logger.info("Stopping daemon...")
 
-        # Stop GUI
-        self.gui_manager.stop_gui()
-
+        # NOTE: GUI is managed by user session, not by daemon
         # Close GUI socket first to unblock any pending recv
         if self.gui_socket:
             try:
