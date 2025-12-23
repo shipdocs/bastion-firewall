@@ -45,8 +45,8 @@ class IconManager:
         Returns:
             QIcon object
         """
-        # Try to load custom icon first (SVG, then PNG)
-        for icon_path in [cls.BASTION_ICON_SVG, cls.BASTION_ICON_PNG]:
+        # Try to load custom icon first (PNG preferred, then SVG)
+        for icon_path in [cls.BASTION_ICON_PNG, cls.BASTION_ICON_SVG]:
             if icon_path.exists():
                 try:
                     icon = QIcon(str(icon_path))
