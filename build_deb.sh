@@ -73,6 +73,9 @@ chmod +x debian/usr/bin/bastion-launch
 print_step "Copying Python modules..."
 cp -r bastion/* debian/usr/lib/python3/dist-packages/bastion/
 
+# Ensure resources directory exists in package
+mkdir -p debian/usr/lib/python3/dist-packages/bastion/resources
+
 # Make modules importable
 cat > debian/usr/lib/python3/dist-packages/bastion/__main__.py << 'EOF'
 """

@@ -75,17 +75,21 @@ class RuleManager:
                 # O_NOFOLLOW prevents following symlinks during creation
                 # Use 0o600 (root-only) even for temp file to prevent information disclosure
                 fd = os.open(
-                    temp_path, 
+                    temp_path,
                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                     0o600  # SECURITY FIX: root-only permissions for temp file
                 )
-                
+
                 with os.fdopen(fd, 'w') as f:
                     json.dump(self._rules, f, indent=2)
-                
+
                 # Atomic rename (replaces existing file)
                 # On POSIX systems, this is atomic even if target exists
                 temp_path.rename(self.RULES_PATH)
+
+                # Make rules file readable by all users (GUI needs to read it)
+                # Keep write access restricted to root only
+                os.chmod(self.RULES_PATH, 0o644)
                 
                 logger.info(f"Saved {len(self._rules)} rules to {self.RULES_PATH}")
             except FileExistsError:
