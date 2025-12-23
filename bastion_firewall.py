@@ -17,16 +17,12 @@ import sys
 import json
 import logging
 import signal
+import socket
 import threading
 from pathlib import Path
 from typing import Optional, Dict
 import tkinter as tk
 from tkinter import ttk, messagebox
-
-# Check for root privileges
-if os.geteuid() != 0:
-    print("ERROR: This application must be run as root (use sudo)")
-    sys.exit(1)
 
 # Setup logging
 log_dir = Path.home() / '.config' / 'douane'
@@ -421,8 +417,22 @@ class DouaneFirewall:
         logger.info("Firewall stopped")
 
 
+def _require_root() -> None:
+    """Exit the program if not running as root.
+
+    Keeping the privilege check in a dedicated function prevents import-time
+    failures, which improves testability and avoids surprises when the module
+    is used as a library while still enforcing root for runtime execution.
+    """
+    if os.geteuid() != 0:
+        print("ERROR: This application must be run as root (use sudo)")
+        sys.exit(1)
+
+
 def main():
     """Main entry point"""
+    _require_root()
+
     print("\n" + "=" * 60)
     print("Bastion Firewall - Outbound Connection Control")
     print("=" * 60)
