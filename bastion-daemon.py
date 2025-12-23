@@ -24,45 +24,28 @@ logging.basicConfig(
 logger = logging.getLogger("bastion-daemon")
 
 
-def _require_root() -> None:
-    """Exit the program if not running as root.
-
-    Set BASTION_SKIP_ROOT_CHECK=1 to bypass for testing environments.
-    """
-    if os.environ.get('BASTION_SKIP_ROOT_CHECK') == '1':
-        logger.warning("Root check bypassed via BASTION_SKIP_ROOT_CHECK")
-        return
-
-    if not hasattr(os, 'geteuid'):
-        logger.warning("os.geteuid() not available on this platform")
-        return
-
-    if os.geteuid() != 0:
-        logger.error("Daemon must be run as root (use sudo)")
-        print("ERROR: Daemon must be run as root (use sudo)", file=sys.stderr)
-        sys.exit(1)
-
-
 try:
     from bastion.daemon import BastionDaemon
+    from bastion.utils import require_root
 except ImportError as e:
     logger.error(f"Failed to import bastion package: {e}")
     # Fallback to local import if installed differently
     try:
         sys.path.append('/usr/lib/python3/dist-packages')
         from bastion.daemon import BastionDaemon
+        from bastion.utils import require_root
     except ImportError:
         logger.critical("Could not load Bastion modules")
         sys.exit(1)
 
 
 def main():
-    _require_root()
+    require_root()
 
     daemon = BastionDaemon()
 
-    # Register cleanup
-    def cleanup(signum=None, frame=None):
+    # Register cleanup - prefix unused params with _ to indicate intentional
+    def cleanup(_signum=None, _frame=None):
         logger.info("Stopping...")
         daemon.stop()
         sys.exit(0)
@@ -73,8 +56,9 @@ def main():
 
     try:
         daemon.start()
-    except Exception as e:
-        logger.critical(f"Daemon crashed: {e}")
+    except Exception:
+        # Use logging.exception for automatic traceback inclusion
+        logger.exception("Daemon crashed")
         daemon.stop()
         sys.exit(1)
 
