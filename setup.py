@@ -4,8 +4,8 @@ from setuptools import setup, find_packages
 setup(
     name="bastion-firewall",
     version="2.0.18",
-    description="Application Firewall for Linux / Douane Application Firewall for Linux",
-    author="Douane Team",
+    description="Bastion Firewall - Application Firewall for Linux",
+    author="Bastion Team",
     packages=find_packages(),
     install_requires=[
         "psutil>=5.9.0",
@@ -15,13 +15,13 @@ setup(
     ],
     scripts=[
         "bastion-daemon.py",
-        "bastion-gui.py", 
+        "bastion-gui.py",
         "bastion_control_panel.py"
     ],
     entry_points={
         'console_scripts': [
-            'bastion-daemon=douane_daemon:main',
-            'douane-gui=douane_gui_client:main',
+            'bastion-daemon=bastion_daemon:main',
+            'bastion-gui=bastion_gui_client:main',
             'bastion-control-panel=bastion_control_panel:main',
         ],
     },

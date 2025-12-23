@@ -97,7 +97,7 @@ class SystemdNotifier:
         self.notify("WATCHDOG=1")
 
 
-class DouaneDaemon:
+class BastionDaemon:
     """Core Daemon Logic"""
     
     SOCKET_PATH = '/tmp/bastion-daemon.sock'
@@ -137,7 +137,7 @@ class DouaneDaemon:
 
     def start(self):
         """Start the daemon"""
-        logger.info("Starting Douane Daemon...")
+        logger.info("Starting Bastion Daemon...")
 
         # Setup signals
         self._setup_signals()
