@@ -9,3 +9,6 @@ pystray>=0.19.0
 # - Expression injection (CVE-2022-22817)
 # - libwebp OOB write (CVE-2023-4863)
 Pillow>=10.2.0
+
+# USB Device Control
+pyudev>=0.24.0
