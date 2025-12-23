@@ -24,12 +24,20 @@ class BastionClient(QObject):
         self.notifier = None
         self.buffer = ""
         self.connected = False
-        
+
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
         # Set initial icon using IconManager
-        self.tray_icon.setIcon(IconManager.get_status_icon(connected=False))
+        icon = IconManager.get_status_icon(connected=False)
+        self.tray_icon.setIcon(icon)
+        print(f"[TRAY] Icon set: {icon}, isNull: {icon.isNull()}")
+
+        # Check if tray is available
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            print("[TRAY] WARNING: System tray not available on this desktop")
+
         self.tray_icon.setVisible(True)
+        print(f"[TRAY] Tray icon visible: {self.tray_icon.isVisible()}")
         
         # Menu
         self.menu = QMenu()
