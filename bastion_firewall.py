@@ -45,11 +45,14 @@ try:
         from bastion.firewall_core import PacketProcessor, PacketInfo, IPTablesManager, NETFILTER_AVAILABLE
         from bastion.ufw_manager import UFWManager, ConnectionInfo
         from bastion.gui_improved import ImprovedFirewallDialog
+        from bastion.utils import require_root
     except ImportError:
         # Fall back to local imports for development
         from firewall_core import PacketProcessor, PacketInfo, IPTablesManager, NETFILTER_AVAILABLE
         from ufw_firewall_gui import UFWManager, ConnectionInfo
         from bastion_gui_improved import ImprovedFirewallDialog
+        # Local fallback for require_root
+        require_root = None
 except ImportError as e:
     logger.error(f"Failed to import required modules: {e}")
     print(f"ERROR: {e}")
@@ -292,7 +295,7 @@ class BastionFirewall:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
-    def _signal_handler(self, signum, frame):
+    def _signal_handler(self, signum, _frame):
         """Handle shutdown signals"""
         logger.info(f"Received signal {signum}, shutting down...")
         self.stop()
@@ -423,34 +426,18 @@ class BastionFirewall:
         logger.info("Firewall stopped")
 
 
-def _require_root() -> None:
-    """Exit the program if not running as root.
-
-    Keeping the privilege check in a dedicated function prevents import-time
-    failures, which improves testability and avoids surprises when the module
-    is used as a library while still enforcing root for runtime execution.
-
-    Set BASTION_SKIP_ROOT_CHECK=1 to bypass for testing environments.
-    """
-    # Allow bypass for test environments
-    if os.environ.get('BASTION_SKIP_ROOT_CHECK') == '1':
-        logger.warning("Root check bypassed via BASTION_SKIP_ROOT_CHECK")
-        return
-
-    # Check if geteuid is available (Linux/Unix only)
-    if not hasattr(os, 'geteuid'):
-        logger.warning("os.geteuid() not available on this platform, skipping root check")
-        return
-
-    if os.geteuid() != 0:
-        logger.error("This application must be run as root (use sudo)")
-        print("ERROR: This application must be run as root (use sudo)", file=sys.stderr)
-        sys.exit(1)
-
-
 def main():
     """Main entry point"""
-    _require_root()
+    # Use shared require_root from bastion.utils, or fallback for development
+    if require_root is not None:
+        require_root()
+    else:
+        # Inline fallback for development mode
+        if os.environ.get('BASTION_SKIP_ROOT_CHECK') != '1':
+            if hasattr(os, 'geteuid') and os.geteuid() != 0:
+                logger.error("This application must be run as root (use sudo)")
+                print("ERROR: This application must be run as root (use sudo)", file=sys.stderr)
+                sys.exit(1)
 
     print("\n" + "=" * 60)
     print("Bastion Firewall - Outbound Connection Control")
