@@ -185,9 +185,16 @@ Bastion's own rules and config
 
 ## 🤝 Contributing
 
-Each module has its own implementation plan:
-- [USB_DEVICE_CONTROL.md](USB_DEVICE_CONTROL.md) - USB protection (v1.5.0)
+Each module has its own implementation plan in `docs/plans/`:
+- [USB Device Control](docs/plans/USB_DEVICE_CONTROL.md) - USB protection (v1.5.0)
 - More coming soon...
+
+Essential documentation:
+- [README.md](README.md) - Overview and quick start
+- [INSTALLATION.md](INSTALLATION.md) - Installation guide
+- [ARCHITECTURE.md](ARCHITECTURE.md) - Technical architecture
+- [CONTRIBUTING.md](CONTRIBUTING.md) - How to contribute
+- [FAQ.md](FAQ.md) - Common questions
 
 Want to help? Pick a module and start contributing! 🚀
 
