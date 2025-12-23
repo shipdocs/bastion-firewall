@@ -22,6 +22,17 @@ LOCK_FILE = '/tmp/bastion-gui.lock'
 def acquire_lock():
     """Try to acquire a lock file. Returns file handle if successful, None if already running."""
     try:
+        # Check if stale lock (process died without cleanup)
+        if os.path.exists(LOCK_FILE):
+            try:
+                with open(LOCK_FILE, 'r') as f:
+                    old_pid = int(f.read().strip())
+                # Check if process is still running
+                os.kill(old_pid, 0)  # Raises OSError if not running
+            except (ValueError, OSError):
+                # Stale lock or invalid PID - remove it
+                os.remove(LOCK_FILE)
+
         lock_fd = open(LOCK_FILE, 'w')
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         lock_fd.write(str(os.getpid()))
@@ -232,14 +243,44 @@ class BastionClient(QObject):
 
     def open_control_panel(self):
         import subprocess
-        subprocess.Popen(['bastion-control-panel'])
+        try:
+            env = os.environ.copy()
+            subprocess.Popen(['/usr/bin/bastion-control-panel'], env=env)
+            print("[TRAY] Control Panel launched")
+        except Exception as e:
+            print(f"[TRAY] Failed to launch Control Panel: {e}")
+            QMessageBox.critical(None, "Error", f"Failed to open Control Panel: {e}")
 
     def run_service(self, action):
-        import subprocess
-        try:
-            subprocess.run(['pkexec', 'systemctl', action, 'bastion-firewall'])
-        except Exception as e:
-            QMessageBox.critical(None, "Error", f"Failed to {action} firewall: {e}")
+        """Run systemctl action in background thread to avoid blocking GUI."""
+        import threading
+
+        # Update status immediately
+        self.update_status(f"{action.capitalize()}ing...", "disconnected")
+
+        def do_action():
+            import subprocess
+            try:
+                result = subprocess.run(['pkexec', 'systemctl', action, 'bastion-firewall'],
+                                       capture_output=True, text=True, timeout=30)
+                if result.returncode != 0:
+                    print(f"[TRAY] {action} failed: {result.stderr}")
+                    return
+
+                print(f"[TRAY] Firewall {action} successful")
+
+            except Exception as e:
+                print(f"[TRAY] Failed to {action} firewall: {e}")
+
+        # Run in background thread
+        thread = threading.Thread(target=do_action, daemon=True)
+        thread.start()
+
+        # Schedule reconnection attempt after action completes
+        if action in ('start', 'restart'):
+            QTimer.singleShot(2500, self.try_connect)
+        elif action == 'stop':
+            QTimer.singleShot(1000, lambda: self.update_status("Stopped", "disconnected"))
 
 if __name__ == '__main__':
     # Prevent multiple instances
