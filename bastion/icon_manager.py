@@ -45,19 +45,20 @@ class IconManager:
         Returns:
             QIcon object
         """
-        # Try to load custom icon first
-        if cls.BASTION_ICON.exists():
-            try:
-                icon = QIcon(str(cls.BASTION_ICON))
-                if not icon.isNull():
-                    logger.debug(f"Loaded custom icon from {cls.BASTION_ICON}")
-                    return icon
-                else:
-                    logger.warning(f"Custom icon loaded but is null: {cls.BASTION_ICON}")
-            except Exception as e:
-                logger.warning(f"Failed to load custom icon: {e}")
-        else:
-            logger.warning(f"Custom icon file not found: {cls.BASTION_ICON}")
+        # Try to load custom icon first (SVG, then PNG)
+        for icon_path in [cls.BASTION_ICON_SVG, cls.BASTION_ICON_PNG]:
+            if icon_path.exists():
+                try:
+                    icon = QIcon(str(icon_path))
+                    if not icon.isNull():
+                        logger.debug(f"Loaded custom icon from {icon_path}")
+                        return icon
+                    else:
+                        logger.warning(f"Custom icon loaded but is null: {icon_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to load custom icon {icon_path}: {e}")
+
+        logger.warning(f"Custom icon files not found: {cls.BASTION_ICON_SVG}, {cls.BASTION_ICON_PNG}")
 
         # Fallback to theme icons with status-specific colors
         fallback_icons = {
