@@ -539,6 +539,64 @@ section {
     color: var(--text-secondary);
 }
 
+/* Screenshots Section */
+.screenshots {
+    background: var(--dark-bg);
+    padding: 4rem 0;
+}
+
+.screenshots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 2rem;
+    margin-top: 2rem;
+}
+
+.screenshot-card {
+    background: var(--dark-card);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.screenshot-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+.screenshot-card img {
+    width: 100%;
+    height: auto;
+    display: block;
+    cursor: pointer;
+    transition: opacity 0.3s ease;
+}
+
+.screenshot-card img:hover {
+    opacity: 0.9;
+}
+
+.screenshot-card h4 {
+    padding: 1rem 1.5rem 0.5rem;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 1.1rem;
+}
+
+.screenshot-card p {
+    padding: 0 1.5rem 1.5rem;
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+@media (max-width: 768px) {
+    .screenshots-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Documentation Section */
 .documentation {
     background: linear-gradient(180deg, var(--dark-bg) 0%, var(--dark-card) 100%);
