@@ -9,11 +9,26 @@ import os
 import json
 import socket
 import signal
+import fcntl
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer, QSocketNotifier
 from bastion.gui_qt import FirewallDialog
 from bastion.icon_manager import IconManager
+
+# Lock file to prevent multiple instances
+LOCK_FILE = '/tmp/bastion-gui.lock'
+
+def acquire_lock():
+    """Try to acquire a lock file. Returns file handle if successful, None if already running."""
+    try:
+        lock_fd = open(LOCK_FILE, 'w')
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_fd.write(str(os.getpid()))
+        lock_fd.flush()
+        return lock_fd
+    except (IOError, OSError):
+        return None
 
 class BastionClient(QObject):
     def __init__(self, app):
@@ -227,11 +242,17 @@ class BastionClient(QObject):
             QMessageBox.critical(None, "Error", f"Failed to {action} firewall: {e}")
 
 if __name__ == '__main__':
+    # Prevent multiple instances
+    lock_fd = acquire_lock()
+    if lock_fd is None:
+        print("Bastion GUI is already running. Exiting.")
+        sys.exit(0)
+
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
-    
+
     # Handle Ctrl+C
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    
+
     client = BastionClient(app)
     sys.exit(app.exec())
