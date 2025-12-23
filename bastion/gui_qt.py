@@ -469,32 +469,35 @@ class DashboardWindow(QMainWindow):
         self.nav_btns = []
         self.add_nav_btn(sb_layout, "Status", "📊")
         self.add_nav_btn(sb_layout, "Rules", "📋")
+        self.add_nav_btn(sb_layout, "USB", "🔌")
         self.add_nav_btn(sb_layout, "Logs", "📝")
         self.add_nav_btn(sb_layout, "Settings", "⚙️")
-        
+
         sb_layout.addStretch()
-        
-        ver = QLabel("v1.4.0")
+
+        ver = QLabel("v1.5.0-dev")
         ver.setObjectName("muted")
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sb_layout.addWidget(ver)
-        
+
         main_layout.addWidget(sidebar)
-        
+
         # Content Stack
         self.stack = QStackedWidget()
         self.stack.setContentsMargins(30, 30, 30, 30)
-        
+
         self.page_status = self.create_status_page()
         self.page_rules = self.create_rules_page()
+        self.page_usb = self.create_usb_page()
         self.page_logs = self.create_logs_page()
         self.page_settings = self.create_settings_page()
-        
+
         self.stack.addWidget(self.page_status)
         self.stack.addWidget(self.page_rules)
+        self.stack.addWidget(self.page_usb)
         self.stack.addWidget(self.page_logs)
         self.stack.addWidget(self.page_settings)
-        
+
         main_layout.addWidget(self.stack)
         self.nav_btns[0].setChecked(True)
 
@@ -513,6 +516,7 @@ class DashboardWindow(QMainWindow):
         sender.setChecked(True)
         if page_name == "Status": self.stack.setCurrentWidget(self.page_status); self.refresh_status()
         elif page_name == "Rules": self.stack.setCurrentWidget(self.page_rules); self.refresh_rules_table()
+        elif page_name == "USB": self.stack.setCurrentWidget(self.page_usb); self.refresh_usb()
         elif page_name == "Logs": self.stack.setCurrentWidget(self.page_logs); self.refresh_logs()
         elif page_name == "Settings": self.stack.setCurrentWidget(self.page_settings)
 
@@ -696,6 +700,17 @@ class DashboardWindow(QMainWindow):
         
         layout.addLayout(btn_box)
         return page
+
+    def create_usb_page(self):
+        """Create the USB Device Control page."""
+        from .usb_gui import USBControlWidget
+        self.usb_widget = USBControlWidget()
+        return self.usb_widget
+
+    def refresh_usb(self):
+        """Refresh the USB device lists."""
+        if hasattr(self, 'usb_widget'):
+            self.usb_widget.refresh()
 
     def create_settings_page(self):
         page = QWidget()

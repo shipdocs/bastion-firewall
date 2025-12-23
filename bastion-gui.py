@@ -204,6 +204,8 @@ class BastionClient(QObject):
             req = json.loads(line)
             if req['type'] == 'connection_request':
                 self.handle_connection_request(req)
+            elif req['type'] == 'usb_request':
+                self.handle_usb_request(req)
             elif req['type'] == 'stats_update':
                 # Update stats in menu if needed
                 pass
@@ -229,13 +231,45 @@ class BastionClient(QObject):
     def handle_connection_request(self, req):
         dialog = FirewallDialog(req, timeout=30)
         result = dialog.exec()
-        
+
         decision = (dialog.decision == 'allow')
         permanent = dialog.permanent
-        
+
         # Send response
         if self.connected and self.sock:
             resp = json.dumps({'allow': decision, 'permanent': permanent}) + '\n'
+            try:
+                self.sock.sendall(resp.encode())
+            except:
+                self.handle_disconnect()
+
+    def handle_usb_request(self, req):
+        """Handle USB device authorization request from daemon."""
+        from bastion.usb_device import USBDeviceInfo
+        from bastion.usb_gui import USBPromptDialog
+
+        # Convert request to USBDeviceInfo
+        device = USBDeviceInfo(
+            vendor_id=req.get('vendor_id', '0000'),
+            product_id=req.get('product_id', '0000'),
+            vendor_name=req.get('vendor_name', 'Unknown'),
+            product_name=req.get('product_name', 'Unknown Device'),
+            device_class=req.get('device_class', 0),
+            serial=req.get('serial'),
+            bus_id=req.get('bus_id', '1-1')
+        )
+
+        # Show USB prompt dialog
+        dialog = USBPromptDialog(device, timeout=30)
+        result = dialog.exec()
+
+        # Send response
+        if self.connected and self.sock:
+            resp = json.dumps({
+                'type': 'usb_response',
+                'verdict': dialog.verdict or 'block',
+                'scope': dialog.scope
+            }) + '\n'
             try:
                 self.sock.sendall(resp.encode())
             except:

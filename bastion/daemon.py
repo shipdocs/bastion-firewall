@@ -16,6 +16,9 @@ from .config import ConfigManager
 from .rules import RuleManager
 from .firewall_core import PacketProcessor, PacketInfo, IPTablesManager
 from .service_whitelist import should_auto_allow, get_app_category
+from .usb_monitor import USBMonitor, is_pyudev_available
+from .usb_device import USBDeviceInfo
+from .usb_rules import USBRuleManager, USBAuthorizer, Verdict
 
 logger = logging.getLogger(__name__)
 
@@ -104,12 +107,23 @@ class BastionDaemon:
         self.socket_lock = threading.Lock()
         self.rate_limiter = RateLimiter(max_requests_per_second=10, window_seconds=1)
 
+        # USB Device Control
+        self.usb_monitor: Optional[USBMonitor] = None
+        self.usb_rule_manager = USBRuleManager()
+        self.usb_pending_lock = threading.Lock()
+        self.usb_pending_device: Optional[USBDeviceInfo] = None
+        self.usb_response_event = threading.Event()
+        self.usb_response_verdict: Optional[Verdict] = None
+        self.usb_response_scope: str = 'device'
+
         # Statistics
         self.stats = {
             'total_connections': 0,
             'allowed_connections': 0,
             'blocked_connections': 0,
-            'rate_limited': 0  # Track rate-limited requests
+            'rate_limited': 0,  # Track rate-limited requests
+            'usb_devices_allowed': 0,
+            'usb_devices_blocked': 0
         }
 
     def start(self):
@@ -149,6 +163,9 @@ class BastionDaemon:
         # Start health monitor
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.monitor_thread.start()
+
+        # Start USB Device Monitor (if pyudev available)
+        self._start_usb_monitor()
 
         # Watchdog loop (legacy main loop, now just fallback/keepalive)
         self._run_watchdog()
@@ -487,8 +504,15 @@ class BastionDaemon:
 
             if not response:
                 return False
-                
+
             data = json.loads(response)
+
+            # Check if this is a USB response (shouldn't happen here, but handle it)
+            if data.get('type') == 'usb_response':
+                self.handle_usb_response(data)
+                # Need to wait for connection response still
+                return True if learning_mode else False
+
             allow = data.get('allow', False)
             permanent = data.get('permanent', False)
             
@@ -574,12 +598,147 @@ class BastionDaemon:
             
         if self.packet_processor:
             self.packet_processor.stop()
-            
+
+        # Stop USB monitor
+        if self.usb_monitor:
+            self.usb_monitor.stop()
+            self.usb_monitor = None
+
         IPTablesManager.cleanup_nfqueue(queue_num=1)
-        
+
         if os.path.exists(self.SOCKET_PATH):
             try:
                 os.remove(self.SOCKET_PATH)
             except:
                 pass
         logger.info("Daemon stopped")
+
+    # ========== USB DEVICE CONTROL ==========
+
+    def _start_usb_monitor(self):
+        """Start USB device monitoring."""
+        if not is_pyudev_available():
+            logger.warning("USB monitoring disabled: pyudev not available")
+            return
+
+        try:
+            self.usb_monitor = USBMonitor(callback=self._handle_usb_event)
+            if self.usb_monitor.start():
+                logger.info("USB device monitor started")
+            else:
+                logger.warning("Failed to start USB device monitor")
+                self.usb_monitor = None
+        except Exception as e:
+            logger.error(f"Error starting USB monitor: {e}")
+            self.usb_monitor = None
+
+    def _handle_usb_event(self, device: USBDeviceInfo, action: str):
+        """Handle USB device insert/remove event."""
+        if action != 'add':
+            # Only handle device additions
+            logger.debug(f"USB device removed: {device.product_name}")
+            return
+
+        logger.info(f"USB device inserted: {device.product_name} ({device.vendor_id}:{device.product_id})")
+
+        # Check existing rules
+        verdict = self.usb_rule_manager.get_verdict(device)
+
+        if verdict == 'allow':
+            logger.info(f"USB device allowed by rule: {device.product_name}")
+            self.stats['usb_devices_allowed'] += 1
+            USBAuthorizer.authorize(device.bus_id)
+            return
+
+        if verdict == 'block':
+            logger.info(f"USB device blocked by rule: {device.product_name}")
+            self.stats['usb_devices_blocked'] += 1
+            USBAuthorizer.deauthorize(device.bus_id)
+            return
+
+        # No rule - prompt user
+        self._prompt_usb_decision(device)
+
+    def _prompt_usb_decision(self, device: USBDeviceInfo):
+        """Prompt user for USB device decision via GUI."""
+        if not self.gui_socket:
+            logger.warning("No GUI connected - cannot prompt for USB device decision")
+            # Default: block high-risk, allow low-risk
+            if device.is_high_risk:
+                logger.warning(f"Blocking high-risk USB device without GUI: {device.product_name}")
+                USBAuthorizer.deauthorize(device.bus_id)
+                self.stats['usb_devices_blocked'] += 1
+            else:
+                logger.info(f"Allowing low-risk USB device without GUI: {device.product_name}")
+                self.stats['usb_devices_allowed'] += 1
+            return
+
+        # Send USB request to GUI
+        request = {
+            'type': 'usb_request',
+            'vendor_id': device.vendor_id,
+            'product_id': device.product_id,
+            'vendor_name': device.vendor_name,
+            'product_name': device.product_name,
+            'device_class': device.device_class,
+            'serial': device.serial,
+            'bus_id': device.bus_id,
+            'is_high_risk': device.is_high_risk,
+            'class_name': device.class_name
+        }
+
+        try:
+            with self.usb_pending_lock:
+                self.usb_pending_device = device
+                self.usb_response_event.clear()
+
+            with self.socket_lock:
+                self.gui_socket.sendall(json.dumps(request).encode() + b'\n')
+
+            logger.debug(f"USB request sent, waiting for GUI response...")
+
+            # Wait for response (60 second timeout)
+            if self.usb_response_event.wait(timeout=60):
+                with self.usb_pending_lock:
+                    verdict = self.usb_response_verdict
+                    scope = self.usb_response_scope
+                    self.usb_pending_device = None
+
+                if verdict == 'allow':
+                    logger.info(f"User allowed USB device: {device.product_name}")
+                    self.usb_rule_manager.add_rule(device, 'allow', scope)
+                    USBAuthorizer.authorize(device.bus_id)
+                    self.stats['usb_devices_allowed'] += 1
+                else:
+                    logger.info(f"User blocked USB device: {device.product_name}")
+                    self.usb_rule_manager.add_rule(device, 'block', scope)
+                    USBAuthorizer.deauthorize(device.bus_id)
+                    self.stats['usb_devices_blocked'] += 1
+            else:
+                # Timeout - default based on risk
+                logger.warning(f"USB decision timeout for: {device.product_name}")
+                with self.usb_pending_lock:
+                    self.usb_pending_device = None
+
+                if device.is_high_risk:
+                    logger.warning(f"Blocking high-risk USB device on timeout: {device.product_name}")
+                    USBAuthorizer.deauthorize(device.bus_id)
+                    self.stats['usb_devices_blocked'] += 1
+                else:
+                    logger.info(f"Allowing low-risk USB device on timeout: {device.product_name}")
+                    self.stats['usb_devices_allowed'] += 1
+
+        except Exception as e:
+            logger.error(f"Error prompting for USB decision: {e}")
+            with self.usb_pending_lock:
+                self.usb_pending_device = None
+
+    def handle_usb_response(self, response: dict):
+        """Handle USB decision response from GUI."""
+        verdict = response.get('verdict', 'block')
+        scope = response.get('scope', 'device')
+
+        with self.usb_pending_lock:
+            self.usb_response_verdict = verdict
+            self.usb_response_scope = scope
+            self.usb_response_event.set()
