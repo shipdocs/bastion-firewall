@@ -1,7 +1,7 @@
 
 import unittest
 from unittest.mock import MagicMock, patch
-from bastion.daemon import DouaneDaemon, PacketInfo
+from bastion.daemon import BastionDaemon, PacketInfo
 from bastion.rules import RuleManager
 
 class TestDaemonIntegration(unittest.TestCase):
@@ -9,11 +9,11 @@ class TestDaemonIntegration(unittest.TestCase):
     Integration-style tests for the Daemon logic.
     We mock the external inputs (NetfilterQueue, Socket) but test the internal decision logic flows.
     """
-    
+
     def setUp(self):
         # Prevent actually loading config/rules from disk during test init
         with patch('bastion.config.ConfigManager.load_config', return_value={'mode': 'enforcement'}):
-            self.daemon = DouaneDaemon()
+            self.daemon = BastionDaemon()
             # Reset rules for test
             self.daemon.rule_manager._rules = {}
             self.daemon.pending_requests = {}
