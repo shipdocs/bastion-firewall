@@ -1,0 +1,387 @@
+"""
+USB Device Rules Manager
+
+Securely stores and retrieves USB device allow/block decisions.
+
+Security features:
+- Atomic writes (temp file + rename) to prevent corruption
+- Strict file permissions (0600 - owner read/write only)
+- Input validation (sanitize all fields before storage)
+- Fixed file path (no user-controllable paths)
+- Safe JSON parsing (no pickle/eval)
+"""
+
+import json
+import logging
+import os
+import re
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, Literal
+from dataclasses import dataclass, asdict
+
+from bastion.usb_device import USBDeviceInfo
+
+logger = logging.getLogger(__name__)
+
+# Rule verdicts
+Verdict = Literal['allow', 'block']
+Scope = Literal['device', 'model', 'vendor']
+
+
+@dataclass
+class USBRule:
+    """A stored USB device rule."""
+    verdict: Verdict
+    vendor_id: str
+    product_id: str
+    vendor_name: str
+    product_name: str
+    scope: Scope
+    added: str  # ISO timestamp
+    last_seen: Optional[str] = None
+    serial: Optional[str] = None
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON storage."""
+        return {k: v for k, v in asdict(self).items() if v is not None}
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'USBRule':
+        """Create from dictionary, with validation."""
+        return cls(
+            verdict=cls._validate_verdict(data.get('verdict', 'block')),
+            vendor_id=cls._sanitize_hex_id(data.get('vendor_id', '')),
+            product_id=cls._sanitize_hex_id(data.get('product_id', '')),
+            vendor_name=cls._sanitize_string(data.get('vendor_name', 'Unknown')),
+            product_name=cls._sanitize_string(data.get('product_name', 'Unknown')),
+            scope=cls._validate_scope(data.get('scope', 'device')),
+            added=cls._sanitize_timestamp(data.get('added', '')),
+            last_seen=data.get('last_seen'),
+            serial=data.get('serial'),
+        )
+    
+    @staticmethod
+    def _validate_verdict(v: str) -> Verdict:
+        """Validate verdict is allow or block."""
+        return 'allow' if v == 'allow' else 'block'
+    
+    @staticmethod
+    def _validate_scope(s: str) -> Scope:
+        """Validate scope is device, model, or vendor."""
+        if s in ('device', 'model', 'vendor'):
+            return s
+        return 'device'
+    
+    @staticmethod
+    def _sanitize_hex_id(s: str) -> str:
+        """Sanitize vendor/product ID (4 hex chars only)."""
+        clean = re.sub(r'[^0-9a-fA-F]', '', str(s))[:4].lower()
+        return clean.zfill(4) if clean else '0000'
+    
+    @staticmethod
+    def _sanitize_string(s: str, max_len: int = 128) -> str:
+        """Sanitize string: remove control chars, limit length."""
+        if not isinstance(s, str):
+            s = str(s)
+        # Remove control characters except space
+        clean = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', s)
+        return clean[:max_len]
+    
+    @staticmethod
+    def _sanitize_timestamp(s: str) -> str:
+        """Validate/sanitize ISO timestamp."""
+        try:
+            datetime.fromisoformat(s)
+            return s
+        except (ValueError, TypeError):
+            return datetime.now().isoformat()
+
+
+class USBRuleManager:
+    """
+    Manages USB device rules with secure JSON storage.
+    
+    Rules are keyed by:
+    - device scope: "vendor_id:product_id:serial" (exact device)
+    - model scope: "vendor_id:product_id" (all devices of this model)
+    - vendor scope: "vendor_id:*" (all devices from vendor)
+    """
+    
+    # Fixed path - not user controllable
+    DEFAULT_PATH = Path.home() / '.config' / 'bastion' / 'usb_rules.json'
+    
+    # File permissions: owner read/write only (0600)
+    FILE_MODE = 0o600
+    DIR_MODE = 0o700
+    
+    def __init__(self, db_path: Optional[Path] = None):
+        """
+        Initialize the rule manager.
+        
+        Args:
+            db_path: Override path for testing. In production, use DEFAULT_PATH.
+        """
+        self.db_path = db_path or self.DEFAULT_PATH
+        self._rules: dict[str, USBRule] = {}
+        self._load()
+    
+    def _ensure_dir(self):
+        """Ensure parent directory exists with correct permissions."""
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.db_path.parent, self.DIR_MODE)
+    
+    def _load(self):
+        """Load rules from JSON file."""
+        self._rules = {}
+        
+        if not self.db_path.exists():
+            logger.debug(f"USB rules file does not exist: {self.db_path}")
+            return
+        
+        try:
+            # Check permissions before reading
+            stat = self.db_path.stat()
+            if stat.st_mode & 0o077:  # Group or other has access
+                logger.warning(f"USB rules file has insecure permissions: {oct(stat.st_mode)}")
+                # Fix permissions
+                os.chmod(self.db_path, self.FILE_MODE)
+            
+            with open(self.db_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            if not isinstance(data, dict):
+                logger.error("USB rules file has invalid format (expected dict)")
+                return
+            
+            # Validate each rule
+            for key, rule_data in data.items():
+                try:
+                    if isinstance(rule_data, dict):
+                        self._rules[key] = USBRule.from_dict(rule_data)
+                except Exception as e:
+                    logger.warning(f"Skipping invalid rule {key}: {e}")
+            
+            logger.info(f"Loaded {len(self._rules)} USB rules")
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"USB rules file is corrupted: {e}")
+        except Exception as e:
+            logger.error(f"Failed to load USB rules: {e}")
+
+    def _save(self):
+        """
+        Save rules to JSON file atomically.
+
+        Uses temp file + rename to prevent corruption on crash/power loss.
+        """
+        self._ensure_dir()
+
+        try:
+            # Convert rules to serializable format
+            data = {key: rule.to_dict() for key, rule in self._rules.items()}
+
+            # Write to temp file first (atomic write pattern)
+            fd, tmp_path = tempfile.mkstemp(
+                dir=self.db_path.parent,
+                prefix='.usb_rules_',
+                suffix='.tmp'
+            )
+
+            try:
+                # Set permissions before writing content
+                os.fchmod(fd, self.FILE_MODE)
+
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+
+                # Atomic rename (POSIX guarantees this is atomic on same filesystem)
+                os.replace(tmp_path, self.db_path)
+                logger.debug(f"Saved {len(self._rules)} USB rules")
+
+            except Exception:
+                # Clean up temp file on error
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+
+        except Exception as e:
+            logger.error(f"Failed to save USB rules: {e}")
+            raise
+
+    def _make_key(self, device: USBDeviceInfo, scope: Scope) -> str:
+        """Generate storage key for a device/scope combination."""
+        if scope == 'device':
+            serial = device.serial if device.serial else 'no-serial'
+            return f"{device.vendor_id}:{device.product_id}:{serial}"
+        elif scope == 'model':
+            return f"{device.vendor_id}:{device.product_id}"
+        else:  # vendor
+            return f"{device.vendor_id}:*"
+
+    def get_verdict(self, device: USBDeviceInfo) -> Optional[Verdict]:
+        """
+        Get verdict for a device.
+
+        Checks in order: exact device → model → vendor.
+        Returns None if no matching rule (unknown device).
+        """
+        # Check exact device first (most specific)
+        device_key = self._make_key(device, 'device')
+        if device_key in self._rules:
+            rule = self._rules[device_key]
+            rule.last_seen = datetime.now().isoformat()
+            return rule.verdict
+
+        # Check model (any device of this type)
+        model_key = self._make_key(device, 'model')
+        if model_key in self._rules:
+            return self._rules[model_key].verdict
+
+        # Check vendor (any device from this vendor)
+        vendor_key = self._make_key(device, 'vendor')
+        if vendor_key in self._rules:
+            return self._rules[vendor_key].verdict
+
+        return None  # Unknown device
+
+    def add_rule(self, device: USBDeviceInfo, verdict: Verdict, scope: Scope = 'device'):
+        """
+        Add or update a rule for a device.
+
+        Args:
+            device: The USB device info
+            verdict: 'allow' or 'block'
+            scope: 'device' (exact), 'model' (all of this type), 'vendor' (all from vendor)
+        """
+        key = self._make_key(device, scope)
+
+        self._rules[key] = USBRule(
+            verdict=verdict,
+            vendor_id=device.vendor_id,
+            product_id=device.product_id,
+            vendor_name=device.vendor_name,
+            product_name=device.product_name,
+            scope=scope,
+            added=datetime.now().isoformat(),
+            serial=device.serial if scope == 'device' else None
+        )
+
+        self._save()
+        logger.info(f"Added USB rule: {verdict} {device.product_name} (scope={scope})")
+
+    def remove_rule(self, key: str) -> bool:
+        """
+        Remove a rule by its key.
+
+        Returns True if rule was removed, False if not found.
+        """
+        if key in self._rules:
+            del self._rules[key]
+            self._save()
+            logger.info(f"Removed USB rule: {key}")
+            return True
+        return False
+
+    def get_all_rules(self) -> dict[str, USBRule]:
+        """Get all stored rules."""
+        return self._rules.copy()
+
+    def get_allowed_devices(self) -> list[USBRule]:
+        """Get all allowed device rules."""
+        return [r for r in self._rules.values() if r.verdict == 'allow']
+
+    def get_blocked_devices(self) -> list[USBRule]:
+        """Get all blocked device rules."""
+        return [r for r in self._rules.values() if r.verdict == 'block']
+
+    def clear_all(self):
+        """Remove all rules. Use with caution!"""
+        self._rules = {}
+        self._save()
+        logger.warning("Cleared all USB rules")
+
+
+class USBAuthorizer:
+    """
+    Control USB device authorization via sysfs.
+
+    Linux allows controlling USB device authorization through:
+    /sys/bus/usb/devices/{bus_id}/authorized
+
+    Writing "0" deauthorizes (disables) the device.
+    Writing "1" authorizes (enables) the device.
+
+    NOTE: Requires root privileges to write to sysfs.
+    """
+
+    SYSFS_USB_PATH = Path('/sys/bus/usb/devices')
+
+    @classmethod
+    def _get_auth_path(cls, bus_id: str) -> Path:
+        """Get authorization file path for device."""
+        # Sanitize bus_id to prevent path traversal
+        safe_bus_id = re.sub(r'[^0-9a-zA-Z.:-]', '', bus_id)
+        return cls.SYSFS_USB_PATH / safe_bus_id / 'authorized'
+
+    @classmethod
+    def is_authorized(cls, bus_id: str) -> Optional[bool]:
+        """
+        Check if device is currently authorized.
+
+        Returns:
+            True if authorized, False if not, None if cannot determine.
+        """
+        auth_path = cls._get_auth_path(bus_id)
+        try:
+            value = auth_path.read_text().strip()
+            return value == '1'
+        except (OSError, IOError) as e:
+            logger.warning(f"Cannot read authorization for {bus_id}: {e}")
+            return None
+
+    @classmethod
+    def authorize(cls, bus_id: str) -> bool:
+        """
+        Authorize (enable) a USB device.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        auth_path = cls._get_auth_path(bus_id)
+        try:
+            auth_path.write_text('1')
+            logger.info(f"Authorized USB device: {bus_id}")
+            return True
+        except (OSError, IOError, PermissionError) as e:
+            logger.error(f"Failed to authorize {bus_id}: {e}")
+            return False
+
+    @classmethod
+    def deauthorize(cls, bus_id: str) -> bool:
+        """
+        Deauthorize (disable) a USB device.
+
+        WARNING: Deauthorizing a device will immediately disconnect it.
+        This can cause data loss if the device is in use (e.g., USB drive).
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        auth_path = cls._get_auth_path(bus_id)
+        try:
+            auth_path.write_text('0')
+            logger.info(f"Deauthorized USB device: {bus_id}")
+            return True
+        except (OSError, IOError, PermissionError) as e:
+            logger.error(f"Failed to deauthorize {bus_id}: {e}")
+            return False
+
+    @classmethod
+    def device_exists(cls, bus_id: str) -> bool:
+        """Check if device exists in sysfs."""
+        return cls._get_auth_path(bus_id).parent.exists()
+
