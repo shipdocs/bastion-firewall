@@ -245,6 +245,37 @@ class FirewallDecisionEngine:
             return 'deny'  # Fail closed
 
 
+class SystemdNotifier:
+    """Simple systemd notification handler (sd_notify)"""
+    def __init__(self):
+        self.socket_path = os.environ.get('NOTIFY_SOCKET')
+        self.sock = None
+        if self.socket_path:
+            # Handle abstract socket namespace (prefix @)
+            if self.socket_path.startswith('@'):
+                self.socket_path = '\0' + self.socket_path[1:]
+            try:
+                self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+            except Exception as e:
+                logger.warning(f"Failed to create systemd notify socket: {e}")
+                self.sock = None
+    
+    def notify(self, msg):
+        if not self.sock:
+            return
+        try:
+            self.sock.sendto(msg.encode(), self.socket_path)
+        except Exception:
+            # Notifications are best-effort
+            pass
+            
+    def ready(self):
+        self.notify("READY=1")
+        logger.info("Sent systemd READY=1")
+    
+    def ping(self):
+        self.notify("WATCHDOG=1")
+
 class DouaneFirewall:
     """Main firewall application"""
 
@@ -252,6 +283,8 @@ class DouaneFirewall:
         self.decision_engine = FirewallDecisionEngine()
         self.packet_processor = None
         self.running = False
+        self.monitor_thread = None
+        self.systemd = SystemdNotifier()
 
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -262,6 +295,55 @@ class DouaneFirewall:
         logger.info(f"Received signal {signum}, shutting down...")
         self.stop()
         sys.exit(0)
+
+    def _monitor_loop(self):
+        """Background thread for systemd watchdog and health checks"""
+        logger.info("Health monitor thread started")
+        self.systemd.ready()
+        
+        last_rule_check = 0
+        rule_check_interval = 60 # Check every minute
+        
+        import time
+        import subprocess
+        
+        while self.running:
+            try:
+                # 1. Ping systemd watchdog each loop (every 5s)
+                self.systemd.ping()
+                
+                # 2. Periodic Rule Check
+                now = time.time()
+                if now - last_rule_check > rule_check_interval:
+                    # Verify iptables rules exist and aren't duplicated
+                    try:
+                        # Quick counts
+                        result = subprocess.run(
+                            ['iptables', '-S', 'OUTPUT'], 
+                            capture_output=True, text=True, timeout=2
+                        )
+                        output = result.stdout
+                        nfqueue_count = output.count('NFQUEUE')
+                        bypass_count = output.count('BASTION_BYPASS')
+                        
+                        if nfqueue_count != 1:
+                            logger.warning(f"HEALTH CHECK WARNING: Found {nfqueue_count} NFQUEUE rules (expected 1)")
+                        
+                        if bypass_count != 2: # Root + systemd-network
+                            logger.warning(f"HEALTH CHECK WARNING: Found {bypass_count} BYPASS rules (expected 2)")
+                            
+                        # Auto-repair could go here in future
+                        
+                    except Exception as e:
+                        logger.error(f"Health check failed: {e}")
+                    
+                    last_rule_check = now
+                
+                time.sleep(5) # Watchdog interval is typically 10-30s, pinging every 5s is safe
+                
+            except Exception as e:
+                logger.error(f"Error in monitor loop: {e}")
+                time.sleep(5)
 
     def start(self):
         """Start the firewall"""
@@ -300,6 +382,11 @@ class DouaneFirewall:
 
         # Start processing
         self.running = True
+        
+        # Start health monitor
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self.monitor_thread.start()
+        
         logger.info("Firewall is now active and monitoring outbound connections")
         logger.info("Press Ctrl+C to stop")
 
@@ -321,7 +408,9 @@ class DouaneFirewall:
 
         logger.info("Stopping firewall...")
         self.running = False
-
+        
+        # Wait for monitor thread slightly? No, it's daemon.
+        
         # Remove iptables rules
         IPTablesManager.remove_nfqueue(queue_num=1)
 

@@ -1,11 +1,13 @@
 [Unit]
-Description=Douane Firewall Daemon
+Description=Bastion Firewall Daemon
 After=network.target
 
 [Service]
-Type=simple
+Type=notify
 ExecStart=/usr/bin/python3 /usr/bin/bastion-daemon
 Restart=on-failure
+RestartSec=5s
+WatchdogSec=30s
 User=root
 Group=root
 
