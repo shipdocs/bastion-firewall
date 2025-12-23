@@ -21,50 +21,28 @@ logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
-    """
-    Rate limiter to prevent DoS attacks via packet flooding.
-    
-    SECURITY: Prevents malicious applications from:
-    - Flooding GUI with popup dialogs
-    - Exhausting daemon memory
-    - Causing NFQUEUE to drop legitimate packets
-    """
+    """Simple sliding window rate limiter."""
+
     def __init__(self, max_requests_per_second: int = 10, window_seconds: int = 1):
         self.max_requests = max_requests_per_second
         self.window = window_seconds
         self.requests = deque()
         self.lock = threading.Lock()
-        
+
     def allow_request(self) -> bool:
-        """
-        Check if a new request should be allowed based on rate limits.
-        
-        Returns:
-            True if request is within rate limit, False otherwise
-        """
         with self.lock:
             now = time.time()
-            
-            # Remove requests older than the window
             while self.requests and now - self.requests[0] > self.window:
                 self.requests.popleft()
-            
-            # Check if we've exceeded the limit
             if len(self.requests) >= self.max_requests:
-                logger.warning(f"Rate limit exceeded: {len(self.requests)} requests in {self.window}s")
                 return False
-            
-            # Add this request
             self.requests.append(now)
             return True
     
     def get_current_rate(self) -> int:
-        """Get current request rate"""
         with self.lock:
             now = time.time()
-            # Count requests in current window
-            recent = sum(1 for req_time in self.requests if now - req_time <= self.window)
-            return recent
+            return sum(1 for t in self.requests if now - t <= self.window)
 
 
 class SystemdNotifier:
@@ -117,21 +95,13 @@ class BastionDaemon:
         self.gui_socket: Optional[socket.socket] = None
         self.running = False
 
-        # NOTE: GUI is NOT started by daemon - it's started by user session via autostart
-        # Daemon only communicates with GUI via Unix socket at /tmp/bastion-daemon.sock
-
-        # Systemd Integration
         self.systemd = SystemdNotifier()
         self.monitor_thread = None
-        
-        # Rate limiting and pending requests
+
         self.pending_requests: Dict[str, float] = {}
         self.last_request_time: Dict[str, float] = {}
-        self.request_lock = threading.Lock() # Protects shared state (pending_requests)
-        self.socket_lock = threading.Lock() # Protects socket writes
-        
-        # SECURITY: Global rate limiter to prevent DoS attacks (VULN-009)
-        # Limits GUI popup requests to 10 per second by default
+        self.request_lock = threading.Lock()
+        self.socket_lock = threading.Lock()
         self.rate_limiter = RateLimiter(max_requests_per_second=10, window_seconds=1)
 
         # Statistics
@@ -306,7 +276,7 @@ class BastionDaemon:
         """Send statistics to GUI"""
         if not self.gui_socket:
             return
-            
+
         try:
             msg = {
                 'type': 'stats_update',
@@ -314,10 +284,12 @@ class BastionDaemon:
             }
             with self.socket_lock:
                 self.gui_socket.sendall(json.dumps(msg).encode() + b'\n')
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            # GUI disconnected - clear socket so we stop trying
+            logger.debug("GUI disconnected")
+            self.gui_socket = None
         except Exception as e:
             logger.error(f"Error sending stats: {e}")
-            # Don't stop daemon, just log. Socket might be broken, 
-            # but we usually handle that in main loop or send failure.
 
     def _setup_socket(self):
         """Setup Unix domain socket"""
@@ -568,10 +540,12 @@ class BastionDaemon:
             'level': 'warning'
         }
         try:
-           with self.socket_lock:
-               self.gui_socket.sendall(json.dumps(msg).encode() + b'\n')
-        except:
-           pass
+            with self.socket_lock:
+                self.gui_socket.sendall(json.dumps(msg).encode() + b'\n')
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            self.gui_socket = None
+        except Exception:
+            pass
 
     def stop(self):
         """Stop daemon"""
