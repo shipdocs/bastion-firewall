@@ -13,7 +13,7 @@ from typing import Optional, Callable
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QFrame, QRadioButton, QButtonGroup, QWidget, QScrollArea,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
@@ -500,6 +500,7 @@ class USBControlWidget(QWidget):
         table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)  # Single row selection
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setMaximumHeight(150)
         table.verticalHeader().setVisible(False)  # Hide row numbers
@@ -518,8 +519,9 @@ class USBControlWidget(QWidget):
                 border-bottom: 1px solid {COLORS['card_border']};
             }}
             QTableWidget::item:selected {{
-                background-color: {COLORS['sidebar']};
-                color: {COLORS['text_primary']};
+                background-color: {COLORS['accent']};
+                color: white;
+                font-weight: bold;
             }}
             QHeaderView::section {{
                 background-color: {COLORS['sidebar']};
@@ -657,31 +659,95 @@ for usb_host in Path('/sys/bus/usb/devices').glob('usb*'):
 
     def _delete_allowed_selected(self):
         """Delete selected allowed device rules."""
-        deleted = False
-        for row in self.table_allowed.selectionModel().selectedRows():
-            idx = row.row()
-            if hasattr(self.table_allowed, 'rule_keys') and idx < len(self.table_allowed.rule_keys):
-                key = self.table_allowed.rule_keys[idx]
-                self.rule_manager.remove_rule(key)
-                deleted = True
-                logger.info(f"Deleted allowed USB rule: {key}")
+        selected_rows = self.table_allowed.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "No Selection", "Please select a device to delete.")
+            return
 
-        if deleted:
+        # Get the row index
+        row_idx = selected_rows[0].row()
+
+        # Verify we have rule keys
+        if not hasattr(self.table_allowed, 'rule_keys') or row_idx >= len(self.table_allowed.rule_keys):
+            logger.error(f"Invalid row index {row_idx} for deletion")
+            QMessageBox.critical(self, "Error", "Failed to delete device: Invalid selection.")
+            return
+
+        # Get the device name and rule key
+        device_name = self.table_allowed.item(row_idx, 0).text() if self.table_allowed.item(row_idx, 0) else "Unknown"
+        key = self.table_allowed.rule_keys[row_idx]
+
+        # Confirm deletion
+        reply = QMessageBox.question(
+            self,
+            "Confirm Deletion",
+            f"Are you sure you want to delete the allowed rule for:\n\n{device_name}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        logger.info(f"Deleting allowed USB rule: {key}")
+
+        try:
+            self.rule_manager.remove_rule(key)
+            logger.info(f"Successfully deleted allowed USB rule: {key}")
+            QMessageBox.information(self, "Success", f"Deleted rule for {device_name}")
             self.refresh()
+        except PermissionError as e:
+            logger.error(f"Permission denied deleting rule {key}: {e}")
+            QMessageBox.critical(self, "Permission Denied",
+                f"Cannot delete rule: Permission denied.\n\nYou may need to run the application with elevated privileges.")
+        except Exception as e:
+            logger.error(f"Failed to delete allowed USB rule {key}: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to delete rule: {str(e)}")
 
     def _delete_blocked_selected(self):
         """Delete selected blocked device rules."""
-        deleted = False
-        for row in self.table_blocked.selectionModel().selectedRows():
-            idx = row.row()
-            if hasattr(self.table_blocked, 'rule_keys') and idx < len(self.table_blocked.rule_keys):
-                key = self.table_blocked.rule_keys[idx]
-                self.rule_manager.remove_rule(key)
-                deleted = True
-                logger.info(f"Deleted blocked USB rule: {key}")
+        selected_rows = self.table_blocked.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "No Selection", "Please select a device to delete.")
+            return
 
-        if deleted:
+        # Get the row index
+        row_idx = selected_rows[0].row()
+
+        # Verify we have rule keys
+        if not hasattr(self.table_blocked, 'rule_keys') or row_idx >= len(self.table_blocked.rule_keys):
+            logger.error(f"Invalid row index {row_idx} for deletion")
+            QMessageBox.critical(self, "Error", "Failed to delete device: Invalid selection.")
+            return
+
+        # Get the device name and rule key
+        device_name = self.table_blocked.item(row_idx, 0).text() if self.table_blocked.item(row_idx, 0) else "Unknown"
+        key = self.table_blocked.rule_keys[row_idx]
+
+        # Confirm deletion
+        reply = QMessageBox.question(
+            self,
+            "Confirm Deletion",
+            f"Are you sure you want to delete the blocked rule for:\n\n{device_name}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        logger.info(f"Deleting blocked USB rule: {key}")
+
+        try:
+            self.rule_manager.remove_rule(key)
+            logger.info(f"Successfully deleted blocked USB rule: {key}")
+            QMessageBox.information(self, "Success", f"Deleted rule for {device_name}")
             self.refresh()
+        except PermissionError as e:
+            logger.error(f"Permission denied deleting rule {key}: {e}")
+            QMessageBox.critical(self, "Permission Denied",
+                f"Cannot delete rule: Permission denied.\n\nYou may need to run the application with elevated privileges.")
+        except Exception as e:
+            logger.error(f"Failed to delete blocked USB rule {key}: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to delete rule: {str(e)}")
 
 
 def test_usb_prompt():
