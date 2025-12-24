@@ -111,14 +111,21 @@ class GUIManager:
             display_found = False
             try:
                 # First try reading /proc/<pid>/environ directly (more reliable)
-                # Get PIDs of user's GUI-related processes
-                result = subprocess.run(
-                    ['pgrep', '-u', user, '-x', 'gnome-shell|Xorg|kwin|plasmashell'],
-                    capture_output=True,
-                    text=True,
-                    timeout=2
-                )
-                for pid in result.stdout.strip().split('\n'):
+                # Get PIDs of user's GUI-related processes (check each separately)
+                gui_processes = ['gnome-shell', 'Xorg', 'kwin', 'plasmashell']
+                pids = []
+                for proc_name in gui_processes:
+                    try:
+                        result = subprocess.run(
+                            ['pgrep', '-u', user, '-x', proc_name],
+                            capture_output=True,
+                            text=True,
+                            timeout=2
+                        )
+                        pids.extend(result.stdout.strip().split('\n'))
+                    except subprocess.TimeoutExpired:
+                        continue
+                for pid in pids:
                     if pid and pid.isdigit():
                         try:
                             with open(f'/proc/{pid}/environ', 'r') as f:
