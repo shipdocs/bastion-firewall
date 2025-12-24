@@ -38,11 +38,10 @@ class USBMonitor:
     
     def __init__(self, callback: Callable[[USBDeviceInfo, str], None]):
         """
-        Initialize USB monitor.
+        Create a USB monitor that invokes a callback for device connect and disconnect events.
         
-        Args:
-            callback: Function called with (USBDeviceInfo, action) where
-                     action is 'add', 'remove', 'bind', or 'unbind'
+        Parameters:
+            callback (Callable[[USBDeviceInfo, str], None]): Function called with a USBDeviceInfo and an action string; action will be 'add' when a device is connected and 'remove' when a device is disconnected.
         """
         self.callback = callback
         self._observer: Optional['pyudev.MonitorObserver'] = None
@@ -89,7 +88,11 @@ class USBMonitor:
             return False
     
     def stop(self):
-        """Stop monitoring USB events."""
+        """
+        Stop the USB monitor and terminate its background observer.
+        
+        Stops the internal pyudev MonitorObserver if present, clears the observer reference, and sets the monitor's running state to False.
+        """
         if self._observer:
             self._observer.stop()
             self._observer = None
@@ -98,11 +101,25 @@ class USBMonitor:
     
     @property
     def is_running(self) -> bool:
-        """Check if monitor is running."""
+        """
+        Indicates whether the monitor is currently running.
+        
+        Returns:
+            True if the monitor is running, False otherwise.
+        """
         return self._running
     
     def _handle_event(self, device: 'pyudev.Device'):
-        """Handle udev event for USB device."""
+        """
+        Process a pyudev device event and, when relevant, notify the monitor callback.
+        
+        Only handles 'add' and 'remove' actions and ignores USB interface entries (sys_name containing ':').
+        If the event corresponds to a device, extracts a USBDeviceInfo and invokes the monitor's callback
+        with the device info and the action string.
+        
+        Parameters:
+            device (pyudev.Device): The udev device event provided by pyudev.
+        """
         action = device.action
 
         # Only handle add/remove for now
@@ -122,7 +139,14 @@ class USBMonitor:
             logger.error(f"Error processing USB event: {e}")
     
     def _extract_device_info(self, device: 'pyudev.Device') -> Optional[USBDeviceInfo]:
-        """Extract USBDeviceInfo from pyudev device."""
+        """
+        Builds a USBDeviceInfo from a pyudev Device when the device represents a USB device.
+        
+        Extracted fields include vendor/product IDs (hex, sanitized), vendor and product names (underscores replaced and sanitized), device class (parsed from database field or bDeviceClass), optionally sanitized serial, sysfs bus id, and numeric bus/dev numbers (parsed with defaults of 0). If vendor or product IDs are missing, or if an error occurs during extraction, this returns None.
+        
+        Returns:
+            USBDeviceInfo: Populated and sanitized USBDeviceInfo for the device, or `None` if the device is not a USB device or extraction fails.
+        """
         try:
             # Get vendor/product IDs
             vendor_id = device.get('ID_VENDOR_ID', '') or ''
@@ -183,10 +207,10 @@ class USBMonitor:
 
     def get_connected_devices(self) -> list[USBDeviceInfo]:
         """
-        Get list of currently connected USB devices.
-
+        Return information for all currently connected USB devices.
+        
         Returns:
-            List of USBDeviceInfo for all connected devices.
+            list[USBDeviceInfo]: USBDeviceInfo objects for each connected USB device. Returns an empty list if pyudev is unavailable or no devices are found.
         """
         if not PYUDEV_AVAILABLE:
             return []
@@ -206,16 +230,20 @@ class USBMonitor:
 
 def list_usb_devices() -> list[USBDeviceInfo]:
     """
-    Convenience function to list all connected USB devices.
-
+    Return a list of currently connected USB devices.
+    
     Returns:
-        List of USBDeviceInfo for all connected devices.
+        list[USBDeviceInfo]: USBDeviceInfo objects for each connected USB device.
     """
     monitor = USBMonitor(callback=lambda d, a: None)
     return monitor.get_connected_devices()
 
 
 def is_pyudev_available() -> bool:
-    """Check if pyudev is available."""
+    """
+    Report whether the pyudev library is available for USB monitoring.
+    
+    Returns:
+        bool: `True` if pyudev is available, `False` otherwise.
+    """
     return PYUDEV_AVAILABLE
-

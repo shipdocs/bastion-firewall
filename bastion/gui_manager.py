@@ -44,14 +44,27 @@ class GUIManager:
         return None
     
     def _executable_exists(self, path):
-        """Check if executable exists and is executable"""
+        """
+        Determine whether the given filesystem path exists and is executable.
+        
+        Parameters:
+            path (str): Filesystem path to check.
+        
+        Returns:
+            bool: `True` if the path points to an existing file and is executable, `False` otherwise (also `False` if an error occurs while checking).
+        """
         try:
             return os.path.isfile(path) and os.access(path, os.X_OK)
         except:
             return False
 
     def is_gui_running(self):
-        """Check if GUI process is running"""
+        """
+        Determine whether the bastion GUI is currently running.
+        
+        Returns:
+            `true` if the GUI process is running or any `bastion-gui` process exists, `false` otherwise.
+        """
         try:
             # Check if process is still alive
             if self.gui_process and self.gui_process.poll() is None:
@@ -69,7 +82,14 @@ class GUIManager:
             return False
 
     def start_gui(self):
-        """Start GUI application in background as the logged-in user"""
+        """
+        Start the bastion GUI as the currently logged-in non-root user.
+        
+        Attempts to locate a non-root user (using SUDO_USER or the first entry from `who`), populate the environment with a usable `DISPLAY` (by scanning the user's processes or probing common display names), and launch the GUI detached from the daemon. On success the subprocess.Popen for the GUI is stored in `self.gui_process`.
+        
+        Returns:
+            True if the GUI is already running or was started successfully, False otherwise.
+        """
         if not self.gui_path:
             logger.error("Cannot start GUI: executable not found")
             return False
@@ -218,4 +238,3 @@ X-GNOME-Autostart-enabled=true
                 logger.warning("GUI killed (timeout)")
             except Exception as e:
                 logger.error(f"Error stopping GUI: {e}")
-

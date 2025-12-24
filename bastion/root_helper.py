@@ -31,7 +31,14 @@ __version__ = "1.0.0"
 
 # Setup syslog for audit trail
 def setup_logging() -> logging.Logger:
-    """Configure logging to syslog (LOG_AUTH facility) for audit trail."""
+    """
+    Create and return a module logger configured for audit-style output.
+    
+    Attempts to add a SysLogHandler using /dev/log with the LOG_AUTH facility for audit logging; if syslog is unavailable, falls back to using stderr. Always adds a stderr StreamHandler for immediate feedback.
+    
+    Returns:
+        logging.Logger: A logger named "bastion-root-helper" with handlers and INFO level configured.
+    """
     logger = logging.getLogger("bastion-root-helper")
     logger.setLevel(logging.INFO)
     
@@ -76,9 +83,12 @@ KEY_PATTERN = re.compile(
 
 def validate_key(key: str) -> bool:
     """
-    Validate USB rule key format.
-
-    Returns True if key matches expected format, False otherwise.
+    Validate a USB rule key string against the expected format.
+    
+    Rejects non-strings, empty values, or strings longer than 256 characters. Uses the module's KEY_PATTERN to determine whether the key matches a valid USB rule key (vendor:product:identifier, vendor:product:*, or vendor:*:*).
+    
+    Returns:
+        True if the key matches the expected USB rule format, False otherwise.
     """
     if not isinstance(key, str):
         return False
@@ -93,13 +103,13 @@ def validate_key(key: str) -> bool:
 
 def cmd_usb_default_policy_set(authorize: bool) -> int:
     """
-    Set USB default authorization policy for all USB host controllers.
+    Set the system-wide default USB device authorization policy for all USB host controllers.
     
-    Args:
-        authorize: True = allow new devices, False = block new devices
-        
+    Parameters:
+        authorize (bool): True to allow newly connected USB devices, False to block them.
+    
     Returns:
-        0 on success, 1 on failure
+        int: Exit code — `0` if at least one controller was updated, `1` otherwise.
     """
     value = '1' if authorize else '0'
     policy_name = 'authorize' if authorize else 'block'
@@ -140,13 +150,13 @@ def cmd_usb_default_policy_set(authorize: bool) -> int:
 
 def cmd_usb_rule_delete(key: str) -> int:
     """
-    Delete a USB rule by key.
+    Remove a USB rule identified by its key.
     
-    Args:
-        key: The rule key to delete (validated before calling)
-        
+    Parameters:
+        key (str): The USB rule key to remove; expected to be validated before calling.
+    
     Returns:
-        0 on success, 1 on not found, 2 on error
+        int: 0 on success, 1 if the rule was not found, 2 on error (including import failures or exceptions).
     """
     # Import here to avoid import errors when bastion package not installed
     try:
@@ -181,10 +191,10 @@ def cmd_usb_rule_delete(key: str) -> int:
 
 def cmd_usb_rule_clear_all() -> int:
     """
-    Clear all USB rules. Use with extreme caution!
-
+    Remove all configured USB rules.
+    
     Returns:
-        0 on success, 2 on error
+        int: 0 on success, 2 on error
     """
     try:
         from bastion.usb_rules import USBRuleManager
@@ -262,13 +272,13 @@ Examples:
 
 def main(argv: Optional[list[str]] = None) -> int:
     """
-    Main entry point for the root helper CLI.
-
+    Parse CLI arguments, dispatch the requested privileged USB command, and return an exit code.
+    
     Args:
-        argv: Command line arguments (defaults to sys.argv[1:])
-
+        argv (Optional[list[str]]): Command-line arguments to parse; if None, defaults to sys.argv[1:].
+    
     Returns:
-        Exit code (0 = success, non-zero = error)
+        int: Exit code — `0` for success; `1` for usage/dispatch errors or missing command; `2` for invalid input (e.g., malformed key) or import/operation failures surfaced by subcommands.
     """
     parser = create_parser()
     args = parser.parse_args(argv)
@@ -310,4 +320,3 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == '__main__':
     sys.exit(main())
-

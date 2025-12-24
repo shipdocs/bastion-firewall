@@ -130,14 +130,14 @@ class IconManager:
     @classmethod
     def create_status_pixmap(cls, status='connected', size=64):
         """
-        Create a pixmap with status indicator
+        Create a square QPixmap containing the status icon with a colored indicator dot.
         
-        Args:
-            status: Status string
-            size: Icon size in pixels
-            
+        Parameters:
+        	status (str): Status key used to select the icon and indicator color (e.g., 'connected', 'disconnected', 'error', 'learning').
+        	size (int): Width and height of the returned pixmap in pixels.
+        
         Returns:
-            QPixmap object
+        	QPixmap: A square pixmap of the requested size with the status icon painted to fill it and a colored circular indicator drawn near the bottom-right corner.
         """
         # Create base pixmap
         pixmap = QPixmap(size, size)
@@ -165,13 +165,13 @@ class IconManager:
     @classmethod
     def get_nav_icon(cls, name: str) -> QIcon:
         """
-        Get navigation icon for sidebar
-
-        Args:
-            name: One of 'Status', 'Rules', 'USB', 'Logs', 'Settings'
-
+        Retrieve the sidebar navigation icon for the given section name.
+        
+        Parameters:
+            name (str): Navigation section name, one of 'Status', 'Rules', 'USB', 'Logs', 'Settings'.
+        
         Returns:
-            QIcon object (empty if not found, triggering emoji fallback)
+            QIcon: Icon for the requested navigation item; an empty QIcon if the name is unknown, the file is missing, or loading/validation fails.
         """
         icon_file = cls.NAV_ICONS.get(name)
         if not icon_file:
@@ -194,4 +194,3 @@ class IconManager:
         except Exception as e:
             logger.warning(f"Failed to load nav icon {name}: {e}")
             return QIcon()
-

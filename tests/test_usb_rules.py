@@ -20,7 +20,16 @@ from bastion.usb_validation import USBValidation
 
 
 def test_rule_storage():
-    """Test basic rule storage and retrieval."""
+    """
+    Run integration tests that verify USB rule storage, retrieval, persistence, scope matching, file permissions, and listing.
+    
+    Exercises the USBRuleManager and related models to confirm:
+    - No rule exists for a new device by default.
+    - Adding device-scoped and model-scoped rules produces correct verdicts.
+    - Rules persist to disk and are reloaded correctly.
+    - Rule database file permissions restrict group/other write access and grant owner read/write.
+    - Block rules are enforced and rule listing (all/allowed/blocked) reports expected counts.
+    """
     print("=" * 60)
     print("Testing USB Rule Storage")
     print("=" * 60)
@@ -369,4 +378,3 @@ if __name__ == "__main__":
     test_sanitize_key()
     test_malicious_serial_in_rule()
     print("\n🎉 All USB rules tests passed!")
-

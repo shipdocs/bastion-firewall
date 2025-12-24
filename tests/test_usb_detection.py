@@ -22,7 +22,15 @@ from bastion.usb_device import USBDeviceInfo
 
 
 def on_device_event(device: USBDeviceInfo, action: str):
-    """Called when USB device is inserted or removed."""
+    """
+    Display a formatted status message for a USB device event.
+    
+    Prints a human-readable header and device details when a USB device is added or removed, including product and vendor names, IDs, class, bus ID, risk indicators for high- or low-risk devices, and the device serial if present.
+    
+    Parameters:
+        device (USBDeviceInfo): The USB device involved in the event.
+        action (str): The event action, typically 'add' for insertion or 'remove' for removal; used to label the message.
+    """
     if action == 'add':
         emoji = "🔌"
         color = "\033[92m"  # Green
@@ -49,6 +57,11 @@ def on_device_event(device: USBDeviceInfo, action: str):
 
 
 def main():
+    """
+    Run an interactive USB device detection test: list currently connected USB devices, start a monitor for add/remove events, and keep running until interrupted.
+    
+    This function prints status and device information to stdout, verifies that pyudev is available (exits with status 1 if not), lists current USB devices with simple risk indicators, starts a USB event monitor (exits with status 1 if the monitor fails to start), and registers a SIGINT handler to stop the monitor and exit cleanly when the user presses Ctrl+C.
+    """
     print("=" * 60)
     print("USB Device Detection Test")
     print("=" * 60)
@@ -84,6 +97,13 @@ def main():
     
     # Handle Ctrl+C gracefully
     def signal_handler(sig, frame):
+        """
+        Handle an interrupt signal by stopping the USB monitor and exiting the process.
+        
+        Parameters:
+            sig (int): The signal number received by the handler.
+            frame (types.FrameType): The current stack frame at the time the signal was received.
+        """
         print("\n\nStopping USB monitor...")
         monitor.stop()
         print("Done!")
@@ -101,4 +121,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

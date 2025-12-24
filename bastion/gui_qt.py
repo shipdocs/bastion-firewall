@@ -432,6 +432,11 @@ class DashboardWindow(QMainWindow):
             pass
 
     def init_ui(self):
+        """
+        Builds and configures the main application user interface: a left sidebar (branding, navigation buttons, version) and a central stacked content area.
+        
+        The method initializes window title, size, and stylesheet; constructs the sidebar with navigation entries and a version label; creates and adds the stacked pages (Status, Rules, USB, Logs, Settings) to the central widget; and sets the first navigation button as active.
+        """
         self.setWindowTitle("Bastion Firewall")
         self.resize(1100, 750)
         self.setStyleSheet(STYLESHEET)
@@ -502,7 +507,16 @@ class DashboardWindow(QMainWindow):
         self.nav_btns[0].setChecked(True)
 
     def add_nav_btn(self, layout, text, fallback_emoji):
-        """Add navigation button with custom icon or emoji fallback."""
+        """
+        Add a navigation button to the provided layout using a custom icon when available, or an emoji fallback otherwise.
+        
+        The created button is checkable, uses a pointing-hand cursor, is added to the layout, appended to self.nav_btns, and connected to call self.navigate(btn, text) on click.
+        
+        Parameters:
+            layout (QLayout): Container to which the button will be added.
+            text (str): Label/page name shown next to the icon or emoji and passed as the target for navigation.
+            fallback_emoji (str): Emoji string to display when no custom icon is available.
+        """
         from .icon_manager import IconManager
 
         btn = QPushButton()
@@ -525,6 +539,20 @@ class DashboardWindow(QMainWindow):
         self.nav_btns.append(btn)
 
     def navigate(self, sender, page_name):
+        """
+        Switches the central content to the specified page and updates navigation button states.
+        
+        Sets all navigation buttons to unchecked, marks the provided sender button as checked, sets the stacked widget to the page indicated by `page_name`, and triggers a page-specific refresh when applicable.
+        
+        Parameters:
+            sender: The navigation button that initiated the navigation; will be marked checked.
+            page_name (str): Name of the target page. Recognized values: "Status", "Rules", "USB", "Logs", "Settings".
+                - "Status": activates the status page and calls refresh_status().
+                - "Rules": activates the rules page and calls refresh_rules_table().
+                - "USB": activates the USB page and calls refresh_usb().
+                - "Logs": activates the logs page and calls refresh_logs().
+                - "Settings": activates the settings page.
+        """
         for btn in self.nav_btns:
             btn.setChecked(False)
         sender.setChecked(True)
@@ -537,6 +565,18 @@ class DashboardWindow(QMainWindow):
     # --- PAGES ---
 
     def create_status_page(self):
+        """
+        Create the Status page widget containing Outbound, Inbound, and USB cards plus live statistics.
+        
+        The page includes three status cards (Outbound/Bastion, Inbound/UFW, and USB Control), each with a title, description, status label and an action button, and a statistics row with Approx. Events, Deny Events, and Active Rules cards. The following widget attributes are set on self for external updates:
+        - lbl_status_title, lbl_status_desc, btn_toggle
+        - lbl_inbound_title, lbl_inbound_desc, btn_inbound
+        - lbl_usb_title, lbl_usb_desc, btn_usb
+        - stat_connections, stat_blocked, stat_rules
+        
+        Returns:
+            QWidget: The fully constructed status page widget.
+        """
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -720,6 +760,14 @@ class DashboardWindow(QMainWindow):
         return page
 
     def create_logs_page(self):
+        """
+        Create and return the Logs page widget containing a single-column, monospace log table and a refresh button.
+        
+        The created page contains a QTableWidget (assigned to self.table_logs) configured for extended selection, no headers, monospace font, and no eliding so lines are shown in full. A "Refresh Logs" button is connected to self.refresh_logs.
+        
+        Returns:
+            QWidget: The page widget ready to be inserted into the main stacked content area.
+        """
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.addWidget(QLabel("Connection Logs (Last 50 Lines)", objectName="page_title"))
@@ -752,7 +800,12 @@ class DashboardWindow(QMainWindow):
         return page
 
     def create_usb_page(self):
-        """Create the USB Device Control page."""
+        """
+        Create the USB device control page by instantiating the USB control widget.
+        
+        Returns:
+            USBControlWidget: The instantiated widget used as the USB page.
+        """
         from .usb_gui import USBControlWidget
         self.usb_widget = USBControlWidget()
         return self.usb_widget
@@ -763,6 +816,22 @@ class DashboardWindow(QMainWindow):
             self.usb_widget.refresh()
 
     def create_settings_page(self):
+        """
+        Create the Settings page used in the dashboard.
+        
+        The page contains:
+        - Operational Mode: a "Learning Mode" checkbox and a "Save Configuration" button.
+        - Startup Behavior: an autostart checkbox to run Bastion on system startup.
+        - Inbound Firewall (UFW): a status label and Enable / Disable buttons.
+        - Tray Icon: explanatory text and a "Start Tray Icon" button.
+        
+        The method attaches interactive widgets to self for later use:
+        chk_learning, btn_save_config, chk_autostart, lbl_ufw_status,
+        btn_ufw_enable, btn_ufw_disable, btn_start_tray.
+        
+        Returns:
+            QWidget: The composed settings page widget ready to be inserted into the main UI.
+        """
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -886,6 +955,11 @@ class DashboardWindow(QMainWindow):
 
     def refresh_status(self):
         # 1. Outbound (Bastion)
+        """
+        Refresh the dashboard status panels for outbound firewall, inbound firewall, USB control, and summary statistics.
+        
+        Updates the UI labels, buttons, and internal inbound_status to reflect the current system state by checking the Bastion systemd service, detecting the inbound firewall status, inspecting USB protection settings and rule counts, and computing basic log/rule statistics. Performs filesystem reads and subprocess calls to gather state; any errors are handled internally and reflected as "Unknown" or error text in the corresponding UI sections.
+        """
         try:
             # Check Active
             res = subprocess.run(['systemctl', 'is-active', 'bastion-firewall'], 
@@ -1072,6 +1146,11 @@ X-GNOME-Autostart-enabled=true
         self.refresh_ui()
 
     def disable_ufw(self):
+        """
+        Disable system inbound firewall (UFW) after user confirmation.
+        
+        Prompts the user to confirm disabling inbound protection; if confirmed, attempts to run `pkexec ufw disable`, shows a success or error notification to the user, and refreshes the dashboard UI.
+        """
         if QMessageBox.question(self, "Confirm", "Disable Inbound Protection (UFW)?\nYour computer will be exposed to inbound connections.") != QMessageBox.StandardButton.Yes:
             return
 
@@ -1085,7 +1164,11 @@ X-GNOME-Autostart-enabled=true
         self.refresh_ui()
 
     def start_tray_icon(self):
-        """Start the system tray icon (bastion-gui)"""
+        """
+        Start the Bastion GUI tray process and notify the user of the outcome.
+        
+        Attempts to launch the 'bastion-gui' executable to create a system tray icon. On success posts a success notification and logs an informational message; on failure logs the error and posts an error notification describing the failure.
+        """
         from .notification import show_notification
 
         try:
@@ -1105,6 +1188,11 @@ X-GNOME-Autostart-enabled=true
     # ... (other methods remain) ...
 
     def refresh_rules_table(self):
+        """
+        Refresh the GUI rules table to reflect the current in-memory rules dictionary.
+        
+        Clears the rules QTableWidget and repopulates it from self.data_rules where each key is expected in the format "/path/to/app:port" and the value is a boolean (True means allow, False means deny). For each rule the table shows application name, full path, port, and an action label ("ALLOW" or "DENY") colored and styled to indicate allow (success color) or deny (danger color). The original rule key is stored in the first column's UserRole data for later lookup or deletion. If a key cannot be split into path and port, the path is shown as-is and the port is set to "?".
+        """
         self.table_rules.setRowCount(0)
         
         # self.data_rules is dict: "app_path:port": allow_bool

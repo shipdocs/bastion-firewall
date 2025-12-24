@@ -50,12 +50,22 @@ class USBValidation:
 
     @staticmethod
     def validate_verdict(value: str) -> Verdict:
-        """Validate verdict is 'allow' or 'block'."""
+        """
+        Normalize a verdict string to either 'allow' or 'block'.
+        
+        Returns:
+            'allow' if the input is exactly 'allow', 'block' otherwise.
+        """
         return 'allow' if value == 'allow' else 'block'
 
     @staticmethod
     def validate_scope(value: str) -> Scope:
-        """Validate scope is 'device', 'model', or 'vendor'."""
+        """
+        Ensure the scope is one of 'device', 'model', or 'vendor'.
+        
+        Returns:
+        	scope (Scope): The original value if it is 'device', 'model', or 'vendor'; otherwise 'device'.
+        """
         if value in ('device', 'model', 'vendor'):
             return value
         return 'device'
@@ -63,10 +73,15 @@ class USBValidation:
     @staticmethod
     def sanitize_hex_id(hex_id: str) -> str:
         """
-        Sanitize vendor/product ID (4 hex chars only).
-
-        Removes non-hex characters, limits to 4 chars, pads with zeros.
-        Always returns a valid 4-character lowercase hex string.
+        Normalize a vendor or product hexadecimal identifier to a 4-character lowercase hex string.
+        
+        Strips any non-hex characters, truncates to at most four characters, and pads with leading zeros. Treats None as empty input and converts non-string inputs to strings.
+        
+        Parameters:
+            hex_id (str): Vendor or product identifier to normalize; may be non-string and will be converted.
+        
+        Returns:
+            str: A 4-character lowercase hexadecimal string (for example, "00af"). If input yields no hex digits, returns "0000".
         """
         if not isinstance(hex_id, str):
             hex_id = str(hex_id) if hex_id is not None else ''
@@ -76,19 +91,16 @@ class USBValidation:
     @staticmethod
     def sanitize_serial(serial: Optional[str], max_len: int = 128) -> str:
         """
-        Sanitize USB device serial number.
-
-        Uses a strict character set to prevent injection attacks:
-        - Only alphanumeric characters, dots, dashes, and underscores
-        - No spaces, quotes, or shell metacharacters
-        - Limited length
-
-        Args:
-            serial: The raw serial number from the device
-            max_len: Maximum allowed length (default 128)
-
+        Sanitize a USB device serial number.
+        
+        Removes characters except letters, digits, dot (.), underscore (_) and dash (-), truncates the result to at most `max_len` (bounded by the module maximum), and logs when a modification occurs. If `serial` is None or the sanitized result is empty, returns 'no-serial'.
+        
+        Parameters:
+            serial (Optional[str]): Raw serial number to sanitize.
+            max_len (int): Maximum allowed length for the returned serial.
+        
         Returns:
-            Sanitized serial, or 'no-serial' if empty/None
+            str: The sanitized serial, or 'no-serial' if input is None or empty after sanitization.
         """
         if serial is None or not isinstance(serial, str):
             return 'no-serial'
@@ -109,17 +121,16 @@ class USBValidation:
     @staticmethod
     def sanitize_string(value: str, max_len: int = 256) -> str:
         """
-        Sanitize general string (names, descriptions).
-
-        Removes control characters but keeps spaces and most punctuation.
-        For user-facing strings only, not for keys or identifiers.
-
-        Args:
-            value: The string to sanitize
-            max_len: Maximum allowed length
-
+        Normalize a user-facing string by removing control characters and enforcing length limits.
+        
+        Accepts non-string inputs (converted to string); removes Unicode control characters except space and returns the result truncated to at most `max_len` and `USBValidation.MAX_STRING_LEN`.
+        
+        Parameters:
+            value: The value to sanitize; non-strings are converted to a string (None becomes '').
+            max_len: Maximum number of characters to keep (subject to a global maximum).
+        
         Returns:
-            Sanitized string
+            The sanitized string with control characters removed (spaces preserved) and length constrained.
         """
         if not isinstance(value, str):
             value = str(value) if value is not None else ''
@@ -130,18 +141,13 @@ class USBValidation:
     @staticmethod
     def sanitize_key(key: str) -> Optional[str]:
         """
-        Sanitize and validate a USB rule key.
-
-        Keys have the format:
-        - Device: vendor_id:product_id:serial (e.g., '046d:c52b:ABC123')
-        - Model: vendor_id:product_id:* (e.g., '046d:c52b:*')
-        - Vendor: vendor_id:*:* (e.g., '046d:*:*')
-
-        Args:
-            key: The raw key to validate
-
+        Normalize and validate a USB rule key into one of the canonical forms: vendor, model, or device.
+        
+        Parameters:
+            key (str): Raw key using formats like "vid:pid:serial", "vid:pid:*", "vid:*:*", or legacy "vid:pid".
+        
         Returns:
-            Sanitized key if valid format, None if invalid
+            Sanitized key in the canonical form "vvvv:pppp:serial" / "vvvv:pppp:*" / "vvvv:*:*" if valid, `None` if the input is missing, malformed, or exceeds allowed length.
         """
         if not key or not isinstance(key, str):
             return None
@@ -183,16 +189,15 @@ class USBValidation:
     @staticmethod
     def validate_key(key: str) -> bool:
         """
-        Validate that a key matches the expected format.
-
-        This is a strict check - returns False for any deviation.
-        Use sanitize_key() to fix/normalize keys.
-
-        Args:
-            key: The key to validate
-
+        Determine whether a USB rule key is syntactically valid.
+        
+        Performs a strict check against the module's KEY_PATTERN and USBValidation.MAX_KEY_LEN.
+        
+        Parameters:
+            key (str): The key string to validate.
+        
         Returns:
-            True if key is valid, False otherwise
+            bool: `True` if the key matches the required pattern and length constraints, `False` otherwise.
         """
         if not key or not isinstance(key, str):
             return False
@@ -203,13 +208,16 @@ class USBValidation:
     @staticmethod
     def sanitize_timestamp(ts: str) -> str:
         """
-        Validate/sanitize ISO timestamp.
-
-        Returns valid ISO timestamp or current time if invalid.
+        Validate an ISO 8601 timestamp string and supply a safe current-time fallback when invalid.
+        
+        Parameters:
+            ts (str): Candidate ISO 8601 timestamp string.
+        
+        Returns:
+            `ts` if it is a valid ISO 8601 timestamp, otherwise the current time in ISO 8601 format.
         """
         try:
             datetime.fromisoformat(ts)
             return ts
         except (ValueError, TypeError):
             return datetime.now().isoformat()
-

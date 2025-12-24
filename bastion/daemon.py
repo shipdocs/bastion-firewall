@@ -1,4 +1,3 @@
-
 import os
 import sys
 import json
@@ -94,6 +93,18 @@ class BastionDaemon:
     SOCKET_PATH = '/run/bastion/daemon.sock'
     
     def __init__(self):
+        """
+        Initialize the daemon's internal state and subsystems used for configuration, rule enforcement, GUI/USB integration, networking, and monitoring.
+        
+        Sets up:
+        - loaded configuration and a RuleManager
+        - placeholders for packet processing and UNIX sockets
+        - SystemdNotifier and monitor thread tracking
+        - GUIManager with periodic health check settings and associated socket management
+        - request tracking, rate limiting, and locks for thread-safe access to socket and pending requests
+        - USB support (USBRuleManager, monitor placeholder, locks, pending-device state, and a response event/fields)
+        - runtime statistics counters for connections, rate-limits, and USB decisions
+        """
         self.config = ConfigManager.load_config()
         self.rule_manager = RuleManager()
         self.packet_processor: Optional[PacketProcessor] = None
@@ -138,7 +149,11 @@ class BastionDaemon:
         }
 
     def start(self):
-        """Start the daemon"""
+        """
+        Start and run the daemon, initializing core subsystems and entering the watchdog loop.
+        
+        Initializes signal handlers, the control UNIX socket, and the NFQUEUE iptables rule; starts the packet processor, GUI connection acceptor, health monitor, and USB monitor (if available), then runs the daemon watchdog loop until shutdown. This method blocks until the daemon stops.
+        """
         logger.info("Starting Bastion Daemon...")
 
         # Setup signals
@@ -185,7 +200,11 @@ class BastionDaemon:
         self.stop()
 
     def _monitor_loop(self):
-        """Background thread for systemd watchdog and health checks"""
+        """
+        Run continuous health checks: systemd watchdog, GUI and USB rule monitoring, and iptables rule validation.
+        
+        Periodically pings the systemd watchdog, reloads USB rules when the rules file changes, ensures the GUI process is running at the configured interval, and performs a periodic validation of iptables OUTPUT rules (logging warnings if expected NFQUEUE or bypass rules are missing). Exceptions are logged and the loop sleeps between iterations; the loop runs while the daemon is marked running.
+        """
         logger.info("Health monitor thread started")
         self.systemd.ready()
 
@@ -263,7 +282,15 @@ class BastionDaemon:
         return False
 
     def _accept_gui_connections(self):
-        """Accept GUI connections in background"""
+        """
+        Listen for incoming GUI connections and attach a single active GUI socket.
+        
+        Runs a loop while the daemon is running that accepts an incoming connection on
+        self.server_socket when no GUI is currently connected, stores the accepted
+        socket on self.gui_socket, and spawns a daemon thread to read GUI messages
+        (via self._read_gui_messages). The loop tolerates temporary accept timeouts and
+        logs errors that occur while accepting connections.
+        """
         try:
             self.server_socket.settimeout(1.0)
             while self.running:
@@ -287,7 +314,11 @@ class BastionDaemon:
             logger.error(f"GUI acceptor thread error: {e}")
 
     def _read_gui_messages(self):
-        """Read messages from GUI in background (for USB responses etc.)"""
+        """
+        Continuously read newline-delimited messages from the connected GUI and dispatch each non-empty line to _process_gui_message.
+        
+        This runs in a background thread while the daemon is running and a GUI socket is present. It accumulates partial reads into a buffer, splits on newline boundaries, ignores empty lines, and handles socket timeouts without terminating. On socket disconnection or unrecoverable read errors the connection is closed and gui_socket is cleared.
+        """
         buffer = ""
         try:
             while self.running and self.gui_socket:
@@ -319,7 +350,17 @@ class BastionDaemon:
                     self.gui_socket = None
 
     def _process_gui_message(self, line: str):
-        """Process a message from GUI"""
+        """
+        Process a single newline-delimited JSON message received from the GUI and dispatch it.
+        
+        Parses the provided JSON string and routes messages by their top-level `type` field. Recognized types:
+        - `usb_response`: forwarded to self.handle_usb_response(msg).
+        
+        Invalid JSON or unrecognized `type` values are logged and otherwise ignored.
+        
+        Parameters:
+            line (str): A single JSON-encoded message received from the GUI (newline stripped).
+        """
         try:
             msg = json.loads(line)
             msg_type = msg.get('type', '')
@@ -331,7 +372,11 @@ class BastionDaemon:
             logger.debug(f"Invalid JSON from GUI: {line[:50]}")
 
     def _run_processor(self):
-        """Run the packet processor"""
+        """
+        Start the packet processor.
+        
+        Attempts to start the packet processor; on error logs the failure and marks the daemon as not running.
+        """
         try:
             self.packet_processor.start(queue_num=1)
         except Exception as e:
@@ -380,7 +425,11 @@ class BastionDaemon:
             logger.error(f"Error sending stats: {e}")
 
     def _setup_socket(self):
-        """Setup Unix domain socket in /run/bastion for security"""
+        """
+        Prepare and bind the daemon's UNIX domain socket at /run/bastion/daemon.sock.
+        
+        Creates the socket directory if missing, removes any existing socket file at SOCKET_PATH, creates and binds a UNIX stream socket and begins listening. Attempts to set permissions to allow local user connections and assigns the open socket to self.server_socket.
+        """
         # Create socket directory if it doesn't exist
         # /run is tmpfs, so this needs to be created each boot
         if not os.path.exists(self.SOCKET_DIR):
@@ -404,7 +453,11 @@ class BastionDaemon:
         self.server_socket.listen(1)
 
     def reload_config(self):
-        """Reload configuration and rules"""
+        """
+        Reload the daemon configuration and firewall rules.
+        
+        Attempts to reload configuration from disk and refresh in-memory rule state. On success logs the new mode; on failure logs an error and leaves the current configuration and rules unchanged.
+        """
         logger.info("Reloading configuration and rules...")
         try:
             self.config = ConfigManager.load_config()
@@ -503,7 +556,21 @@ class BastionDaemon:
         return self._ask_gui(pkt_info, display_name, display_path, cache_key, learning_mode)
 
     def _ask_gui(self, pkt_info, app_name, app_path, cache_key, learning_mode) -> bool:
-        """Communicate with GUI"""
+        """
+        Ask the GUI for a decision about a pending outbound network connection.
+        
+        Sends a `connection_request` to the connected GUI containing application and destination details, applies global rate limiting before sending, and waits up to 60 seconds for a user response. If no GUI is connected, this method falls back to policy: in learning mode connections are allowed; in enforcement mode critical system services are auto-allowed and other apps are blocked. If the GUI response contains `allow` and `permanent`, the permanent decision is recorded via the rule manager. USB-specific responses are handled via a separate USB handler and do not satisfy the connection decision. The method updates internal statistics and clears pending request state before returning.
+        
+        Parameters:
+            pkt_info: object containing `dest_ip`, `dest_port`, and `protocol` for the connection.
+            app_name (str): The display name of the requesting application.
+            app_path (str): The filesystem path of the requesting application.
+            cache_key (str): Unique key used to track this pending request.
+            learning_mode (bool): If True, treat undecided or timed-out requests as allowed.
+        
+        Returns:
+            bool: `True` if the connection should be allowed, `False` otherwise.
+        """
 
         if not self.gui_socket:
             logger.warning(f"No GUI connected for {app_name or 'unknown'} -> {pkt_info.dest_ip}:{pkt_info.dest_port}")
@@ -646,7 +713,11 @@ class BastionDaemon:
             pass
 
     def stop(self):
-        """Stop daemon"""
+        """
+        Stop the daemon and perform a clean shutdown of all managed resources.
+        
+        This method sets the internal running flag to False (no-op if already stopped), closes the GUI and server sockets, stops the packet processor, stops the USB monitor and restores the USB default policy to allow devices, removes the daemon UNIX socket file, and cleans up NFQUEUE iptables rules.
+        """
         if not self.running:
              return
              
@@ -694,8 +765,7 @@ class BastionDaemon:
 
     def _ensure_gui_running(self):
         """
-        Ensure GUI is running. If it's not, start it.
-        This ensures the tray icon is always available.
+        Ensure the GUI process is running and attempt to start it if it is not so the tray icon remains available.
         """
         try:
             if not self.gui_manager.is_gui_running():
@@ -709,8 +779,9 @@ class BastionDaemon:
 
     def _reload_usb_rules_if_changed(self):
         """
-        Check if USB rules file has been modified and reload if needed.
-        This allows the daemon to pick up rule changes from the GUI without restart.
+        Check the USB rules database file and reload the USBRuleManager if the file's modification time is newer than the last loaded timestamp.
+        
+        When reloading, replaces self.usb_rule_manager with a fresh USBRuleManager instance and updates self.usb_rules_last_modified. Errors encountered while checking or reloading are logged.
         """
         try:
             rules_path = self.usb_rule_manager.db_path
@@ -731,7 +802,11 @@ class BastionDaemon:
             logger.error(f"Error checking USB rules file: {e}")
 
     def _start_usb_monitor(self):
-        """Start USB device monitoring."""
+        """
+        Enable USB monitoring and set the default USB authorization policy to block newly inserted devices.
+        
+        When pyudev is unavailable or the monitor cannot be started, USB monitoring is left disabled and the attribute `self.usb_monitor` will be None. This method has the side effect of updating the module-level USB authorization policy to block new devices.
+        """
         if not is_pyudev_available():
             logger.warning("USB monitoring disabled: pyudev not available")
             return
@@ -755,7 +830,19 @@ class BastionDaemon:
             self.usb_monitor = None
 
     def _handle_usb_event(self, device: USBDeviceInfo, action: str):
-        """Handle USB device insert/remove event."""
+        """
+        Process a USB device event: apply an existing USB rule or prompt the user for a decision.
+        
+        If action is not 'add', the event is treated as a removal and ignored. For 'add' events this method:
+        - Checks the USB rules under a lock to obtain a verdict for the device.
+        - If the verdict is 'allow', authorizes the device and increments the allowed counter.
+        - If the verdict is 'block', deauthorizes the device and increments the blocked counter.
+        - If there is no verdict, delegates to the user-prompt flow to decide.
+        
+        Parameters:
+            device (USBDeviceInfo): Information about the USB device that triggered the event.
+            action (str): The device action string (expected 'add' for insertions); other actions are ignored.
+        """
         if action != 'add':
             # Only handle device additions
             logger.debug(f"USB device removed: {device.product_name}")
@@ -783,7 +870,19 @@ class BastionDaemon:
         self._prompt_usb_decision(device)
 
     def _prompt_usb_decision(self, device: USBDeviceInfo):
-        """Prompt user for USB device decision via GUI."""
+        """
+        Prompt the user (via the GUI) to allow or block an inserted USB device and apply the resulting action.
+        
+        If no GUI is connected, blocks devices marked as high risk and allows devices not marked high risk. When a GUI is connected, sends a `usb_request` containing device metadata, waits up to 60 seconds for a GUI response, and then:
+        - applies the returned verdict (`allow` or `block`) to the device (authorizes or deauthorizes the bus id),
+        - optionally persists the decision to the USB rule manager when the response indicates saving the rule,
+        - increments the appropriate statistics counter (`usb_devices_allowed` or `usb_devices_blocked`).
+        
+        On a timeout, defaults to blocking high-risk devices and allowing non–high-risk devices. Exceptions are caught and clear any pending USB state before returning.
+        
+        Parameters:
+            device (USBDeviceInfo): Information about the inserted USB device (vendor/product IDs and names, class, serial, bus id, and `is_high_risk` flag).
+        """
         if not self.gui_socket:
             logger.warning("No GUI connected - cannot prompt for USB device decision")
             # Default: block high-risk, allow low-risk
@@ -862,7 +961,17 @@ class BastionDaemon:
                 self.usb_pending_device = None
 
     def handle_usb_response(self, response: dict):
-        """Handle USB decision response from GUI."""
+        """
+        Record a USB decision received from the GUI and notify any waiting threads.
+        
+        Updates the daemon's USB response state under usb_pending_lock and sets usb_response_event to wake waiters. Expected keys in `response`:
+        - `verdict` (str): decision such as `"allow"` or `"block"`. Defaults to `"block"`.
+        - `scope` (str): scope of the decision, e.g. `"device"` or `"system"`. Defaults to `"device"`.
+        - `save_rule` (bool): whether to persist the decision as a rule. Defaults to `True` for backward compatibility.
+        
+        Parameters:
+            response (dict): Map containing the GUI's USB decision fields described above.
+        """
         verdict = response.get('verdict', 'block')
         scope = response.get('scope', 'device')
         save_rule = response.get('save_rule', True)  # Default to saving for backwards compat

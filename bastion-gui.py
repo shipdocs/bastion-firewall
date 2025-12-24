@@ -23,7 +23,14 @@ import os as _os
 LOCK_FILE = _os.path.join(_os.environ.get('XDG_RUNTIME_DIR', '/tmp'), 'bastion-gui.lock')
 
 def acquire_lock():
-    """Try to acquire a lock file. Returns file handle if successful, None if already running."""
+    """
+    Acquire a single-instance lock using the configured lock file.
+    
+    If an existing lock file contains a PID whose process is no longer running, the stale lock file is removed before acquiring a new lock. On success this function leaves the lock file open and written with the current PID; keep the returned file handle open to maintain the lock and close it to release the lock.
+    
+    Returns:
+        file handle: Open file object for the lock file while the lock is held, or `None` if the lock could not be acquired.
+    """
     try:
         # Check if stale lock (process died without cleanup)
         if os.path.exists(LOCK_FILE):
@@ -46,6 +53,13 @@ def acquire_lock():
 
 class BastionClient(QObject):
     def __init__(self, app):
+        """
+        Initialize the BastionClient GUI: configure internal state, create the system tray icon and context menu, start timers, and begin polling the daemon socket.
+        
+        Sets default attributes (socket path, buffers, connection state and control_panel handle), prepares a tray icon with a pixmap fallback if necessary, installs a periodic tray-visibility checker, builds the context menu (status label, Control Panel, firewall Start/Stop/Restart, Quit), starts a connect timer that calls try_connect every 2 seconds, and performs the initial connection attempt.
+        Parameters:
+            app (QApplication): The QApplication instance used to integrate with the Qt event loop and to call quit from the tray menu.
+        """
         super().__init__()
         self.app = app
         self.socket_path = '/run/bastion/daemon.sock'
@@ -121,12 +135,23 @@ class BastionClient(QObject):
         self.try_connect()
 
     def _ensure_tray_visible(self):
-        """Ensure tray icon is visible (check every 5 seconds)."""
+        """
+        Ensure the system tray icon is visible.
+        
+        If the tray icon is currently hidden, make it visible.
+        """
         if not self.tray_icon.isVisible():
             print("[TRAY] Tray icon is hidden, making it visible again")
             self.tray_icon.setVisible(True)
 
     def try_connect(self):
+        """
+        Attempt to establish a connection to the daemon and update client state accordingly.
+        
+        If the daemon socket is missing, updates the tray status to indicate the daemon is not running.
+        On successful connection, creates and configures a non-blocking Unix-domain socket, installs a read notifier, marks the client as connected, stops the reconnect timer, and updates the tray status to connected.
+        On any connection error, updates the tray status to indicate the failure.
+        """
         if self.connected:
             return
 
@@ -215,6 +240,22 @@ class BastionClient(QObject):
         self.connect_timer.start(2000)
 
     def process_message(self, line):
+        """
+        Process a single newline-delimited JSON message from the daemon and dispatch it to the appropriate handler.
+        
+        Parameters:
+            line (str): A single JSON-encoded message received from the daemon.
+        
+        Description:
+            Parses `line` as JSON and dispatches based on the message `type` field. Supported types:
+            - "connection_request": forwards to the connection request handler.
+            - "usb_request": forwards to the USB request handler.
+            - "stats_update": acknowledged but no action taken here.
+            - "notification": forwards to the notification handler.
+        
+        Behavior:
+            Calls the corresponding handler for recognized message types and silently ignores malformed JSON or unrecognized message types.
+        """
         try:
             req = json.loads(line)
             if req['type'] == 'connection_request':
@@ -244,6 +285,14 @@ class BastionClient(QObject):
         self.tray_icon.showMessage(title, message, icon, 5000)
 
     def handle_connection_request(self, req):
+        """
+        Prompt the user to allow or deny an incoming connection request and send the decision to the daemon.
+        
+        Displays a FirewallDialog prefilled with data from the daemon `req`, waits up to 30 seconds for the user's decision, and—if the client is connected—sends a JSON response of the form `{"allow": <bool>, "permanent": <bool>}\n` back over the control socket. If sending fails the client will be disconnected.
+        
+        Parameters:
+            req (dict): The daemon-provided connection request payload used to populate the dialog.
+        """
         dialog = FirewallDialog(req, timeout=30)
         result = dialog.exec()
 
@@ -259,7 +308,14 @@ class BastionClient(QObject):
                 self.handle_disconnect()
 
     def handle_usb_request(self, req):
-        """Handle USB device authorization request from daemon."""
+        """
+        Present a user prompt for an incoming USB device authorization request and send the user's decision back to the daemon.
+        
+        Constructs a USBDeviceInfo from the provided request dictionary, displays a USBPromptDialog (30-second timeout) to obtain the user's `verdict`, `scope`, and `save_rule`, and, when connected, sends a newline-terminated JSON message of type `usb_response` containing those fields to the daemon. If sending the response fails, the client disconnects; if not connected, no response is sent.
+        
+        Parameters:
+        	req (dict): Daemon-provided USB attributes (expected keys include `vendor_id`, `product_id`, `vendor_name`, `product_name`, `device_class`, `serial`, `bus_id`). Default values are used for missing keys.
+        """
         from bastion.usb_device import USBDeviceInfo
         from bastion.usb_gui import USBPromptDialog
 
@@ -307,6 +363,11 @@ class BastionClient(QObject):
             print(f"[USB] Not connected, cannot send response")
 
     def open_control_panel(self):
+        """
+        Launches the external Bastion Control Panel application.
+        
+        Attempts to start the `/usr/bin/bastion-control-panel` executable using the current environment. On failure, displays a critical QMessageBox with the error and logs an error message to standard output.
+        """
         import subprocess
         try:
             env = os.environ.copy()

@@ -33,12 +33,23 @@ class ConfirmDeleteDialog(QDialog):
     """
 
     def __init__(self, device_name: str, parent=None):
+        """
+        Create a confirmation dialog for deleting a USB rule for the given device.
+        
+        Parameters:
+            device_name (str): Human-readable name of the device shown in the dialog.
+        """
         super().__init__(parent)
         self.device_name = device_name
         self.confirmed = False
         self.init_ui()
 
     def init_ui(self):
+        """
+        Builds and applies the dialog's user interface for confirming deletion of a USB rule.
+        
+        Creates and styles the dialog window, header (warning icon and title), an information box that displays the target device name, and a row of action buttons. The Cancel button rejects the dialog and the Delete button accepts it; visual theming, sizing, and window flags are configured to match the application's design.
+        """
         self.setWindowTitle("Confirm Deletion")
         self.setFixedSize(450, 200)
 
@@ -110,7 +121,19 @@ class ConfirmDeleteDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def create_button(self, text, color, outline=False):
-        """Create a styled button matching the app theme."""
+        """
+        Create a QPushButton styled to match the application's theme.
+        
+        The visual variant depends on `outline`: the outline variant uses a transparent background and colored border, while the filled variant uses the provided color as the button background.
+        
+        Parameters:
+            text (str): The button label.
+            color (str | QColor): Accent color to apply (hex color string or QColor).
+            outline (bool): If True, produce an outline-style button; otherwise produce a filled-style button.
+        
+        Returns:
+            QPushButton: A styled QPushButton instance with a pointing-hand cursor.
+        """
         btn = QPushButton(text)
         if outline:
             style = f"""
@@ -152,6 +175,21 @@ class USBPromptDialog(QDialog):
     """
 
     def __init__(self, device: USBDeviceInfo, timeout: int = 30):
+        """
+        Initialize the dialog used to prompt the user about a newly detected USB device.
+        
+        Parameters:
+            device (USBDeviceInfo): Information about the detected USB device to show in the dialog.
+            timeout (int): Countdown in seconds before an automatic decision; 0 disables the timer.
+        
+        Attributes set:
+            device (USBDeviceInfo): The provided device info.
+            timeout (int): The configured timeout.
+            time_remaining (int): Seconds left on the countdown (initialized to `timeout`).
+            verdict (Optional[Verdict]): User decision, either `'allow'` or `'block'`, or `None` if undecided.
+            scope (Scope): Scope of the decision (`'device'`, `'model'`, or `'vendor'`), default `'device'`.
+            save_rule (bool): Whether the decision should be persisted (`True` for "Always", `False` for "Once").
+        """
         super().__init__()
         self.device = device
         self.timeout = timeout
@@ -167,6 +205,11 @@ class USBPromptDialog(QDialog):
             self.start_timer()
 
     def init_ui(self):
+        """
+        Initialize and lay out the dialog's user interface for prompting the user about a newly detected USB device.
+        
+        Configures window appearance and behavior, applies risk-based theming, and builds the visible components: header with icon and title, an information card showing device name and details (vendor, type, IDs, optional serial), an optional high-risk warning, scope selection radio buttons (device/model/vendor), action buttons for allowing or blocking (both "Once" and "Always" variants) with their signal connections, and an optional countdown progress bar when a timeout is set.
+        """
         self.setWindowTitle(STRINGS["usb_device_title"])
         self.setFixedSize(500, 550)  # Slightly taller for scope options
 
@@ -337,7 +380,14 @@ class USBPromptDialog(QDialog):
             layout.addWidget(self.progress)
 
     def add_detail_row(self, layout, label, value):
-        """Add a detail row - same format as FirewallDialog."""
+        """
+        Add a labeled detail row to a layout showing a bold label and its value.
+        
+        Parameters:
+        	layout (QLayout): Parent layout to which the row will be appended.
+        	label (str): Text for the left label (a colon is appended).
+        	value (Any): Value to display on the right; converted to string.
+        """
         row = QHBoxLayout()
         row.setSpacing(10)
         lbl = QLabel(label + ":")
@@ -352,7 +402,17 @@ class USBPromptDialog(QDialog):
         layout.addLayout(row)
 
     def create_button(self, text, color, outline=False):
-        """Create a styled button - same as FirewallDialog."""
+        """
+        Create a themed QPushButton with the given label, accent color, and outline option.
+        
+        Parameters:
+            text (str): Label displayed on the button.
+            color (str): CSS color value (e.g., hex or named color) used for the button's background or border.
+            outline (bool): If True, renders the button as an outline variant (transparent background with colored border); otherwise renders a filled variant.
+        
+        Returns:
+            QPushButton: A styled QPushButton instance with cursor and hover styles applied.
+        """
         btn = QPushButton(text)
         if outline:
             style = f"""
@@ -387,7 +447,12 @@ class USBPromptDialog(QDialog):
         return btn
 
     def _get_selected_scope(self) -> Scope:
-        """Get the selected scope from radio buttons."""
+        """
+        Determine which scope option is selected in the dialog.
+        
+        Returns:
+            'model' if the "This product model" option is selected, 'vendor' if the "All vendor" option is selected, 'device' otherwise.
+        """
         if self.rb_model.isChecked():
             return 'model'
         elif self.rb_vendor.isChecked():
@@ -395,7 +460,11 @@ class USBPromptDialog(QDialog):
         return 'device'
 
     def start_timer(self):
-        """Start countdown timer - same as FirewallDialog."""
+        """
+        Start and run the dialog countdown timer when a positive timeout is configured.
+        
+        When `timeout` is greater than zero, creates a QTimer that invokes `update_timer` every 100 milliseconds.
+        """
         if self.timeout <= 0:
             return
         self.timer = QTimer(self)
@@ -403,7 +472,11 @@ class USBPromptDialog(QDialog):
         self.timer.start(100)  # Update every 100ms like FirewallDialog
 
     def update_timer(self):
-        """Update countdown timer - same as FirewallDialog."""
+        """
+        Advance the dialog's countdown by one tick and handle timeout.
+        
+        Decrements the progress bar by one. If the countdown reaches zero, stops the timer and applies a one-time block decision without saving a rule.
+        """
         current = self.progress.value()
         if current <= 0:
             self.timer.stop()
@@ -412,7 +485,12 @@ class USBPromptDialog(QDialog):
         self.progress.setValue(current - 1)
 
     def allow_device(self, save_rule: bool = True):
-        """User chose to allow the device."""
+        """
+        Record that the user allowed the presented USB device and close the dialog.
+        
+        Parameters:
+            save_rule (bool): If True, persist this allow decision as a rule; if False, apply the allow decision for this connection only.
+        """
         self.verdict = 'allow'
         self.scope = self._get_selected_scope()
         self.save_rule = save_rule
@@ -421,7 +499,18 @@ class USBPromptDialog(QDialog):
         self.accept()
 
     def block_device(self, save_rule: bool = True):
-        """User chose to block the device."""
+        """
+        Record a block decision for the current device and close the dialog.
+        
+        Parameters:
+            save_rule (bool): If True, persist the block decision as a rule; if False, apply the block only once.
+        
+        Effects:
+            - Sets `verdict` to `'block'`.
+            - Updates `scope` to the currently selected scope from the UI.
+            - Stores the provided `save_rule` value.
+            - Closes the dialog by rejecting it.
+        """
         self.verdict = 'block'
         self.scope = self._get_selected_scope()
         self.save_rule = save_rule
@@ -430,7 +519,14 @@ class USBPromptDialog(QDialog):
         self.reject()
 
     def keyPressEvent(self, event):
-        """Handle keyboard shortcuts."""
+        """
+        Handle key presses to trigger allow or block actions.
+        
+        Processes a key press event: 'A' triggers allow_device(), 'B' or Escape triggers block_device(); all other keys are passed to the base implementation.
+        
+        Parameters:
+            event (QKeyEvent): The key event to process.
+        """
         key = event.key()
         if key == Qt.Key.Key_A:
             self.allow_device()
@@ -452,12 +548,25 @@ class USBControlWidget(QWidget):
     """
 
     def __init__(self, parent=None):
+        """
+        Create the USB control panel widget and initialize its state.
+        
+        Initializes the USB rule manager, builds the widget UI, and loads current rules into the view.
+        
+        Parameters:
+            parent (QWidget | None): Optional parent widget for ownership in the Qt hierarchy.
+        """
         super().__init__(parent)
         self.rule_manager = USBRuleManager()
         self.init_ui()
         self.refresh()
 
     def init_ui(self):
+        """
+        Builds and configures the widget's user interface for USB device management.
+        
+        Creates and arranges the header, status card (including status labels and the enable/disable toggle), the Allowed and Blocked device sections with their respective "Delete Selected" buttons and device tables, and a refresh control. Sets these instance attributes for later use by the widget logic: `lbl_status`, `lbl_status_desc`, `btn_toggle`, `btn_delete_allowed`, `table_allowed`, `btn_delete_blocked`, `table_blocked`.
+        """
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.setSpacing(20)
@@ -616,7 +725,14 @@ class USBControlWidget(QWidget):
         layout.addLayout(btn_layout)
 
     def _create_device_table(self) -> QTableWidget:
-        """Create a styled device table."""
+        """
+        Create a QTableWidget configured for displaying USB device rules.
+        
+        The table has four columns: "Device", "Vendor", "Scope", and "Added". It is styled to match the application's theme, hides row numbers and grid lines, restricts interaction to single-row selection with no in-place editing, and constrains its maximum height for compact display.
+        
+        Returns:
+            QTableWidget: A preconfigured table widget ready for populating with device rule rows.
+        """
         table = QTableWidget()
         table.setColumnCount(4)
         table.setHorizontalHeaderLabels(["Device", "Vendor", "Scope", "Added"])
@@ -659,7 +775,11 @@ class USBControlWidget(QWidget):
         return table
 
     def refresh(self):
-        """Refresh the device lists from rules."""
+        """
+        Reload USB rules and update the device tables and status label.
+        
+        Reloads the USBRuleManager from persistent storage, repopulates the allowed and blocked device tables, and updates the status description to show current counts of allowed and blocked devices.
+        """
         self.rule_manager = USBRuleManager()  # Reload from disk
 
         allowed = self.rule_manager.get_allowed_devices()
@@ -673,7 +793,19 @@ class USBControlWidget(QWidget):
         self.lbl_status_desc.setText(f"Monitoring • {len(allowed)} allowed, {len(blocked)} blocked")
 
     def _populate_table(self, table: QTableWidget, rules: list[USBRule]):
-        """Populate a table with rules."""
+        """
+        Populate the given QTableWidget with USB rule entries and record each rule's key.
+        
+        Each row shows Product, Vendor, Scope (capitalized), and an added timestamp. The `added`
+        timestamp is parsed as ISO format and displayed as "YYYY-MM-DD HH:MM" when possible;
+        otherwise the function uses the first 16 characters of the stored value or "Unknown".
+        Also sets `table.rule_keys` to a list mapping row index -> rule.key for later operations.
+        
+        Parameters:
+            table (QTableWidget): Table to populate; must have four columns: Device, Vendor, Scope, Added.
+            rules (list[USBRule]): List of USBRule objects to display. Each rule must provide
+                `product_name`, `vendor_name`, `scope`, `added`, and `key`.
+        """
         table.setRowCount(len(rules))
         # Store rule keys for deletion
         table.rule_keys = []
@@ -694,7 +826,11 @@ class USBControlWidget(QWidget):
             table.rule_keys.append(rule.key)
 
     def _toggle_usb_protection(self):
-        """Toggle USB protection on/off."""
+        """
+        Flip the USB protection state, update the widget UI, and apply the corresponding system default policy.
+        
+        This method toggles self.usb_enabled, updates the toggle button text and styling and the status label to reflect the new state, and calls _set_usb_default_policy(authorize=False) when protection is enabled (new devices will be blocked) or _set_usb_default_policy(authorize=True) when protection is disabled (new devices will be allowed).
+        """
         import subprocess
 
         self.usb_enabled = not self.usb_enabled
@@ -742,13 +878,12 @@ class USBControlWidget(QWidget):
 
     def _set_usb_default_policy(self, authorize: bool):
         """
-        Set USB default authorization policy via bastion-root-helper.
-
-        Uses the dedicated root helper CLI to safely change USB policy
-        without any code injection risks.
-
-        Args:
-            authorize: True = allow new devices, False = block new devices
+        Update the system USB default policy to either allow or block new devices using the privileged root helper.
+        
+        Attempts to apply the requested policy with the system root helper and shows user-facing notifications if the operation fails or times out; logs outcomes for auditability.
+        
+        Parameters:
+            authorize (bool): True to set the default policy to allow new devices, False to set it to block new devices.
         """
         policy_arg = '--authorize' if authorize else '--block'
         policy_name = 'allow' if authorize else 'block'
@@ -809,7 +944,13 @@ class USBControlWidget(QWidget):
         self._delete_rule_with_privilege(key, device_name)
 
     def _delete_blocked_selected(self):
-        """Delete selected blocked device rules."""
+        """
+        Delete the currently selected blocked USB rule after confirming with the user.
+        
+        If no row is selected the method does nothing. When a row is selected, a confirmation
+        dialog is shown; accepting the dialog triggers removal of the corresponding rule
+        using elevated privileges.
+        """
         selected_rows = self.table_blocked.selectionModel().selectedRows()
         if not selected_rows:
             return
@@ -836,15 +977,17 @@ class USBControlWidget(QWidget):
 
     def _delete_rule_with_privilege(self, key: str, device_name: str):
         """
-        Delete a USB rule with elevated privileges using bastion-root-helper.
-
-        Uses the dedicated root helper CLI to safely delete rules
-        without any code injection risks. The key is passed as a CLI
-        argument, not interpolated into code.
-
-        Args:
-            key: The rule key to delete (will be validated by the helper)
-            device_name: The device name for user feedback
+        Delete a USB rule using the bastion-root-helper with elevated privileges.
+        
+        Invokes `pkexec bastion-root-helper usb-rule delete --key <key>` to remove the rule.
+        On success shows a success notification and refreshes the widget. If the helper reports
+        the rule is not found, shows a "Not Found" notification. On timeout, missing helper,
+        user cancellation, or other errors the function shows an appropriate error or timeout
+        notification and logs the outcome.
+        
+        Parameters:
+            key (str): The rule key to delete; the helper validates the key format.
+            device_name (str): Human-readable device name used in user-facing notifications.
         """
         from bastion.notification import show_notification
 
@@ -918,4 +1061,3 @@ def test_usb_prompt():
 
 if __name__ == '__main__':
     test_usb_prompt()
-

@@ -48,9 +48,17 @@ class USBRule:
     @property
     def key(self) -> str:
         """
-        Generate unique key for this rule based on scope.
-
-        All components are sanitized to prevent injection attacks.
+        Produce the unique storage key for this USB rule based on its scope.
+        
+        The returned key encodes the rule's scope as one of:
+        - vendor: "vendor_id:*:*"
+        - model:  "vendor_id:product_id:*"
+        - device: "vendor_id:product_id:serial" (uses "no-serial" when serial is not set)
+        
+        All identifier components are sanitized before being incorporated into the key.
+        
+        Returns:
+            key (str): The sanitized, colon-separated storage key for this rule.
         """
         # Ensure IDs are properly formatted
         vendor_id = USBValidation.sanitize_hex_id(self.vendor_id)
@@ -66,12 +74,28 @@ class USBRule:
             return f"{vendor_id}:{product_id}:{serial}"
 
     def to_dict(self) -> dict:
-        """Convert to dictionary for JSON storage."""
+        """
+        Return a dictionary representation of the USBRule suitable for JSON storage.
+        
+        Only include fields whose value is not None; keys are the dataclass field names and values are the corresponding field values.
+        """
         return {k: v for k, v in asdict(self).items() if v is not None}
     
     @classmethod
     def from_dict(cls, data: dict) -> 'USBRule':
-        """Create from dictionary, with validation and sanitization."""
+        """
+        Create a USBRule from a dictionary, applying validation and sanitization.
+        
+        Parameters:
+            data (dict): Serialized rule data (typically from JSON). Expected keys include
+                'verdict', 'vendor_id', 'product_id', 'vendor_name', 'product_name',
+                'scope', 'added', 'last_seen', and 'serial'.
+        
+        Returns:
+            USBRule: A USBRule instance constructed from the input data. Fields are
+            validated/sanitized; missing fields receive safe defaults (e.g., verdict -> 'block',
+            vendor/product names -> 'Unknown'); a serial value of 'no-serial' is converted to None.
+        """
         # Sanitize serial if present (could contain malicious data from old rules)
         raw_serial = data.get('serial')
         serial = USBValidation.sanitize_serial(raw_serial) if raw_serial else None
@@ -108,7 +132,12 @@ class USBRuleManager:
 
     @classmethod
     def get_default_path(cls) -> Path:
-        """Get the rules path - always /etc/bastion for USB rules."""
+        """
+        Return the fixed filesystem path used for storing USB rules.
+        
+        Returns:
+            Path: The system path for the USB rules file (`/etc/bastion/usb_rules.json`).
+        """
         return cls.SYSTEM_PATH
 
     DEFAULT_PATH = SYSTEM_PATH
@@ -120,10 +149,11 @@ class USBRuleManager:
     
     def __init__(self, db_path: Optional[Path] = None):
         """
-        Initialize the rule manager.
-
-        Args:
-            db_path: Override path for testing. In production, uses get_default_path().
+        Create a USBRuleManager using the provided database path or the module default.
+        
+        Parameters:
+            db_path (Optional[Path]): Optional override for the rules JSON file path (primarily for testing); when omitted the manager uses the configured default system path.
+        
         """
         self.db_path = db_path or self.get_default_path()
         self._rules: dict[str, USBRule] = {}
@@ -131,9 +161,12 @@ class USBRuleManager:
     
     def _ensure_dir(self):
         """
-        Ensure parent directory exists with correct permissions.
-
-        Security: Rejects symlinked directories to prevent symlink attacks.
+        Ensure the rule database's parent directory exists with the configured directory permissions.
+        
+        Creates the parent directory path if missing and enforces non-symlink ownership; updates the directory mode to DIR_MODE.
+        
+        Raises:
+            SecurityError: If the parent directory is a symbolic link.
         """
         parent = self.db_path.parent
 
@@ -153,12 +186,9 @@ class USBRuleManager:
     
     def _load(self):
         """
-        Load rules from JSON file with backwards compatibility.
-
-        Handles migration from old key formats:
-        - Sanitizes keys that may contain unsafe characters
-        - Updates rules to use new sanitized key format
-        - Logs warnings for migrated rules
+        Load USB rules from the manager's JSON database, validate each entry, and migrate stored keys to the sanitized format when necessary.
+        
+        Refuses to read symlinked files, warns about and attempts to fix insecure file permissions, skips invalid entries, constructs sanitized USBRule objects for valid entries, records and logs any key migrations, and triggers a save when migrations were applied. 
         """
         self._rules = {}
         needs_save = False  # Track if we need to re-save with sanitized keys
@@ -282,13 +312,15 @@ class USBRuleManager:
 
     def _make_key(self, device: USBDeviceInfo, scope: Scope) -> str:
         """
-        Generate storage key for a device/scope combination.
-
-        All components are sanitized to prevent injection attacks.
-        Key formats:
-        - device: vid:pid:serial (e.g., '046d:c52b:ABC123')
-        - model: vid:pid:* (e.g., '046d:c52b:*')
-        - vendor: vid:*:* (e.g., '046d:*:*')
+        Generate the normalized storage key for a USB device at the given scope.
+        
+        All components are sanitized to prevent injection. Key formats:
+        - device: `vid:pid:serial` (e.g., `046d:c52b:ABC123`)
+        - model:  `vid:pid:*`      (e.g., `046d:c52b:*`)
+        - vendor: `vid:*:*`        (e.g., `046d:*:*`)
+        
+        Returns:
+            key (str): The sanitized storage key for the device and scope.
         """
         # Sanitize vendor/product IDs (should already be clean, but defense in depth)
         vendor_id = USBValidation.sanitize_hex_id(device.vendor_id)
@@ -305,10 +337,12 @@ class USBRuleManager:
 
     def get_verdict(self, device: USBDeviceInfo) -> Optional[Verdict]:
         """
-        Get verdict for a device.
-
-        Checks in order: exact device → model → vendor.
-        Returns None if no matching rule (unknown device).
+        Determine the stored verdict for a USB device by checking specific-to-general rules.
+        
+        Checks rule keys in this order: device (most specific), model, then vendor. If a device-scoped rule matches, its `last_seen` timestamp is updated to the current time.
+        
+        Returns:
+            `Verdict` if a matching rule exists, `None` otherwise.
         """
         # Check exact device first (most specific)
         device_key = self._make_key(device, 'device')
@@ -355,26 +389,41 @@ class USBRuleManager:
         logger.info(f"Added USB rule: {verdict} {device.product_name} (scope={scope})")
 
     def get_all_rules(self) -> dict[str, USBRule]:
-        """Get all stored rules."""
+        """
+        Get a shallow copy of all stored USB rules keyed by their storage key.
+        
+        Returns:
+            dict: Mapping from rule storage key (str) to corresponding USBRule instance; the mapping is a shallow copy of the manager's internal rules.
+        """
         return self._rules.copy()
 
     def get_allowed_devices(self) -> list[USBRule]:
-        """Get all allowed device rules."""
+        """
+        Retrieve rules with verdict `allow`.
+        
+        Returns:
+            List of USBRule objects for stored rules whose `verdict` is `allow`.
+        """
         return [r for r in self._rules.values() if r.verdict == 'allow']
 
     def get_blocked_devices(self) -> list[USBRule]:
-        """Get all blocked device rules."""
+        """
+        Return all stored rules that have a verdict of 'block'.
+        
+        Returns:
+            blocked_rules (list[USBRule]): List of USBRule objects with `verdict == 'block'`.
+        """
         return [r for r in self._rules.values() if r.verdict == 'block']
 
     def remove_rule(self, key: str) -> bool:
         """
-        Remove a rule by its key.
-
-        Args:
-            key: The rule key (e.g., '04e8:6860:SERIAL123')
-
+        Remove the USB rule identified by the given storage key.
+        
+        Parameters:
+            key (str): Storage key of the rule (e.g., '04e8:6860:SERIAL123').
+        
         Returns:
-            True if rule was removed, False if not found
+            bool: True if the rule was removed, False otherwise.
         """
         if key in self._rules:
             del self._rules[key]
@@ -384,7 +433,11 @@ class USBRuleManager:
         return False
 
     def clear_all(self):
-        """Remove all rules. Use with caution!"""
+        """
+        Remove all stored USB rules and persist the empty rule set.
+        
+        Clears the in-memory rules dictionary and writes the empty rules database to storage.
+        """
         self._rules = {}
         self._save()
         logger.warning("Cleared all USB rules")
@@ -407,7 +460,18 @@ class USBAuthorizer:
 
     @classmethod
     def _get_auth_path(cls, bus_id: str) -> Path:
-        """Get authorization file path for device."""
+        """
+        Builds a sanitized path to the USB device's sysfs "authorized" file.
+        
+        The provided `bus_id` is cleaned to remove unsafe characters and validated to prevent path traversal or absolute paths; a `ValueError` is raised for invalid inputs.
+        
+        Parameters:
+            bus_id (str): Raw bus identifier (for example "1-2.3").
+        
+        Returns:
+            Path: Filesystem path to the device's "authorized" file under sysfs.
+        
+        """
         # Sanitize bus_id to prevent path traversal
         # Only allow alphanumeric and dash (bus_id format: "1-2.3" becomes "1-23")
         safe_bus_id = re.sub(r'[^0-9a-zA-Z.-]', '', bus_id)
@@ -420,10 +484,13 @@ class USBAuthorizer:
     @classmethod
     def is_authorized(cls, bus_id: str) -> Optional[bool]:
         """
-        Check if device is currently authorized.
-
+        Determine whether the USB device identified by bus_id is currently authorized.
+        
+        Parameters:
+            bus_id (str): USB device bus ID as exposed in sysfs (for example '1-1.2').
+        
         Returns:
-            True if authorized, False if not, None if cannot determine.
+            bool | None: `True` if the device is authorized, `False` if it is not, `None` if the authorization status cannot be determined (for example, if the sysfs file is unreadable).
         """
         auth_path = cls._get_auth_path(bus_id)
         try:
@@ -436,10 +503,13 @@ class USBAuthorizer:
     @classmethod
     def authorize(cls, bus_id: str) -> bool:
         """
-        Authorize (enable) a USB device.
-
+        Enable a USB device by writing '1' to its authorized sysfs file.
+        
+        Parameters:
+            bus_id (str): Identifier of the USB device directory in sysfs (will be validated/sanitized).
+        
         Returns:
-            True if successful, False otherwise.
+            True if the device was successfully authorized, False otherwise.
         """
         auth_path = cls._get_auth_path(bus_id)
         try:
@@ -453,13 +523,15 @@ class USBAuthorizer:
     @classmethod
     def deauthorize(cls, bus_id: str) -> bool:
         """
-        Deauthorize (disable) a USB device.
-
-        WARNING: Deauthorizing a device will immediately disconnect it.
-        This can cause data loss if the device is in use (e.g., USB drive).
-
+        Disable a USB device by clearing its sysfs 'authorized' flag.
+        
+        This will immediately disconnect the device; doing so may cause data loss if the device is in use.
+        
+        Parameters:
+            bus_id (str): Sysfs USB bus ID (e.g., "1-1"); the value will be validated/sanitized before use.
+        
         Returns:
-            True if successful, False otherwise.
+            True if the device was successfully deauthorized, False otherwise.
         """
         auth_path = cls._get_auth_path(bus_id)
         try:
@@ -472,20 +544,27 @@ class USBAuthorizer:
 
     @classmethod
     def device_exists(cls, bus_id: str) -> bool:
-        """Check if device exists in sysfs."""
+        """
+        Determine whether a sysfs directory exists for the given USB bus identifier.
+        
+        Parameters:
+            bus_id (str): The bus filesystem identifier of the USB device.
+        
+        Returns:
+            bool: `True` if a sysfs device directory for `bus_id` exists, `False` otherwise.
+        """
         return cls._get_auth_path(bus_id).parent.exists()
 
     @classmethod
     def set_default_policy(cls, authorize: bool) -> bool:
         """
-        Set the default USB authorization policy for new devices.
-
-        Args:
-            authorize: True = new devices auto-authorized (insecure default)
-                      False = new devices blocked until explicitly authorized
-
+        Set the default USB authorization policy applied to new devices on USB host controllers.
+        
+        Parameters:
+            authorize (bool): If True, new devices are authorized by default; if False, new devices are blocked by default.
+        
         Returns:
-            True if at least one controller was configured, False on total failure.
+            bool: True if at least one controller's `authorized_default` was successfully configured, False otherwise.
         """
         value = '1' if authorize else '0'
         success_count = 0
@@ -508,4 +587,3 @@ class USBAuthorizer:
         else:
             logger.error("Failed to set USB default policy on any controller")
             return False
-

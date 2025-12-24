@@ -37,11 +37,28 @@ STRINGS = {
 
 
 def get_color(name: str, default: str = "#ffffff") -> str:
-    """Get color by name with fallback."""
+    """
+    Retrieve a color hex string from the theme palette.
+    
+    Parameters:
+        name (str): Key identifying the desired color in the module-level COLORS mapping.
+        default (str): Hex color string to return if `name` is not present in COLORS.
+    
+    Returns:
+        str: The hex color string associated with `name`, or `default` if not found.
+    """
     return COLORS.get(name, default)
 
 
 def get_string(key: str, default: str = "") -> str:
-    """Get localized string by key with fallback."""
+    """
+    Retrieve a UI text string by key from the module's STRINGS dictionary.
+    
+    Parameters:
+        key (str): The lookup key for the desired localized string.
+        default (str): Fallback string returned when the key is not present in STRINGS.
+    
+    Returns:
+        str: The string associated with `key`, or `default` if the key is not found.
+    """
     return STRINGS.get(key, default)
-

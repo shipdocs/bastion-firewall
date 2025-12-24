@@ -24,7 +24,15 @@ from bastion.root_helper import (
 
 
 def test_validate_key():
-    """Test key validation function."""
+    """
+    Run assertions to verify that validate_key accepts valid USB key patterns and rejects unsafe or malformed inputs.
+    
+    This test checks that:
+    - Valid device, model, and vendor patterns (e.g., "046d:c52b:ABC123", "046d:c52b:*", "046d:*:*") are accepted.
+    - Inputs that represent shell injection, command substitution, path traversal, embedded quotes, semicolons, backticks, excessively long keys, empty or None values, and other malformed formats are rejected.
+    
+    The function raises an AssertionError if any expectation fails.
+    """
     print("=" * 60)
     print("Testing validate_key()")
     print("=" * 60)
@@ -103,7 +111,11 @@ def test_main_help():
 
 
 def test_main_version():
-    """Test that --version works."""
+    """
+    Verify the CLI exits with status 0 when invoked with `--version`.
+    
+    This test calls the module's `main` entrypoint with `--version` and asserts that it raises a SystemExit with code 0.
+    """
     print("\n" + "=" * 60)
     print("Testing --version")
     print("=" * 60)
@@ -141,7 +153,13 @@ def test_usb_rule_delete_invalid_key():
 
 
 def test_usb_rule_delete_valid_key():
-    """Test that valid keys are processed (with mocked USBRuleManager)."""
+    """
+    Verify that 'usb-rule delete' accepts a valid device key and calls USBRuleManager.remove_rule.
+    
+    The test patches bastion.usb_rules.USBRuleManager with a mock instance whose remove_rule returns True,
+    invokes cmd_usb_rule_delete with a well-formed key, asserts a zero result code, and verifies the
+    mock's remove_rule was called once with the provided key.
+    """
     print("\n" + "=" * 60)
     print("Testing usb-rule delete with valid key")
     print("=" * 60)
@@ -169,4 +187,3 @@ if __name__ == "__main__":
     test_usb_rule_delete_invalid_key()
     test_usb_rule_delete_valid_key()
     print("\n🎉 All root helper tests passed!")
-
