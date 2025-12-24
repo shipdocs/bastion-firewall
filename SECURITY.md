@@ -66,7 +66,8 @@ All user-controllable inputs are validated and sanitized:
 | USB Rule Key | Format: `vid:pid:serial` or `vid:pid:*` | 256 chars |
 | Vendor/Product Name | Printable ASCII, no control chars | 256 chars |
 
-Shell metacharacters (`; | & $ \` ' " ( ) { } < > \n \r \0`) are stripped from all inputs.
+Shell metacharacters are stripped from USB identifiers (vendor/product IDs, serial numbers, rule keys).
+User-facing strings (vendor/product names) have control characters removed but may contain safe punctuation.
 
 ### Audit Logging
 

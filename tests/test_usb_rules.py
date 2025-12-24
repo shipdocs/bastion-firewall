@@ -177,8 +177,8 @@ def test_authorizer():
     
     # Test path traversal prevention
     try:
-        evil_path = USBAuthorizer._get_auth_path('../../../etc/passwd')
-        assert False, "Should have raised ValueError for path traversal attempt"
+        USBAuthorizer._get_auth_path('../../../etc/passwd')
+        raise AssertionError("Should have raised ValueError for path traversal attempt")
     except ValueError as e:
         assert "Invalid bus_id" in str(e)
         print(f"✅ Path traversal blocked: {e}")
