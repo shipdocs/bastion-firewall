@@ -271,7 +271,23 @@ class BastionClient(QObject):
         print(f"[USB] Received USB request: {req.get('product_name', 'Unknown')}")
 
         # Extract nonce for anti-spoofing (daemon requires this to be echoed back)
-        nonce = req.get('nonce', '')
+        # Reject requests without nonce - could be malicious injection attempt
+        nonce = req.get('nonce')
+        if not nonce:
+            print("[USB] Missing nonce in request - rejecting (possible spoofing)")
+            if self.connected and self.sock:
+                resp = json.dumps({
+                    'type': 'usb_response',
+                    'nonce': '',
+                    'verdict': 'block',
+                    'scope': 'device',
+                    'save_rule': False
+                }) + '\n'
+                try:
+                    self.sock.sendall(resp.encode())
+                except OSError:
+                    self.handle_disconnect()
+            return
 
         # Convert request to USBDeviceInfo
         device = USBDeviceInfo(
