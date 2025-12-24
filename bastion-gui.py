@@ -50,6 +50,7 @@ class BastionClient(QObject):
         self.notifier = None
         self.buffer = ""
         self.connected = False
+        self.control_panel = None  # Track control panel window
 
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
@@ -75,6 +76,11 @@ class BastionClient(QObject):
         self.tray_icon.setIcon(icon)
         self.tray_icon.setVisible(True)
         print(f"[TRAY] Tray icon visible: {self.tray_icon.isVisible()}")
+
+        # Timer to check tray icon visibility (in case it disappears)
+        self.tray_check_timer = QTimer()
+        self.tray_check_timer.timeout.connect(self._ensure_tray_visible)
+        self.tray_check_timer.start(5000)  # Check every 5 seconds
         
         # Menu
         self.menu = QMenu()
@@ -111,10 +117,16 @@ class BastionClient(QObject):
         # Initial connection attempt
         self.try_connect()
 
+    def _ensure_tray_visible(self):
+        """Ensure tray icon is visible (check every 5 seconds)."""
+        if not self.tray_icon.isVisible():
+            print("[TRAY] Tray icon is hidden, making it visible again")
+            self.tray_icon.setVisible(True)
+
     def try_connect(self):
         if self.connected:
             return
-            
+
         if not os.path.exists(self.socket_path):
             self.update_status("Daemon not running", "security-low")
             return
@@ -248,6 +260,8 @@ class BastionClient(QObject):
         from bastion.usb_device import USBDeviceInfo
         from bastion.usb_gui import USBPromptDialog
 
+        print(f"[USB] Received USB request: {req.get('product_name', 'Unknown')}")
+
         # Convert request to USBDeviceInfo
         device = USBDeviceInfo(
             vendor_id=req.get('vendor_id', '0000'),
@@ -260,8 +274,17 @@ class BastionClient(QObject):
         )
 
         # Show USB prompt dialog
+        print(f"[USB] Showing prompt dialog for: {device.product_name}")
         dialog = USBPromptDialog(device, timeout=30)
+
+        # Make sure dialog is shown (raise to top, set focus)
+        dialog.raise_()
+        dialog.activateWindow()
+        dialog.setFocus()
+
         result = dialog.exec()
+
+        print(f"[USB] Dialog result: {dialog.verdict} (scope={dialog.scope})")
 
         # Send response
         if self.connected and self.sock:
@@ -272,8 +295,12 @@ class BastionClient(QObject):
             }) + '\n'
             try:
                 self.sock.sendall(resp.encode())
-            except:
+                print(f"[USB] Response sent: {dialog.verdict}")
+            except Exception as e:
+                print(f"[USB] Failed to send response: {e}")
                 self.handle_disconnect()
+        else:
+            print(f"[USB] Not connected, cannot send response")
 
     def open_control_panel(self):
         import subprocess
