@@ -110,6 +110,8 @@ class BastionDaemon:
         # USB Device Control
         self.usb_monitor: Optional[USBMonitor] = None
         self.usb_rule_manager = USBRuleManager()
+        self.usb_rules_lock = threading.Lock()  # Lock for thread-safe rule reloading
+        self.usb_rules_last_modified = 0  # Track last modification time
         self.usb_pending_lock = threading.Lock()
         self.usb_pending_device: Optional[USBDeviceInfo] = None
         self.usb_response_event = threading.Event()
@@ -180,11 +182,19 @@ class BastionDaemon:
 
         last_rule_check = 0
         rule_check_interval = 60 # Check every minute
+        last_usb_rule_check = 0
+        usb_rule_check_interval = 5  # Check USB rules every 5 seconds
 
         while self.running:
             try:
                 # 1. Ping systemd watchdog each loop (every 5s)
                 self.systemd.ping()
+
+                # Check if USB rules file has been modified
+                current_time = time.time()
+                if current_time - last_usb_rule_check >= usb_rule_check_interval:
+                    self._reload_usb_rules_if_changed()
+                    last_usb_rule_check = current_time
 
                 # 2. Periodic Rule Check
                 now = time.time()
@@ -665,6 +675,29 @@ class BastionDaemon:
 
     # ========== USB DEVICE CONTROL ==========
 
+    def _reload_usb_rules_if_changed(self):
+        """
+        Check if USB rules file has been modified and reload if needed.
+        This allows the daemon to pick up rule changes from the GUI without restart.
+        """
+        try:
+            rules_path = self.usb_rule_manager.db_path
+            if not rules_path.exists():
+                return
+
+            # Get current modification time
+            current_mtime = rules_path.stat().st_mtime
+
+            # If file has been modified, reload rules
+            if current_mtime > self.usb_rules_last_modified:
+                with self.usb_rules_lock:
+                    # Reload rules from disk
+                    self.usb_rule_manager = USBRuleManager()
+                    self.usb_rules_last_modified = current_mtime
+                    logger.info(f"USB rules reloaded from disk (mtime: {current_mtime})")
+        except Exception as e:
+            logger.error(f"Error checking USB rules file: {e}")
+
     def _start_usb_monitor(self):
         """Start USB device monitoring."""
         if not is_pyudev_available():
@@ -698,8 +731,9 @@ class BastionDaemon:
 
         logger.info(f"USB device inserted: {device.product_name} ({device.vendor_id}:{device.product_id})")
 
-        # Check existing rules
-        verdict = self.usb_rule_manager.get_verdict(device)
+        # Check existing rules (with thread-safe access)
+        with self.usb_rules_lock:
+            verdict = self.usb_rule_manager.get_verdict(device)
 
         if verdict == 'allow':
             logger.info(f"USB device allowed by rule: {device.product_name}")
