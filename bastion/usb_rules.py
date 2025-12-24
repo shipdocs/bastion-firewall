@@ -27,6 +27,11 @@ from bastion.usb_validation import USBValidation, Verdict, Scope
 logger = logging.getLogger(__name__)
 
 
+class SecurityError(Exception):
+    """Raised when a security-critical operation is rejected."""
+    pass
+
+
 @dataclass
 class USBRule:
     """A stored USB device rule."""
@@ -42,14 +47,23 @@ class USBRule:
     
     @property
     def key(self) -> str:
-        """Generate unique key for this rule based on scope."""
+        """
+        Generate unique key for this rule based on scope.
+
+        All components are sanitized to prevent injection attacks.
+        """
+        # Ensure IDs are properly formatted
+        vendor_id = USBValidation.sanitize_hex_id(self.vendor_id)
+        product_id = USBValidation.sanitize_hex_id(self.product_id)
+
         if self.scope == 'vendor':
-            return f"{self.vendor_id}:*:*"
+            return f"{vendor_id}:*:*"
         elif self.scope == 'model':
-            return f"{self.vendor_id}:{self.product_id}:*"
+            return f"{vendor_id}:{product_id}:*"
         else:  # device
-            serial = self.serial or '*'
-            return f"{self.vendor_id}:{self.product_id}:{serial}"
+            # Sanitize serial with strict charset
+            serial = USBValidation.sanitize_serial(self.serial) if self.serial else 'no-serial'
+            return f"{vendor_id}:{product_id}:{serial}"
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON storage."""
@@ -57,7 +71,14 @@ class USBRule:
     
     @classmethod
     def from_dict(cls, data: dict) -> 'USBRule':
-        """Create from dictionary, with validation."""
+        """Create from dictionary, with validation and sanitization."""
+        # Sanitize serial if present (could contain malicious data from old rules)
+        raw_serial = data.get('serial')
+        serial = USBValidation.sanitize_serial(raw_serial) if raw_serial else None
+        # Convert 'no-serial' back to None for consistency
+        if serial == 'no-serial':
+            serial = None
+
         return cls(
             verdict=USBValidation.validate_verdict(data.get('verdict', 'block')),
             vendor_id=USBValidation.sanitize_hex_id(data.get('vendor_id', '')),
@@ -67,7 +88,7 @@ class USBRule:
             scope=USBValidation.validate_scope(data.get('scope', 'device')),
             added=USBValidation.sanitize_timestamp(data.get('added', '')),
             last_seen=data.get('last_seen'),
-            serial=data.get('serial'),
+            serial=serial,
         )
 
 
@@ -109,19 +130,49 @@ class USBRuleManager:
         self._load()
     
     def _ensure_dir(self):
-        """Ensure parent directory exists with correct permissions."""
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        os.chmod(self.db_path.parent, self.DIR_MODE)
+        """
+        Ensure parent directory exists with correct permissions.
+
+        Security: Rejects symlinked directories to prevent symlink attacks.
+        """
+        parent = self.db_path.parent
+
+        # SECURITY: Check if parent directory is a symlink
+        if parent.is_symlink():
+            logger.error(f"Directory {parent} is a symlink, refusing to use")
+            raise SecurityError(f"Directory {parent} is a symlink")
+
+        parent.mkdir(parents=True, exist_ok=True)
+
+        # Verify it's still not a symlink after creation (race condition mitigation)
+        if parent.is_symlink():
+            logger.error(f"Directory {parent} became a symlink, refusing to use")
+            raise SecurityError(f"Directory {parent} is a symlink")
+
+        os.chmod(parent, self.DIR_MODE)
     
     def _load(self):
-        """Load rules from JSON file."""
+        """
+        Load rules from JSON file with backwards compatibility.
+
+        Handles migration from old key formats:
+        - Sanitizes keys that may contain unsafe characters
+        - Updates rules to use new sanitized key format
+        - Logs warnings for migrated rules
+        """
         self._rules = {}
-        
+        needs_save = False  # Track if we need to re-save with sanitized keys
+
         if not self.db_path.exists():
             logger.debug(f"USB rules file does not exist: {self.db_path}")
             return
-        
+
         try:
+            # SECURITY: Check if rules file is a symlink to prevent symlink attacks
+            if self.db_path.is_symlink():
+                logger.error(f"USB rules file {self.db_path} is a symlink, refusing to load")
+                return
+
             # Check permissions before reading (only warn, don't fail)
             stat = self.db_path.stat()
             if stat.st_mode & 0o002:  # World-writable is a security issue
@@ -134,20 +185,47 @@ class USBRuleManager:
 
             with open(self.db_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            
+
             if not isinstance(data, dict):
                 logger.error("USB rules file has invalid format (expected dict)")
                 return
-            
-            # Validate each rule
-            for key, rule_data in data.items():
+
+            # Validate and migrate each rule
+            for old_key, rule_data in data.items():
                 try:
-                    if isinstance(rule_data, dict):
-                        self._rules[key] = USBRule.from_dict(rule_data)
+                    if not isinstance(rule_data, dict):
+                        logger.warning(f"Skipping invalid rule data for key {old_key[:50]}")
+                        continue
+
+                    # Create rule (this sanitizes the data inside)
+                    rule = USBRule.from_dict(rule_data)
+
+                    # Generate the proper sanitized key from the rule
+                    new_key = rule.key
+
+                    # Check if key changed (backwards compatibility migration)
+                    if new_key != old_key:
+                        logger.warning(
+                            f"Migrating rule key: '{old_key[:50]}' -> '{new_key}' "
+                            f"(unsafe characters removed)"
+                        )
+                        needs_save = True
+
+                    # Store with sanitized key
+                    self._rules[new_key] = rule
+
                 except Exception as e:
-                    logger.warning(f"Skipping invalid rule {key}: {e}")
-            
+                    logger.warning(f"Skipping invalid rule {old_key[:50]}: {e}")
+
             logger.info(f"Loaded {len(self._rules)} USB rules")
+
+            # If we migrated any keys, save the file with new keys
+            if needs_save:
+                logger.info("Saving migrated rules with sanitized keys")
+                try:
+                    self._save()
+                except Exception as e:
+                    logger.warning(f"Could not save migrated rules: {e}")
             
         except json.JSONDecodeError as e:
             logger.error(f"USB rules file is corrupted: {e}")
@@ -197,15 +275,27 @@ class USBRuleManager:
             raise
 
     def _make_key(self, device: USBDeviceInfo, scope: Scope) -> str:
-        """Generate storage key for a device/scope combination."""
+        """
+        Generate storage key for a device/scope combination.
+
+        All components are sanitized to prevent injection attacks.
+        Key formats:
+        - device: vid:pid:serial (e.g., '046d:c52b:ABC123')
+        - model: vid:pid:* (e.g., '046d:c52b:*')
+        - vendor: vid:*:* (e.g., '046d:*:*')
+        """
+        # Sanitize vendor/product IDs (should already be clean, but defense in depth)
+        vendor_id = USBValidation.sanitize_hex_id(device.vendor_id)
+        product_id = USBValidation.sanitize_hex_id(device.product_id)
+
         if scope == 'device':
-            # Sanitize serial to prevent injection attacks
-            serial = USBValidation.sanitize_string(device.serial) if device.serial else 'no-serial'
-            return f"{device.vendor_id}:{device.product_id}:{serial}"
+            # Sanitize serial with strict charset to prevent injection
+            serial = USBValidation.sanitize_serial(device.serial)
+            return f"{vendor_id}:{product_id}:{serial}"
         elif scope == 'model':
-            return f"{device.vendor_id}:{device.product_id}"
+            return f"{vendor_id}:{product_id}:*"
         else:  # vendor
-            return f"{device.vendor_id}:*"
+            return f"{vendor_id}:*:*"
 
     def get_verdict(self, device: USBDeviceInfo) -> Optional[Verdict]:
         """

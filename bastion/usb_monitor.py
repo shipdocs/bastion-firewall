@@ -17,6 +17,7 @@ except ImportError:
     pyudev = None
 
 from bastion.usb_device import USBDeviceInfo, USBClass
+from bastion.usb_validation import USBValidation
 
 logger = logging.getLogger(__name__)
 
@@ -149,24 +150,26 @@ class USBMonitor:
             except ValueError:
                 device_class = 0
             
-            # Get serial number
-            serial = device.get('ID_SERIAL_SHORT', None)
-            
+            # Get serial number and sanitize it (USB serials can contain malicious data)
+            raw_serial = device.get('ID_SERIAL_SHORT', None)
+            serial = USBValidation.sanitize_serial(raw_serial) if raw_serial else None
+
             # Get bus ID (sysfs name like "1-2.3")
             bus_id = device.sys_name
-            
+
             # Get bus/device numbers
             try:
                 bus_num = int(device.get('BUSNUM', 0))
                 dev_num = int(device.get('DEVNUM', 0))
             except ValueError:
                 bus_num = dev_num = 0
-            
+
+            # Sanitize vendor/product IDs
             return USBDeviceInfo(
-                vendor_id=vendor_id.lower(),
-                product_id=product_id.lower(),
-                vendor_name=vendor_name,
-                product_name=product_name,
+                vendor_id=USBValidation.sanitize_hex_id(vendor_id),
+                product_id=USBValidation.sanitize_hex_id(product_id),
+                vendor_name=USBValidation.sanitize_string(vendor_name),
+                product_name=USBValidation.sanitize_string(product_name),
                 device_class=device_class,
                 serial=serial,
                 bus_id=bus_id,

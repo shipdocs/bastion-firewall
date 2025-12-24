@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from bastion.usb_device import USBDeviceInfo
 from bastion.usb_rules import USBRuleManager, USBAuthorizer, USBRule
+from bastion.usb_validation import USBValidation
 
 
 def test_rule_storage():
@@ -149,7 +150,7 @@ def test_input_sanitization():
     assert all(c in '0123456789abcdef' for c in rule.product_id)
     print(f"   product_id sanitized: '<script>...' -> '{rule.product_id}'")
     assert '\x00' not in rule.vendor_name
-    assert len(rule.product_name) <= 128
+    assert len(rule.product_name) <= 256  # MAX_NAME_LEN is 256
     assert rule.verdict == 'allow'
     
     print("✅ Path traversal blocked")
@@ -187,9 +188,185 @@ def test_authorizer():
     print("=" * 60)
 
 
+def test_sanitize_serial():
+    """Test sanitize_serial with various inputs including malicious ones."""
+    print("\n" + "=" * 60)
+    print("Testing sanitize_serial()")
+    print("=" * 60)
+
+    # Normal serial
+    assert USBValidation.sanitize_serial("ABC123") == "ABC123"
+    print("✅ Normal serial preserved")
+
+    # Serial with allowed special chars
+    assert USBValidation.sanitize_serial("ABC_123-456.789") == "ABC_123-456.789"
+    print("✅ Dots, dashes, underscores preserved")
+
+    # Empty/None input
+    assert USBValidation.sanitize_serial(None) == "no-serial"
+    assert USBValidation.sanitize_serial("") == "no-serial"
+    print("✅ Empty/None returns 'no-serial'")
+
+    # Shell metacharacters stripped
+    result = USBValidation.sanitize_serial("test;rm -rf /")
+    assert ";" not in result and " " not in result and "/" not in result
+    print(f"✅ Shell injection blocked: 'test;rm -rf /' -> '{result}'")
+
+    # Quotes stripped (prevent code injection)
+    result = USBValidation.sanitize_serial("test'injection")
+    assert "'" not in result
+    result = USBValidation.sanitize_serial('test"injection')
+    assert '"' not in result
+    print("✅ Quotes stripped")
+
+    # Backticks stripped
+    result = USBValidation.sanitize_serial("test`command`end")
+    assert "`" not in result
+    print("✅ Backticks stripped")
+
+    # Dollar signs stripped (prevent variable expansion)
+    result = USBValidation.sanitize_serial("test$PATH")
+    assert "$" not in result
+    print("✅ Dollar signs stripped")
+
+    # Newlines and control chars stripped
+    result = USBValidation.sanitize_serial("line1\nline2\rline3")
+    assert "\n" not in result and "\r" not in result
+    print("✅ Newlines stripped")
+
+    # Null bytes stripped
+    result = USBValidation.sanitize_serial("test\x00null")
+    assert "\x00" not in result
+    print("✅ Null bytes stripped")
+
+    # Length limit enforced
+    long_serial = "A" * 500
+    result = USBValidation.sanitize_serial(long_serial, max_len=128)
+    assert len(result) == 128
+    print("✅ Length limit enforced")
+
+    # Unicode characters stripped (not in safe charset)
+    result = USBValidation.sanitize_serial("test🔥emoji")
+    assert "🔥" not in result
+    print("✅ Unicode emoji stripped")
+
+    print("\n" + "=" * 60)
+    print("sanitize_serial tests passed! ✅")
+    print("=" * 60)
+
+
+def test_sanitize_key():
+    """Test sanitize_key and validate_key functions."""
+    print("\n" + "=" * 60)
+    print("Testing sanitize_key() and validate_key()")
+    print("=" * 60)
+
+    # Valid device key
+    result = USBValidation.sanitize_key("046d:c52b:ABC123")
+    assert result == "046d:c52b:ABC123"
+    assert USBValidation.validate_key(result)
+    print("✅ Valid device key preserved")
+
+    # Valid model key
+    result = USBValidation.sanitize_key("046d:c52b:*")
+    assert result == "046d:c52b:*"
+    assert USBValidation.validate_key(result)
+    print("✅ Valid model key preserved")
+
+    # Valid vendor key
+    result = USBValidation.sanitize_key("046d:*:*")
+    assert result == "046d:*:*"
+    assert USBValidation.validate_key(result)
+    print("✅ Valid vendor key preserved")
+
+    # Key with malicious serial - should be sanitized
+    result = USBValidation.sanitize_key("046d:c52b:test';drop table;--")
+    assert result is not None
+    assert "'" not in result and ";" not in result
+    print(f"✅ Malicious serial sanitized: '046d:c52b:test';drop...' -> '{result}'")
+
+    # Key with shell injection in serial
+    result = USBValidation.sanitize_key("046d:c52b:$(whoami)")
+    assert result is not None
+    assert "$" not in result and "(" not in result
+    print(f"✅ Shell injection sanitized")
+
+    # Old 2-part key format (vid:pid) - should be converted
+    result = USBValidation.sanitize_key("046d:c52b")
+    assert result == "046d:c52b:*"
+    print("✅ Old 2-part key format converted")
+
+    # Invalid key format rejected
+    result = USBValidation.sanitize_key("invalid")
+    assert result is None
+    print("✅ Invalid key format rejected")
+
+    # Empty key rejected
+    result = USBValidation.sanitize_key("")
+    assert result is None
+    result = USBValidation.sanitize_key(None)
+    assert result is None
+    print("✅ Empty/None key rejected")
+
+    # Too long key rejected
+    long_key = "046d:c52b:" + "A" * 500
+    result = USBValidation.sanitize_key(long_key)
+    assert result is None or len(result) <= 256
+    print("✅ Too long key handled")
+
+    print("\n" + "=" * 60)
+    print("sanitize_key tests passed! ✅")
+    print("=" * 60)
+
+
+def test_malicious_serial_in_rule():
+    """Test that malicious serials in rules are properly sanitized."""
+    print("\n" + "=" * 60)
+    print("Testing malicious serial in rule key generation")
+    print("=" * 60)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / 'test_usb_rules.json'
+        manager = USBRuleManager(db_path=db_path)
+
+        # Create device with malicious serial
+        evil_device = USBDeviceInfo(
+            vendor_id='046d',
+            product_id='c52b',
+            vendor_name='Logitech',
+            product_name='Receiver',
+            device_class=0x00,
+            serial="test';DROP TABLE rules;--",  # SQL injection attempt
+            bus_id='1-2'
+        )
+
+        # Add rule - serial should be sanitized
+        manager.add_rule(evil_device, 'allow', scope='device')
+
+        # Check the key doesn't contain dangerous characters
+        rules = manager.get_all_rules()
+        for key in rules.keys():
+            assert "'" not in key, f"Quote found in key: {key}"
+            assert ";" not in key, f"Semicolon found in key: {key}"
+            assert " " not in key, f"Space found in key: {key}"
+        print("✅ Malicious serial sanitized in stored rule key")
+
+        # Test that we can still retrieve the rule
+        verdict = manager.get_verdict(evil_device)
+        assert verdict == 'allow'
+        print("✅ Rule with sanitized serial can be retrieved")
+
+    print("\n" + "=" * 60)
+    print("Malicious serial tests passed! ✅")
+    print("=" * 60)
+
+
 if __name__ == "__main__":
     test_rule_storage()
     test_input_sanitization()
     test_authorizer()
+    test_sanitize_serial()
+    test_sanitize_key()
+    test_malicious_serial_in_rule()
     print("\n🎉 All USB rules tests passed!")
 

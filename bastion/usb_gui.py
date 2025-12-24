@@ -737,43 +737,43 @@ class USBControlWidget(QWidget):
 
     def _set_usb_default_policy(self, authorize: bool):
         """
-        Set USB default authorization policy via pkexec.
+        Set USB default authorization policy via bastion-root-helper.
+
+        Uses the dedicated root helper CLI to safely change USB policy
+        without any code injection risks.
 
         Args:
             authorize: True = allow new devices, False = block new devices
         """
-        from pathlib import Path
-        value = '1' if authorize else '0'
+        policy_arg = '--authorize' if authorize else '--block'
+        policy_name = 'allow' if authorize else 'block'
 
         try:
-            # Use pkexec to write to sysfs as root
-            # This is safer than bash loop - no shell interpretation
-            script = f"""
-import sys
-from pathlib import Path
-for usb_host in Path('/sys/bus/usb/devices').glob('usb*'):
-    auth_default = usb_host / 'authorized_default'
-    if auth_default.exists():
-        try:
-            auth_default.write_text('{value}')
-        except Exception as e:
-            print(f"Failed: {{e}}", file=sys.stderr)
-"""
+            # Use the root helper - no dynamic code, just fixed arguments
             result = subprocess.run(
-                ['pkexec', 'python3', '-c', script],
+                ['pkexec', 'bastion-root-helper', 'usb-default-policy', 'set', policy_arg],
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=30
             )
 
-            if result.returncode != 0:
-                logger.warning(f"Failed to set USB policy: {result.stderr}")
+            if result.returncode == 0:
+                logger.info(f"USB default policy set to {policy_name}")
             else:
-                logger.info(f"USB default policy set to {'allow' if authorize else 'block'}")
+                logger.warning(f"Failed to set USB policy: {result.stderr}")
+                # Show user-friendly error
+                from bastion.notification import show_notification
+                show_notification(self, "Error", f"Failed to change USB policy: {result.stderr.strip()}")
 
         except subprocess.TimeoutExpired:
             logger.error("USB policy change timed out")
+            from bastion.notification import show_notification
+            show_notification(self, "Timeout", "USB policy change timed out")
+        except FileNotFoundError:
+            logger.error("bastion-root-helper not found")
+            from bastion.notification import show_notification
+            show_notification(self, "Error", "Root helper not installed. Please reinstall Bastion.")
         except Exception as e:
             logger.error(f"Failed to set USB policy: {e}")
 
@@ -831,64 +831,56 @@ for usb_host in Path('/sys/bus/usb/devices').glob('usb*'):
 
     def _delete_rule_with_privilege(self, key: str, device_name: str):
         """
-        Delete a USB rule with elevated privileges using pkexec.
+        Delete a USB rule with elevated privileges using bastion-root-helper.
+
+        Uses the dedicated root helper CLI to safely delete rules
+        without any code injection risks. The key is passed as a CLI
+        argument, not interpolated into code.
 
         Args:
-            key: The rule key to delete
+            key: The rule key to delete (will be validated by the helper)
             device_name: The device name for user feedback
         """
-        # Create a Python script to delete the rule
-        delete_script = f"""
-import sys
-sys.path.insert(0, '/usr/lib/python3/dist-packages')
-from bastion.usb_rules import USBRuleManager
-try:
-    manager = USBRuleManager()
-    if manager.remove_rule('{key}'):
-        print("SUCCESS")
-    else:
-        print("NOT_FOUND")
-except Exception as e:
-    print(f"ERROR: {{e}}")
-"""
+        from bastion.notification import show_notification
 
         try:
-            # Use pkexec to run the deletion with elevated privileges
+            # Use the root helper - key is passed as argument, never as code
+            # The helper validates the key format before processing
             result = subprocess.run(
-                ['pkexec', 'python3', '-c', delete_script],
+                ['pkexec', 'bastion-root-helper', 'usb-rule', 'delete', '--key', key],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=30
             )
 
             output = result.stdout.strip()
 
             if result.returncode == 0 and output == "SUCCESS":
                 logger.info(f"Successfully deleted USB rule: {key}")
-                # Show success message
-                from bastion.notification import show_notification
                 show_notification(self, "Success", f"Deleted rule for {device_name}")
                 self.refresh()
-            elif output == "NOT_FOUND":
+            elif output == "NOT_FOUND" or result.returncode == 1:
                 logger.warning(f"Rule not found: {key}")
-                from bastion.notification import show_notification
                 show_notification(self, "Not Found", f"Rule for {device_name} was not found")
             else:
-                logger.error(f"Failed to delete rule: {result.stderr}")
-                from bastion.notification import show_notification
-                show_notification(self, "Error", f"Failed to delete rule: {result.stderr}")
+                # returncode == 2 means validation error or other error
+                error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+                logger.error(f"Failed to delete rule: {error_msg}")
+                show_notification(self, "Error", f"Failed to delete rule: {error_msg}")
 
         except subprocess.TimeoutExpired:
             logger.error("Rule deletion timed out")
-            from bastion.notification import show_notification
             show_notification(self, "Timeout", "Rule deletion timed out")
-        except subprocess.CalledProcessError as e:
-            # User cancelled pkexec
-            logger.info(f"Rule deletion cancelled by user")
+        except FileNotFoundError:
+            logger.error("bastion-root-helper not found")
+            show_notification(self, "Error", "Root helper not installed. Please reinstall Bastion.")
         except Exception as e:
-            logger.error(f"Failed to delete rule with privilege: {e}")
-            from bastion.notification import show_notification
-            show_notification(self, "Error", f"Failed to delete rule: {str(e)}")
+            # This catches permission denied (user cancelled pkexec) and other errors
+            if "permission" in str(e).lower() or "cancel" in str(e).lower():
+                logger.info("Rule deletion cancelled by user")
+            else:
+                logger.error(f"Failed to delete rule with privilege: {e}")
+                show_notification(self, "Error", f"Failed to delete rule: {str(e)}")
 
 
 def test_usb_prompt():

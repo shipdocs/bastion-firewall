@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+  <vendor>Bastion Firewall</vendor>
+  <vendor_url>https://github.com/shipdocs/bastion-firewall</vendor_url>
+  <icon_name>security-high</icon_name>
+
+  <!-- Main action for the root helper executable -->
+  <action id="com.bastion.root-helper">
+    <description>Run Bastion Root Helper</description>
+    <description xml:lang="en">Run privileged operations for Bastion Firewall</description>
+    <message>Authentication is required to manage Bastion Firewall settings</message>
+    <message xml:lang="en">Authentication is required to manage USB device policies and firewall rules</message>
+    <icon_name>security-high</icon_name>
+    <defaults>
+      <!-- auth_admin: Require admin password -->
+      <!-- auth_admin_keep: Remember auth for a short time (convenience) -->
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/bastion-root-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+  <!-- Specific action for USB policy changes -->
+  <action id="com.bastion.root-helper.usb-policy">
+    <description>Manage USB Device Policy</description>
+    <description xml:lang="en">Change USB device authorization settings</description>
+    <message>Authentication is required to change USB device security policy</message>
+    <message xml:lang="en">This will change whether new USB devices are automatically allowed or blocked</message>
+    <icon_name>drive-removable-media</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/bastion-root-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+  <!-- Specific action for USB rule management -->
+  <action id="com.bastion.root-helper.usb-rules">
+    <description>Manage USB Device Rules</description>
+    <description xml:lang="en">Add, remove, or modify USB device allow/block rules</description>
+    <message>Authentication is required to manage USB device rules</message>
+    <message xml:lang="en">This will modify which USB devices are allowed or blocked</message>
+    <icon_name>drive-removable-media</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/bastion-root-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+</policyconfig>
+

@@ -69,6 +69,23 @@ chmod +x debian/usr/bin/bastion-gui
 chmod +x debian/usr/bin/bastion-control-panel
 chmod +x debian/usr/bin/bastion-launch
 
+# Create root helper wrapper script
+print_step "Creating root helper..."
+cat > debian/usr/bin/bastion-root-helper << 'HELPER_EOF'
+#!/usr/bin/env python3
+"""Bastion Root Helper - wrapper script for privileged operations."""
+import sys
+sys.path.insert(0, '/usr/lib/python3/dist-packages')
+from bastion.root_helper import main
+sys.exit(main(sys.argv[1:]))
+HELPER_EOF
+chmod +x debian/usr/bin/bastion-root-helper
+
+# Copy polkit policy for root helper
+print_step "Copying polkit policies..."
+cp debian/usr/share/polkit-1/actions/com.bastion.root-helper.policy debian/usr/share/polkit-1/actions/ 2>/dev/null || \
+    cp com.bastion.root-helper.policy debian/usr/share/polkit-1/actions/
+
 # Copy Python modules
 print_step "Copying Python modules..."
 cp -r bastion/* debian/usr/lib/python3/dist-packages/bastion/
