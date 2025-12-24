@@ -77,9 +77,11 @@ KEY_PATTERN = re.compile(
 def validate_key(key: str) -> bool:
     """
     Validate USB rule key format.
-    
+
     Returns True if key matches expected format, False otherwise.
     """
+    if not isinstance(key, str):
+        return False
     if not key or len(key) > 256:
         return False
     return KEY_PATTERN.match(key) is not None

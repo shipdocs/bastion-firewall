@@ -120,7 +120,10 @@ class USBDeviceInfo:
     @property
     def is_low_risk(self) -> bool:
         """True if device is in a low-risk category (hub, audio, video)"""
-        return self.device_class in LOW_RISK_CLASSES
+        if self.device_class in LOW_RISK_CLASSES:
+            return True
+        # Also check interface classes for consistency with is_high_risk
+        return bool(set(self.interface_classes) & LOW_RISK_CLASSES)
     
     @property
     def class_name(self) -> str:

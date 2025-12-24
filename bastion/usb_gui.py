@@ -407,7 +407,7 @@ class USBPromptDialog(QDialog):
         current = self.progress.value()
         if current <= 0:
             self.timer.stop()
-            self.block_device()
+            self.block_device(save_rule=False)  # Timeout = block once, don't save rule
             return
         self.progress.setValue(current - 1)
 

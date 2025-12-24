@@ -160,10 +160,9 @@ class GUIManager:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,  # Detach from daemon
-                user=user,  # Run as the logged-in user
                 env=env  # Pass environment with DISPLAY
             )
-            logger.info(f"GUI started (PID: {self.gui_process.pid}) as user {user}")
+            logger.info(f"GUI started (PID: {self.gui_process.pid}) for user {user}")
             return True
         except Exception as e:
             logger.error(f"Failed to start GUI: {e}")

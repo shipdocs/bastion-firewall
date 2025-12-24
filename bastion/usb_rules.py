@@ -257,12 +257,18 @@ class USBRuleManager:
 
                 with os.fdopen(fd, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
+                # fd is now closed by os.fdopen context manager
 
                 # Atomic rename (POSIX guarantees this is atomic on same filesystem)
                 os.replace(tmp_path, self.db_path)
                 logger.debug(f"Saved {len(self._rules)} USB rules")
 
             except Exception:
+                # Close fd if os.fdopen hasn't taken ownership yet
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass  # Already closed by os.fdopen or invalid
                 # Clean up temp file on error
                 try:
                     os.unlink(tmp_path)
