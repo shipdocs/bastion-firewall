@@ -687,7 +687,7 @@ class USBControlWidget(QWidget):
                 from datetime import datetime
                 dt = datetime.fromisoformat(rule.added)
                 date_str = dt.strftime("%Y-%m-%d %H:%M")
-            except:
+            except (ValueError, TypeError, AttributeError):
                 date_str = rule.added[:16] if rule.added else "Unknown"
             table.setItem(i, 3, QTableWidgetItem(date_str))
             # Store key for this row
@@ -766,10 +766,10 @@ class USBControlWidget(QWidget):
             if result.returncode == 0:
                 logger.info(f"USB default policy set to {policy_name}")
             else:
+                # Log details internally, show generic message to user
                 logger.warning(f"Failed to set USB policy: {result.stderr}")
-                # Show user-friendly error
                 from bastion.notification import show_notification
-                show_notification(self, "Error", f"Failed to change USB policy: {result.stderr.strip()}")
+                show_notification(self, "Error", "Failed to change USB policy. Check logs for details.")
 
         except subprocess.TimeoutExpired:
             logger.error("USB policy change timed out")
@@ -869,9 +869,10 @@ class USBControlWidget(QWidget):
                 show_notification(self, "Not Found", f"Rule for {device_name} was not found")
             else:
                 # returncode == 2 means validation error or other error
+                # Log details internally, show generic message to user
                 error_msg = result.stderr.strip() if result.stderr else "Unknown error"
                 logger.error(f"Failed to delete rule: {error_msg}")
-                show_notification(self, "Error", f"Failed to delete rule: {error_msg}")
+                show_notification(self, "Error", "Failed to delete rule. Check logs for details.")
 
         except subprocess.TimeoutExpired:
             logger.error("Rule deletion timed out")
@@ -884,8 +885,9 @@ class USBControlWidget(QWidget):
             if "permission" in str(e).lower() or "cancel" in str(e).lower():
                 logger.info("Rule deletion cancelled by user")
             else:
+                # Log details internally, show generic message to user
                 logger.error(f"Failed to delete rule with privilege: {e}")
-                show_notification(self, "Error", f"Failed to delete rule: {str(e)}")
+                show_notification(self, "Error", "Failed to delete rule. Check logs for details.")
 
 
 def test_usb_prompt():

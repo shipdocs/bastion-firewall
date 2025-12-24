@@ -7,6 +7,7 @@ import logging
 import signal
 import time
 import subprocess
+import secrets
 from pathlib import Path
 from typing import Dict, Optional
 from collections import deque
@@ -122,6 +123,7 @@ class BastionDaemon:
         self.usb_rules_last_modified = 0  # Track last modification time
         self.usb_pending_lock = threading.Lock()
         self.usb_pending_device: Optional[USBDeviceInfo] = None
+        self.usb_pending_nonce: Optional[str] = None  # Anti-spoofing nonce
         self.usb_response_event = threading.Event()
         self.usb_response_verdict: Optional[Verdict] = None
         self.usb_response_scope: str = 'device'
@@ -314,7 +316,7 @@ class BastionDaemon:
                 if self.gui_socket:
                     try:
                         self.gui_socket.close()
-                    except:
+                    except OSError:
                         pass
                     self.gui_socket = None
 
@@ -659,14 +661,14 @@ class BastionDaemon:
             try:
                 self.gui_socket.shutdown(socket.SHUT_RDWR)
                 self.gui_socket.close()
-            except:
+            except OSError:
                 pass
             self.gui_socket = None
 
         if self.server_socket:
             try:
                 self.server_socket.close()
-            except:
+            except OSError:
                 pass
             self.server_socket = None
             
@@ -686,7 +688,7 @@ class BastionDaemon:
         if os.path.exists(self.SOCKET_PATH):
             try:
                 os.remove(self.SOCKET_PATH)
-            except:
+            except OSError:
                 pass
         logger.info("Daemon stopped")
 
@@ -796,9 +798,13 @@ class BastionDaemon:
                 self.stats['usb_devices_allowed'] += 1
             return
 
+        # Generate anti-spoofing nonce (32 bytes, hex encoded = 64 chars)
+        nonce = secrets.token_hex(32)
+
         # Send USB request to GUI
         request = {
             'type': 'usb_request',
+            'nonce': nonce,  # Anti-spoofing: GUI must echo this back
             'vendor_id': device.vendor_id,
             'product_id': device.product_id,
             'vendor_name': device.vendor_name,
@@ -813,6 +819,7 @@ class BastionDaemon:
         try:
             with self.usb_pending_lock:
                 self.usb_pending_device = device
+                self.usb_pending_nonce = nonce
                 self.usb_response_event.clear()
 
             with self.socket_lock:
@@ -847,6 +854,7 @@ class BastionDaemon:
                 logger.warning(f"USB decision timeout for: {device.product_name}")
                 with self.usb_pending_lock:
                     self.usb_pending_device = None
+                    self.usb_pending_nonce = None
 
                 if device.is_high_risk:
                     logger.warning(f"Blocking high-risk USB device on timeout: {device.product_name}")
@@ -860,14 +868,31 @@ class BastionDaemon:
             logger.error(f"Error prompting for USB decision: {e}")
             with self.usb_pending_lock:
                 self.usb_pending_device = None
+                self.usb_pending_nonce = None
 
     def handle_usb_response(self, response: dict):
-        """Handle USB decision response from GUI."""
+        """Handle USB decision response from GUI.
+
+        Security: Validates nonce to prevent spoofed responses from malicious
+        local processes. Only responses with the correct nonce are accepted.
+        """
+        response_nonce = response.get('nonce', '')
         verdict = response.get('verdict', 'block')
         scope = response.get('scope', 'device')
         save_rule = response.get('save_rule', True)  # Default to saving for backwards compat
 
         with self.usb_pending_lock:
+            # Validate nonce to prevent spoofing attacks
+            if not self.usb_pending_nonce:
+                logger.warning("USB response received but no request pending - ignoring")
+                return
+
+            if not secrets.compare_digest(response_nonce, self.usb_pending_nonce):
+                logger.warning("USB response nonce mismatch - possible spoofing attempt")
+                return
+
+            # Valid response - clear nonce and process
+            self.usb_pending_nonce = None
             self.usb_response_verdict = verdict
             self.usb_response_scope = scope
             self.usb_response_save_rule = save_rule

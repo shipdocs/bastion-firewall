@@ -255,7 +255,7 @@ class BastionClient(QObject):
             resp = json.dumps({'allow': decision, 'permanent': permanent}) + '\n'
             try:
                 self.sock.sendall(resp.encode())
-            except:
+            except OSError:
                 self.handle_disconnect()
 
     def handle_usb_request(self, req):
@@ -264,6 +264,9 @@ class BastionClient(QObject):
         from bastion.usb_gui import USBPromptDialog
 
         print(f"[USB] Received USB request: {req.get('product_name', 'Unknown')}")
+
+        # Extract nonce for anti-spoofing (daemon requires this to be echoed back)
+        nonce = req.get('nonce', '')
 
         # Convert request to USBDeviceInfo
         device = USBDeviceInfo(
@@ -289,10 +292,11 @@ class BastionClient(QObject):
 
         print(f"[USB] Dialog result: {dialog.verdict} (scope={dialog.scope}, save_rule={dialog.save_rule})")
 
-        # Send response
+        # Send response with nonce (daemon validates this to prevent spoofing)
         if self.connected and self.sock:
             resp = json.dumps({
                 'type': 'usb_response',
+                'nonce': nonce,  # Echo back for anti-spoofing
                 'verdict': dialog.verdict or 'block',
                 'scope': dialog.scope,
                 'save_rule': dialog.save_rule
