@@ -275,7 +275,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # Log invocation for audit trail
     invoking_user = os.environ.get('PKEXEC_UID', os.environ.get('SUDO_UID', 'unknown'))
-    logger.info(f"Invoked by uid={invoking_user}, args={sys.argv[1:]}")
+    logged_args = argv if argv is not None else sys.argv[1:]
+    logger.info(f"Invoked by uid={invoking_user}, args={logged_args}")
 
     if not args.command:
         parser.print_help()
