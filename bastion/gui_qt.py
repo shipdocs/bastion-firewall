@@ -945,7 +945,8 @@ class DashboardWindow(QMainWindow):
                 self.lbl_ufw_status.setText("Status: <b>Inactive</b>. Enable UFW to block inbound threats.")
                 self.btn_ufw_enable.setVisible(True)
                 self.btn_ufw_disable.setVisible(False)
-        except:
+        except Exception as e:
+            logger.debug(f"Could not check UFW status: {e}")
             self.lbl_inbound_title.setText("Unknown")
 
         # 3. USB Device Control Status
@@ -959,8 +960,8 @@ class DashboardWindow(QMainWindow):
                     val = path.read_text().strip()
                     if val == '0':
                         usb_protected = True
-                except:
-                    pass
+                except (OSError, PermissionError) as e:
+                    logger.debug(f"Could not read {path}: {e}")
 
             # Get rule counts
             from .usb_rules import USBRuleManager
@@ -1098,7 +1099,8 @@ X-GNOME-Autostart-enabled=true
             logger.info("Tray icon started from control panel")
         except Exception as e:
             logger.exception(f"Failed to start tray icon: {e}")
-            show_notification(self, "Error", f"Failed to start tray icon: {e}")
+            # Don't expose internal exception details to user
+            show_notification(self, "Error", "Failed to start tray icon. Check logs for details.")
 
     # ... (other methods remain) ...
 

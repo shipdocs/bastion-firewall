@@ -144,16 +144,20 @@ class USBMonitor:
             
             # Get device class (prefer numeric bDeviceClass attribute)
             # Note: ID_USB_CLASS_FROM_DATABASE contains text like "Hub" not hex codes
+            # bDeviceClass is a raw byte value in sysfs, parse appropriately
             device_class = 0
             bclass = device.attributes.get('bDeviceClass')
             if bclass:
                 try:
-                    device_class = int(bclass.decode('utf-8', errors='ignore'), 16)
-                except (ValueError, TypeError):
+                    # bDeviceClass is a hex string like "09" or "00", decode as hex
+                    bclass_str = bclass.decode('utf-8', errors='ignore').strip()
+                    device_class = int(bclass_str, 16)
+                except (ValueError, TypeError, AttributeError):
                     device_class = 0
-            
+
             # Get serial number and sanitize it (USB serials can contain malicious data)
-            raw_serial = device.get('ID_SERIAL_SHORT', None)
+            # Use ID_SERIAL for full serial, not ID_SERIAL_SHORT which may be truncated
+            raw_serial = device.get('ID_SERIAL', None) or device.get('ID_SERIAL_SHORT', None)
             serial = USBValidation.sanitize_serial(raw_serial) if raw_serial else None
 
             # Get bus ID (sysfs name like "1-2.3")
@@ -174,16 +178,18 @@ class USBMonitor:
                     for child in device.children:
                         if child.subsystem == 'usb' and ':' in child.sys_name:
                             # This is an interface (e.g., "1-2:1.0")
-                            iface_class_str = child.attributes.get('bInterfaceClass')
-                            if iface_class_str:
+                            iface_class_bytes = child.attributes.get('bInterfaceClass')
+                            if iface_class_bytes:
                                 try:
-                                    iface_class = int(iface_class_str.decode('utf-8', errors='ignore'), 16)
+                                    # bInterfaceClass is a hex string like "03" or "08"
+                                    iface_class_str = iface_class_bytes.decode('utf-8', errors='ignore').strip()
+                                    iface_class = int(iface_class_str, 16)
                                     if iface_class not in interface_classes:
                                         interface_classes.append(iface_class)
-                                except (ValueError, UnicodeDecodeError):
+                                except (ValueError, UnicodeDecodeError, AttributeError):
                                     pass
-                except Exception:
-                    pass  # If we can't read interfaces, proceed without them
+                except Exception as e:
+                    logger.debug(f"Could not read interface classes: {e}")
 
             # Sanitize vendor/product IDs
             return USBDeviceInfo(

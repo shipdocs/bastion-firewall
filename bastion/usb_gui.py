@@ -413,20 +413,30 @@ class USBPromptDialog(QDialog):
 
     def allow_device(self, save_rule: bool = True):
         """User chose to allow the device."""
+        import getpass
         self.verdict = 'allow'
         self.scope = self._get_selected_scope()
         self.save_rule = save_rule
         action = "allowed" if save_rule else "allowed once"
-        logger.info(f"User {action} USB device: {self.device.product_name} (scope={self.scope})")
+        try:
+            username = getpass.getuser()
+        except Exception:
+            username = "unknown"
+        logger.info(f"User '{username}' {action} USB device: {self.device.product_name} (scope={self.scope})")
         self.accept()
 
     def block_device(self, save_rule: bool = True):
         """User chose to block the device."""
+        import getpass
         self.verdict = 'block'
         self.scope = self._get_selected_scope()
         self.save_rule = save_rule
         action = "blocked" if save_rule else "blocked once"
-        logger.info(f"User {action} USB device: {self.device.product_name} (scope={self.scope})")
+        try:
+            username = getpass.getuser()
+        except Exception:
+            username = "unknown"
+        logger.info(f"User '{username}' {action} USB device: {self.device.product_name} (scope={self.scope})")
         self.reject()
 
     def keyPressEvent(self, event):
@@ -756,8 +766,9 @@ class USBControlWidget(QWidget):
 
         try:
             # Use the root helper - no dynamic code, just fixed arguments
+            # Use absolute path to prevent PATH hijacking via pkexec
             result = subprocess.run(
-                ['pkexec', 'bastion-root-helper', 'usb-default-policy', 'set', policy_arg],
+                ['pkexec', '/usr/bin/bastion-root-helper', 'usb-default-policy', 'set', policy_arg],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -855,8 +866,9 @@ class USBControlWidget(QWidget):
         try:
             # Use the root helper - key is passed as argument, never as code
             # The helper validates the key format before processing
+            # Use absolute path to prevent PATH hijacking via pkexec
             result = subprocess.run(
-                ['pkexec', 'bastion-root-helper', 'usb-rule', 'delete', '--key', key],
+                ['pkexec', '/usr/bin/bastion-root-helper', 'usb-rule', 'delete', '--key', key],
                 capture_output=True,
                 text=True,
                 timeout=30

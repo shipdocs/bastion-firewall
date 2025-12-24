@@ -192,15 +192,46 @@ class GUIManager:
             if not display_found:
                 logger.warning("Could not determine DISPLAY, GUI may not start")
 
-            # Start GUI as the user, not as root
-            self.gui_process = subprocess.Popen(
-                [self.gui_path],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,  # Detach from daemon
-                env=env  # Pass environment with DISPLAY
-            )
-            logger.info(f"GUI started (PID: {self.gui_process.pid}) for user {user}")
+            # Get user's UID/GID to actually run as that user
+            import pwd
+            try:
+                pw = pwd.getpwnam(user)
+                user_uid = pw.pw_uid
+                user_gid = pw.pw_gid
+                user_home = pw.pw_dir
+
+                # Set HOME and XDG_RUNTIME_DIR for the user
+                env['HOME'] = user_home
+                env['USER'] = user
+                env['LOGNAME'] = user
+                xdg_runtime = f"/run/user/{user_uid}"
+                if os.path.isdir(xdg_runtime):
+                    env['XDG_RUNTIME_DIR'] = xdg_runtime
+
+                # Also try to get XAUTHORITY
+                xauthority = os.path.join(user_home, '.Xauthority')
+                if os.path.exists(xauthority):
+                    env['XAUTHORITY'] = xauthority
+
+                def demote_to_user():
+                    """Drop privileges to target user before exec"""
+                    os.setgid(user_gid)
+                    os.setuid(user_uid)
+
+                # Start GUI as the user, not as root
+                self.gui_process = subprocess.Popen(
+                    [self.gui_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,  # Detach from daemon
+                    env=env,  # Pass environment with DISPLAY
+                    preexec_fn=demote_to_user  # Actually switch to user
+                )
+                logger.info(f"GUI started (PID: {self.gui_process.pid}) as user {user} (uid={user_uid})")
+            except KeyError:
+                logger.error(f"User '{user}' not found in passwd database")
+                return False
+
             return True
         except Exception as e:
             logger.error(f"Failed to start GUI: {e}")

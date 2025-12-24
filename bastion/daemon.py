@@ -400,6 +400,8 @@ class BastionDaemon:
 
     def _setup_socket(self):
         """Setup Unix domain socket in /run/bastion for security"""
+        import grp
+
         # Create socket directory if it doesn't exist
         # /run is tmpfs, so this needs to be created each boot
         if not os.path.exists(self.SOCKET_DIR):
@@ -412,11 +414,29 @@ class BastionDaemon:
         self.server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server_socket.bind(self.SOCKET_PATH)
 
-        # Allow local users to connect (essential for GUI on single-user systems)
-        # Socket in /run/bastion is more secure than /tmp
+        # Set socket permissions: owner (root) + group read/write
+        # Try to use 'bastion' group, fall back to 'users' or world-readable
         try:
-            os.chmod(self.SOCKET_PATH, 0o666)
-            logger.info(f"Socket created at {self.SOCKET_PATH}")
+            socket_gid = None
+            socket_mode = 0o660  # rw-rw---- by default
+
+            # Try bastion group first (preferred for multi-user security)
+            for group_name in ['bastion', 'users']:
+                try:
+                    socket_gid = grp.getgrnam(group_name).gr_gid
+                    logger.info(f"Using group '{group_name}' for socket access")
+                    break
+                except KeyError:
+                    continue
+
+            if socket_gid is not None:
+                os.chown(self.SOCKET_PATH, 0, socket_gid)  # root:bastion or root:users
+                os.chmod(self.SOCKET_PATH, socket_mode)
+                logger.info(f"Socket created at {self.SOCKET_PATH} (mode={oct(socket_mode)})")
+            else:
+                # Fallback: world-readable for single-user systems without proper groups
+                os.chmod(self.SOCKET_PATH, 0o666)
+                logger.warning(f"Socket created at {self.SOCKET_PATH} with world-writable permissions (no suitable group found)")
         except Exception as e:
             logger.warning(f"Could not set socket permissions: {e}")
 
@@ -602,20 +622,26 @@ class BastionDaemon:
 
             # Handle case where a USB response arrives while waiting for connection decision
             # This is a race condition - keep reading until we get the connection response
-            while data.get('type') == 'usb_response':
-                self.handle_usb_response(data)
-                # Read next message to get the actual connection response
-                try:
-                    self.gui_socket.settimeout(60.0)
-                    response = self.gui_socket.recv(4096).decode().strip()
-                    self.gui_socket.settimeout(None)
-                    if not response:
-                        logger.warning("Empty response after handling USB response")
+            original_timeout = self.gui_socket.gettimeout()
+            try:
+                self.gui_socket.settimeout(60.0)
+                while data.get('type') == 'usb_response':
+                    self.handle_usb_response(data)
+                    # Read next message to get the actual connection response
+                    try:
+                        response = self.gui_socket.recv(4096).decode().strip()
+                        if not response:
+                            logger.warning("Empty response after handling USB response")
+                            return True if learning_mode else False
+                        data = json.loads(response)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Error parsing connection response after USB: {e}")
                         return True if learning_mode else False
-                    data = json.loads(response)
-                except (socket.timeout, json.JSONDecodeError) as e:
-                    logger.warning(f"Error reading connection response after USB: {e}")
-                    return True if learning_mode else False
+            except socket.timeout:
+                logger.warning("Socket timeout waiting for connection response after USB")
+                return True if learning_mode else False
+            finally:
+                self.gui_socket.settimeout(original_timeout)
 
             allow = data.get('allow', False)
             permanent = data.get('permanent', False)

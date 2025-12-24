@@ -260,11 +260,18 @@ if [ -f "/usr/lib/tmpfiles.d/bastion.conf" ]; then
     print_success "Tmpfiles config removed"
 fi
 
-# Remove runtime directory
+# Remove runtime directory (with safety checks)
 if [ -d "/run/bastion" ]; then
-    print_info "Removing runtime directory..."
-    rm -rf /run/bastion
-    print_success "Runtime directory removed"
+    # Safety: verify it's actually a directory and not a symlink
+    if [ -L "/run/bastion" ]; then
+        print_warning "Skipping /run/bastion - is a symlink (potential attack)"
+    elif [ "$(realpath /run/bastion)" = "/run/bastion" ]; then
+        print_info "Removing runtime directory..."
+        rm -rf /run/bastion
+        print_success "Runtime directory removed"
+    else
+        print_warning "Skipping /run/bastion - path resolves elsewhere"
+    fi
 fi
 
 # Remove desktop entries
