@@ -5,10 +5,13 @@ Securely stores and retrieves USB device allow/block decisions.
 
 Security features:
 - Atomic writes (temp file + rename) to prevent corruption
-- Strict file permissions (0600 - owner read/write only)
+- File permissions: 0644 (owner read/write, world readable)
+  Note: USB rules contain device IDs only (not secrets), and must be
+  readable by GUI running as the desktop user
 - Input validation (sanitize all fields before storage)
 - Fixed file path (no user-controllable paths)
 - Safe JSON parsing (no pickle/eval)
+- Symlink check before atomic replace to prevent TOCTOU attacks
 """
 
 import json
@@ -258,6 +261,12 @@ class USBRuleManager:
                 with os.fdopen(fd, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
                 # fd is now closed by os.fdopen context manager
+
+                # Security check: verify target is not a symlink (TOCTOU mitigation)
+                # An attacker could race to replace db_path with a symlink after
+                # temp file creation. This check reduces the window.
+                if self.db_path.is_symlink():
+                    raise SecurityError(f"Target file is a symlink: {self.db_path}")
 
                 # Atomic rename (POSIX guarantees this is atomic on same filesystem)
                 os.replace(tmp_path, self.db_path)

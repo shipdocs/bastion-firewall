@@ -17,10 +17,15 @@ from bastion.gui_qt import FirewallDialog
 from bastion.icon_manager import IconManager
 
 # Lock file to prevent multiple instances
-# Lock file in user's runtime dir (XDG_RUNTIME_DIR) or fallback to /tmp
-# This is user-writable and cleared on logout
+# Lock file in user's runtime dir (XDG_RUNTIME_DIR) - private per-user directory
+# Fallback to ~/.cache/bastion (NOT /tmp which is shared and causes cross-user blocking)
 import os as _os
-LOCK_FILE = _os.path.join(_os.environ.get('XDG_RUNTIME_DIR', '/tmp'), 'bastion-gui.lock')
+_runtime_dir = _os.environ.get('XDG_RUNTIME_DIR')
+if not _runtime_dir:
+    # Fallback to user-specific cache directory
+    _runtime_dir = _os.path.join(_os.path.expanduser('~'), '.cache', 'bastion')
+    _os.makedirs(_runtime_dir, mode=0o700, exist_ok=True)
+LOCK_FILE = _os.path.join(_runtime_dir, 'bastion-gui.lock')
 
 def acquire_lock():
     """Try to acquire a lock file. Returns file handle if successful, None if already running."""

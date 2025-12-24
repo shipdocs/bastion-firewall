@@ -164,6 +164,25 @@ class USBMonitor:
             except ValueError:
                 bus_num = dev_num = 0
 
+            # Extract interface classes (for devices with class defined at interface level)
+            interface_classes = []
+            if device_class == 0:  # PER_INTERFACE - class defined at interface level
+                try:
+                    # Look for child interface devices and extract their classes
+                    for child in device.children:
+                        if child.subsystem == 'usb' and ':' in child.sys_name:
+                            # This is an interface (e.g., "1-2:1.0")
+                            iface_class_str = child.attributes.get('bInterfaceClass')
+                            if iface_class_str:
+                                try:
+                                    iface_class = int(iface_class_str.decode('utf-8', errors='ignore'), 16)
+                                    if iface_class not in interface_classes:
+                                        interface_classes.append(iface_class)
+                                except (ValueError, UnicodeDecodeError):
+                                    pass
+                except Exception:
+                    pass  # If we can't read interfaces, proceed without them
+
             # Sanitize vendor/product IDs
             return USBDeviceInfo(
                 vendor_id=USBValidation.sanitize_hex_id(vendor_id),
@@ -171,6 +190,7 @@ class USBMonitor:
                 vendor_name=USBValidation.sanitize_string(vendor_name),
                 product_name=USBValidation.sanitize_string(product_name),
                 device_class=device_class,
+                interface_classes=interface_classes,
                 serial=serial,
                 bus_id=bus_id,
                 bus_num=bus_num,
