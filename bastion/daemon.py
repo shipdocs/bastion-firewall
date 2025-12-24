@@ -19,6 +19,7 @@ from .service_whitelist import should_auto_allow, get_app_category
 from .usb_monitor import USBMonitor, is_pyudev_available
 from .usb_device import USBDeviceInfo
 from .usb_rules import USBRuleManager, USBAuthorizer, Verdict
+from .gui_manager import GUIManager
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,11 @@ class BastionDaemon:
 
         self.systemd = SystemdNotifier()
         self.monitor_thread = None
+
+        # GUI Manager - ensures GUI is always running
+        self.gui_manager = GUIManager()
+        self.last_gui_check = 0
+        self.gui_check_interval = 10  # Check GUI every 10 seconds
 
         self.pending_requests: Dict[str, float] = {}
         self.last_request_time: Dict[str, float] = {}
@@ -195,6 +201,11 @@ class BastionDaemon:
                 if current_time - last_usb_rule_check >= usb_rule_check_interval:
                     self._reload_usb_rules_if_changed()
                     last_usb_rule_check = current_time
+
+                # Check if GUI is running and restart if needed
+                if current_time - self.last_gui_check >= self.gui_check_interval:
+                    self._ensure_gui_running()
+                    self.last_gui_check = current_time
 
                 # 2. Periodic Rule Check
                 now = time.time()
@@ -674,6 +685,21 @@ class BastionDaemon:
         logger.info("Daemon stopped")
 
     # ========== USB DEVICE CONTROL ==========
+
+    def _ensure_gui_running(self):
+        """
+        Ensure GUI is running. If it's not, start it.
+        This ensures the tray icon is always available.
+        """
+        try:
+            if not self.gui_manager.is_gui_running():
+                logger.warning("GUI is not running, attempting to start it...")
+                if self.gui_manager.start_gui():
+                    logger.info("GUI restarted successfully")
+                else:
+                    logger.error("Failed to restart GUI")
+        except Exception as e:
+            logger.error(f"Error checking/starting GUI: {e}")
 
     def _reload_usb_rules_if_changed(self):
         """
