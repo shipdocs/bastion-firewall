@@ -291,6 +291,7 @@ class BastionDaemon:
     def _read_gui_messages(self):
         """Read messages from GUI in background (for USB responses etc.)"""
         buffer = ""
+        MAX_BUFFER_SIZE = 65536  # 64KB limit to prevent memory exhaustion
         try:
             while self.running and self.gui_socket:
                 # Avoid race with _ask_gui: if there are pending connection requests,
@@ -309,6 +310,11 @@ class BastionDaemon:
                         buffer += data.decode('utf-8', errors='replace')
                     except UnicodeDecodeError:
                         logger.warning("Invalid UTF-8 data from GUI, skipping")
+                        continue
+                    # Prevent buffer overflow from malicious/buggy GUI
+                    if len(buffer) > MAX_BUFFER_SIZE:
+                        logger.warning("GUI message buffer overflow, resetting")
+                        buffer = ""
                         continue
                     while '\n' in buffer:
                         line, buffer = buffer.split('\n', 1)
