@@ -104,13 +104,64 @@ class GUIManager:
 
             logger.info(f"Starting GUI as user: {user}")
 
+            # Get user's environment variables (especially DISPLAY)
+            env = os.environ.copy()
+
+            # Try to find DISPLAY from user's X session
+            display_found = False
+            try:
+                # Look for DISPLAY in ps output for the user's processes
+                result = subprocess.run(
+                    ['ps', '-u', user, '-o', 'environ='],
+                    capture_output=True,
+                    text=True,
+                    timeout=2
+                )
+                for line in result.stdout.split('\n'):
+                    if 'DISPLAY=' in line:
+                        # Extract DISPLAY value
+                        for var in line.split('\0'):
+                            if var.startswith('DISPLAY='):
+                                display = var.split('=', 1)[1]
+                                if display:
+                                    env['DISPLAY'] = display
+                                    logger.info(f"Found DISPLAY from user processes: {display}")
+                                    display_found = True
+                                    break
+                        if display_found:
+                            break
+            except Exception as e:
+                logger.debug(f"Could not find DISPLAY from user processes: {e}")
+
+            # If still no DISPLAY, try common defaults
+            if not display_found:
+                for display in [':0', ':1', ':0.0', ':1.0']:
+                    try:
+                        # Test if display is accessible
+                        result = subprocess.run(
+                            ['xset', '-display', display, 'q'],
+                            capture_output=True,
+                            timeout=1
+                        )
+                        if result.returncode == 0:
+                            env['DISPLAY'] = display
+                            logger.info(f"Using DISPLAY: {display}")
+                            display_found = True
+                            break
+                    except:
+                        pass
+
+            if not display_found:
+                logger.warning("Could not determine DISPLAY, GUI may not start")
+
             # Start GUI as the user, not as root
             self.gui_process = subprocess.Popen(
                 [self.gui_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,  # Detach from daemon
-                user=user  # Run as the logged-in user
+                user=user,  # Run as the logged-in user
+                env=env  # Pass environment with DISPLAY
             )
             logger.info(f"GUI started (PID: {self.gui_process.pid}) as user {user}")
             return True
