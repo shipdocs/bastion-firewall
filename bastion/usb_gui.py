@@ -411,6 +411,25 @@ class USBControlWidget(QWidget):
         allowed_header.addWidget(allowed_icon)
         allowed_header.addWidget(allowed_label)
         allowed_header.addStretch()
+
+        # Delete button for allowed devices
+        self.btn_delete_allowed = QPushButton("Delete Selected")
+        self.btn_delete_allowed.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['danger']};
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: #c0392b;
+            }}
+        """)
+        self.btn_delete_allowed.clicked.connect(self._delete_allowed_selected)
+        allowed_header.addWidget(self.btn_delete_allowed)
+
         layout.addLayout(allowed_header)
 
         self.table_allowed = self._create_device_table()
@@ -425,6 +444,25 @@ class USBControlWidget(QWidget):
         blocked_header.addWidget(blocked_icon)
         blocked_header.addWidget(blocked_label)
         blocked_header.addStretch()
+
+        # Delete button for blocked devices
+        self.btn_delete_blocked = QPushButton("Delete Selected")
+        self.btn_delete_blocked.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['danger']};
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: #c0392b;
+            }}
+        """)
+        self.btn_delete_blocked.clicked.connect(self._delete_blocked_selected)
+        blocked_header.addWidget(self.btn_delete_blocked)
+
         layout.addLayout(blocked_header)
 
         self.table_blocked = self._create_device_table()
@@ -432,24 +470,6 @@ class USBControlWidget(QWidget):
 
         # Buttons
         btn_layout = QHBoxLayout()
-
-        # Delete button
-        btn_delete = QPushButton("Delete Selected")
-        btn_delete.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['danger']};
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: #c0392b;
-            }}
-        """)
-        btn_delete.clicked.connect(self._delete_selected)
-        btn_layout.addWidget(btn_delete)
-
         btn_layout.addStretch()
 
         btn_refresh = QPushButton("Refresh")
@@ -635,25 +655,30 @@ for usb_host in Path('/sys/bus/usb/devices').glob('usb*'):
         except Exception as e:
             logger.error(f"Failed to set USB policy: {e}")
 
-    def _delete_selected(self):
-        """Delete selected rules from both tables."""
+    def _delete_allowed_selected(self):
+        """Delete selected allowed device rules."""
         deleted = False
-
-        # Check allowed table
         for row in self.table_allowed.selectionModel().selectedRows():
             idx = row.row()
             if hasattr(self.table_allowed, 'rule_keys') and idx < len(self.table_allowed.rule_keys):
                 key = self.table_allowed.rule_keys[idx]
                 self.rule_manager.remove_rule(key)
                 deleted = True
+                logger.info(f"Deleted allowed USB rule: {key}")
 
-        # Check blocked table
+        if deleted:
+            self.refresh()
+
+    def _delete_blocked_selected(self):
+        """Delete selected blocked device rules."""
+        deleted = False
         for row in self.table_blocked.selectionModel().selectedRows():
             idx = row.row()
             if hasattr(self.table_blocked, 'rule_keys') and idx < len(self.table_blocked.rule_keys):
                 key = self.table_blocked.rule_keys[idx]
                 self.rule_manager.remove_rule(key)
                 deleted = True
+                logger.info(f"Deleted blocked USB rule: {key}")
 
         if deleted:
             self.refresh()
