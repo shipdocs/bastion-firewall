@@ -96,7 +96,10 @@ def main():
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        pass  # Signal handler will be called automatically
+        pass
+    finally:
+        # Ensure monitor is stopped even if an unexpected exception occurs
+        monitor.stop()
 
 
 if __name__ == "__main__":
