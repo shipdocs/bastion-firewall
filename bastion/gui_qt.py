@@ -1086,8 +1086,6 @@ X-GNOME-Autostart-enabled=true
 
     def start_tray_icon(self):
         """Start the system tray icon (bastion-gui)"""
-        from .notification import show_notification
-
         try:
             # Try to start bastion-gui via PATH (works across different installations)
             subprocess.Popen(
@@ -1099,7 +1097,7 @@ X-GNOME-Autostart-enabled=true
             show_notification(self, "Success", "Tray icon started. Look for it in your system tray.")
             logger.info("Tray icon started from control panel")
         except Exception as e:
-            logger.error(f"Failed to start tray icon: {e}")
+            logger.exception(f"Failed to start tray icon: {e}")
             show_notification(self, "Error", f"Failed to start tray icon: {e}")
 
     # ... (other methods remain) ...
