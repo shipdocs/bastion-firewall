@@ -179,7 +179,8 @@ class USBRuleManager:
             # Check permissions before reading (only warn, don't fail)
             stat = self.db_path.stat()
             if stat.st_mode & 0o022:  # Group/world-writable is a security issue
-                logger.warning(f"USB rules file is group/world-writable: {oct(stat.st_mode)}")
+                perms = stat.st_mode & 0o777  # Mask to show only permission bits
+                logger.warning(f"USB rules file is group/world-writable: {oct(perms)}")
                 # Try to fix permissions (may fail if not owner)
                 try:
                     os.chmod(self.db_path, self.FILE_MODE)
