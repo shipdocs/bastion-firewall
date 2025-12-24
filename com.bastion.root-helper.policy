@@ -37,7 +37,7 @@
       <allow_inactive>auth_admin</allow_inactive>
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/bastion-root-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/bastion-root-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
   </action>
 
@@ -53,7 +53,7 @@
       <allow_inactive>auth_admin</allow_inactive>
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/bastion-root-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/bastion-root-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
   </action>
 
