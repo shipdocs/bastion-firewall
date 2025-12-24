@@ -82,9 +82,10 @@ sys.exit(main(sys.argv[1:]))
 HELPER_EOF
 chmod +x debian/usr/bin/bastion-root-helper
 
-# Copy polkit policy for root helper
+# Copy polkit policy for root helper with safe permissions
+# Policy files should be root-owned and not writable by others (0644)
 print_step "Copying polkit policies..."
-cp com.bastion.root-helper.policy debian/usr/share/polkit-1/actions/
+install -m 0644 com.bastion.root-helper.policy debian/usr/share/polkit-1/actions/
 
 # Copy Python modules
 print_step "Copying Python modules..."

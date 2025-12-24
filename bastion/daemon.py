@@ -298,7 +298,11 @@ class BastionDaemon:
                     if not data:
                         logger.warning("GUI disconnected")
                         break
-                    buffer += data.decode()
+                    try:
+                        buffer += data.decode('utf-8', errors='replace')
+                    except UnicodeDecodeError:
+                        logger.warning("Invalid UTF-8 data from GUI, skipping")
+                        continue
                     while '\n' in buffer:
                         line, buffer = buffer.split('\n', 1)
                         if line.strip():
@@ -877,9 +881,15 @@ class BastionDaemon:
         local processes. Only responses with the correct nonce are accepted.
         """
         response_nonce = response.get('nonce', '')
-        verdict = response.get('verdict', 'block')
-        scope = response.get('scope', 'device')
-        save_rule = response.get('save_rule', True)  # Default to saving for backwards compat
+
+        # Validate verdict and scope values (sanitize untrusted input)
+        raw_verdict = response.get('verdict', 'block')
+        verdict = raw_verdict if raw_verdict in ('allow', 'block') else 'block'
+
+        raw_scope = response.get('scope', 'device')
+        scope = raw_scope if raw_scope in ('device', 'model', 'vendor') else 'device'
+
+        save_rule = bool(response.get('save_rule', True))  # Coerce to bool
 
         with self.usb_pending_lock:
             # Validate nonce to prevent spoofing attacks

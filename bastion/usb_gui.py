@@ -765,6 +765,9 @@ class USBControlWidget(QWidget):
 
             if result.returncode == 0:
                 logger.info(f"USB default policy set to {policy_name}")
+            elif result.returncode == 126:
+                # User cancelled pkexec authentication dialog
+                logger.info("USB policy change cancelled by user")
             else:
                 # Log details internally, show generic message to user
                 logger.warning(f"Failed to set USB policy: {result.stderr}")
@@ -864,6 +867,9 @@ class USBControlWidget(QWidget):
                 logger.info(f"Successfully deleted USB rule: {key}")
                 show_notification(self, "Success", f"Deleted rule for {device_name}")
                 self.refresh()
+            elif result.returncode == 126:
+                # User cancelled pkexec authentication dialog
+                logger.info("Rule deletion cancelled by user")
             elif output == "NOT_FOUND" or result.returncode == 1:
                 logger.warning(f"Rule not found: {key}")
                 show_notification(self, "Not Found", f"Rule for {device_name} was not found")
