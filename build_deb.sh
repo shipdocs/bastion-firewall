@@ -84,8 +84,7 @@ chmod +x debian/usr/bin/bastion-root-helper
 
 # Copy polkit policy for root helper
 print_step "Copying polkit policies..."
-cp debian/usr/share/polkit-1/actions/com.bastion.root-helper.policy debian/usr/share/polkit-1/actions/ 2>/dev/null || \
-    cp com.bastion.root-helper.policy debian/usr/share/polkit-1/actions/
+cp com.bastion.root-helper.policy debian/usr/share/polkit-1/actions/
 
 # Copy Python modules
 print_step "Copying Python modules..."

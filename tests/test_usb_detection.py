@@ -90,13 +90,13 @@ def main():
         sys.exit(0)
     
     signal.signal(signal.SIGINT, signal_handler)
-    
+
     # Keep running until Ctrl+C
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        signal_handler(None, None)
+        pass  # Signal handler will be called automatically
 
 
 if __name__ == "__main__":
