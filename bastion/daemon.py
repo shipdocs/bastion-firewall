@@ -88,8 +88,10 @@ class SystemdNotifier:
 
 class BastionDaemon:
     """Core Daemon Logic"""
-    
-    SOCKET_PATH = '/tmp/bastion-daemon.sock'
+
+    # Socket in /run for security (not world-writable like /tmp)
+    SOCKET_DIR = '/run/bastion'
+    SOCKET_PATH = '/run/bastion/daemon.sock'
     
     def __init__(self):
         self.config = ConfigManager.load_config()
@@ -123,6 +125,7 @@ class BastionDaemon:
         self.usb_response_event = threading.Event()
         self.usb_response_verdict: Optional[Verdict] = None
         self.usb_response_scope: str = 'device'
+        self.usb_response_save_rule: bool = True
 
         # Statistics
         self.stats = {
@@ -377,24 +380,27 @@ class BastionDaemon:
             logger.error(f"Error sending stats: {e}")
 
     def _setup_socket(self):
-        """Setup Unix domain socket"""
+        """Setup Unix domain socket in /run/bastion for security"""
+        # Create socket directory if it doesn't exist
+        # /run is tmpfs, so this needs to be created each boot
+        if not os.path.exists(self.SOCKET_DIR):
+            os.makedirs(self.SOCKET_DIR, mode=0o755)
+            logger.info(f"Created socket directory: {self.SOCKET_DIR}")
+
         if os.path.exists(self.SOCKET_PATH):
             os.remove(self.SOCKET_PATH)
-            
+
         self.server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server_socket.bind(self.SOCKET_PATH)
-        
+
         # Allow local users to connect (essential for GUI on single-user systems)
-        # Using 0o666 because group membership changes require logout/login,
-        # which breaks the "install and run" experience.
+        # Socket in /run/bastion is more secure than /tmp
         try:
             os.chmod(self.SOCKET_PATH, 0o666)
-            logger.info("Socket permissions set to 0666 (world-writable for immediate GUI access)")
+            logger.info(f"Socket created at {self.SOCKET_PATH}")
         except Exception as e:
             logger.warning(f"Could not set socket permissions: {e}")
-        except Exception as e:
-            logger.warning(f"Could not set socket group ownership: {e}")
-            
+
         self.server_socket.listen(1)
 
     def reload_config(self):
@@ -819,16 +825,21 @@ class BastionDaemon:
                 with self.usb_pending_lock:
                     verdict = self.usb_response_verdict
                     scope = self.usb_response_scope
+                    save_rule = self.usb_response_save_rule
                     self.usb_pending_device = None
 
                 if verdict == 'allow':
-                    logger.info(f"User allowed USB device: {device.product_name}")
-                    self.usb_rule_manager.add_rule(device, 'allow', scope)
+                    action = "allowed" if save_rule else "allowed once"
+                    logger.info(f"User {action} USB device: {device.product_name}")
+                    if save_rule:
+                        self.usb_rule_manager.add_rule(device, 'allow', scope)
                     USBAuthorizer.authorize(device.bus_id)
                     self.stats['usb_devices_allowed'] += 1
                 else:
-                    logger.info(f"User blocked USB device: {device.product_name}")
-                    self.usb_rule_manager.add_rule(device, 'block', scope)
+                    action = "blocked" if save_rule else "blocked once"
+                    logger.info(f"User {action} USB device: {device.product_name}")
+                    if save_rule:
+                        self.usb_rule_manager.add_rule(device, 'block', scope)
                     USBAuthorizer.deauthorize(device.bus_id)
                     self.stats['usb_devices_blocked'] += 1
             else:
@@ -854,8 +865,10 @@ class BastionDaemon:
         """Handle USB decision response from GUI."""
         verdict = response.get('verdict', 'block')
         scope = response.get('scope', 'device')
+        save_rule = response.get('save_rule', True)  # Default to saving for backwards compat
 
         with self.usb_pending_lock:
             self.usb_response_verdict = verdict
             self.usb_response_scope = scope
+            self.usb_response_save_rule = save_rule
             self.usb_response_event.set()

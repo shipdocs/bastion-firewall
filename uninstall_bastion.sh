@@ -253,6 +253,20 @@ if [ -f "/usr/lib/systemd/system/bastion-firewall.service" ]; then
     print_success "Systemd service removed"
 fi
 
+# Remove tmpfiles.d configuration
+if [ -f "/usr/lib/tmpfiles.d/bastion.conf" ]; then
+    print_info "Removing tmpfiles.d config..."
+    rm -f /usr/lib/tmpfiles.d/bastion.conf
+    print_success "Tmpfiles config removed"
+fi
+
+# Remove runtime directory
+if [ -d "/run/bastion" ]; then
+    print_info "Removing runtime directory..."
+    rm -rf /run/bastion
+    print_success "Runtime directory removed"
+fi
+
 # Remove desktop entries
 print_info "Removing desktop entries..."
 rm -f /usr/share/applications/douane*.desktop 2>/dev/null || true

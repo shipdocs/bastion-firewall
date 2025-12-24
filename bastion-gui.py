@@ -17,7 +17,10 @@ from bastion.gui_qt import FirewallDialog
 from bastion.icon_manager import IconManager
 
 # Lock file to prevent multiple instances
-LOCK_FILE = '/tmp/bastion-gui.lock'
+# Lock file in user's runtime dir (XDG_RUNTIME_DIR) or fallback to /tmp
+# This is user-writable and cleared on logout
+import os as _os
+LOCK_FILE = _os.path.join(_os.environ.get('XDG_RUNTIME_DIR', '/tmp'), 'bastion-gui.lock')
 
 def acquire_lock():
     """Try to acquire a lock file. Returns file handle if successful, None if already running."""
@@ -45,7 +48,7 @@ class BastionClient(QObject):
     def __init__(self, app):
         super().__init__()
         self.app = app
-        self.socket_path = '/tmp/bastion-daemon.sock'
+        self.socket_path = '/run/bastion/daemon.sock'
         self.sock = None
         self.notifier = None
         self.buffer = ""
@@ -284,18 +287,19 @@ class BastionClient(QObject):
 
         result = dialog.exec()
 
-        print(f"[USB] Dialog result: {dialog.verdict} (scope={dialog.scope})")
+        print(f"[USB] Dialog result: {dialog.verdict} (scope={dialog.scope}, save_rule={dialog.save_rule})")
 
         # Send response
         if self.connected and self.sock:
             resp = json.dumps({
                 'type': 'usb_response',
                 'verdict': dialog.verdict or 'block',
-                'scope': dialog.scope
+                'scope': dialog.scope,
+                'save_rule': dialog.save_rule
             }) + '\n'
             try:
                 self.sock.sendall(resp.encode())
-                print(f"[USB] Response sent: {dialog.verdict}")
+                print(f"[USB] Response sent: {dialog.verdict} (save_rule={dialog.save_rule})")
             except Exception as e:
                 print(f"[USB] Failed to send response: {e}")
                 self.handle_disconnect()

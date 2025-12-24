@@ -113,9 +113,9 @@ class USBRuleManager:
 
     DEFAULT_PATH = SYSTEM_PATH
     
-    # File permissions: owner read/write, group read (0640) - GUI runs as group member
-    # More secure than 0o644 (world-readable) but allows group access
-    FILE_MODE = 0o640
+    # File permissions: owner read/write, world readable (0644)
+    # USB rules contain device IDs only, not secrets - need to be readable by GUI
+    FILE_MODE = 0o644
     DIR_MODE = 0o755
     
     def __init__(self, db_path: Optional[Path] = None):

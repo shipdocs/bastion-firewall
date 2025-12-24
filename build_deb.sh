@@ -50,6 +50,7 @@ mkdir -p debian/usr/share/doc/bastion-firewall
 mkdir -p debian/usr/share/applications
 mkdir -p debian/usr/share/metainfo
 mkdir -p debian/lib/systemd/system
+mkdir -p debian/usr/lib/tmpfiles.d
 mkdir -p debian/usr/share/polkit-1/actions
 mkdir -p debian/DEBIAN
 # Note: /etc/bastion is created by postinst, not in package
@@ -121,6 +122,10 @@ EOF
 # Copy systemd service
 print_step "Copying systemd service..."
 cp bastion-firewall.service debian/lib/systemd/system/
+
+# Copy tmpfiles.d config for /run/bastion directory
+print_step "Copying tmpfiles.d config..."
+cp bastion.conf debian/usr/lib/tmpfiles.d/bastion.conf
 
 # Note: config.json is NOT copied to /etc/bastion/ in the package
 # It will be created by postinst script during installation with user prompts

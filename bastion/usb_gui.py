@@ -160,6 +160,7 @@ class USBPromptDialog(QDialog):
         # Result
         self.verdict: Optional[Verdict] = None
         self.scope: Scope = 'device'
+        self.save_rule: bool = True  # False for "once" actions
 
         self.init_ui()
         if timeout > 0:
@@ -296,18 +297,18 @@ class USBPromptDialog(QDialog):
 
         row_allow = QHBoxLayout()
         btn_allow_once = self.create_button("Allow Once", COLORS['success'], outline=True)
-        btn_allow_once.clicked.connect(self.allow_device)
+        btn_allow_once.clicked.connect(lambda: self.allow_device(save_rule=False))
         btn_allow_always = self.create_button("Allow Always", COLORS['success'])
-        btn_allow_always.clicked.connect(self.allow_device)
+        btn_allow_always.clicked.connect(lambda: self.allow_device(save_rule=True))
         row_allow.addWidget(btn_allow_once)
         row_allow.addWidget(btn_allow_always)
         btn_grid.addLayout(row_allow)
 
         row_block = QHBoxLayout()
         btn_block_once = self.create_button("Block Once", COLORS['danger'], outline=True)
-        btn_block_once.clicked.connect(self.block_device)
+        btn_block_once.clicked.connect(lambda: self.block_device(save_rule=False))
         btn_block_always = self.create_button("Block Always", COLORS['danger'])
-        btn_block_always.clicked.connect(self.block_device)
+        btn_block_always.clicked.connect(lambda: self.block_device(save_rule=True))
         row_block.addWidget(btn_block_once)
         row_block.addWidget(btn_block_always)
         btn_grid.addLayout(row_block)
@@ -410,18 +411,22 @@ class USBPromptDialog(QDialog):
             return
         self.progress.setValue(current - 1)
 
-    def allow_device(self):
+    def allow_device(self, save_rule: bool = True):
         """User chose to allow the device."""
         self.verdict = 'allow'
         self.scope = self._get_selected_scope()
-        logger.info(f"User allowed USB device: {self.device.product_name} (scope={self.scope})")
+        self.save_rule = save_rule
+        action = "allowed" if save_rule else "allowed once"
+        logger.info(f"User {action} USB device: {self.device.product_name} (scope={self.scope})")
         self.accept()
 
-    def block_device(self):
+    def block_device(self, save_rule: bool = True):
         """User chose to block the device."""
         self.verdict = 'block'
         self.scope = self._get_selected_scope()
-        logger.info(f"User blocked USB device: {self.device.product_name} (scope={self.scope})")
+        self.save_rule = save_rule
+        action = "blocked" if save_rule else "blocked once"
+        logger.info(f"User {action} USB device: {self.device.product_name} (scope={self.scope})")
         self.reject()
 
     def keyPressEvent(self, event):
