@@ -587,11 +587,22 @@ class BastionDaemon:
 
             data = json.loads(response)
 
-            # Check if this is a USB response (shouldn't happen here, but handle it)
-            if data.get('type') == 'usb_response':
+            # Handle case where a USB response arrives while waiting for connection decision
+            # This is a race condition - keep reading until we get the connection response
+            while data.get('type') == 'usb_response':
                 self.handle_usb_response(data)
-                # Need to wait for connection response still
-                return True if learning_mode else False
+                # Read next message to get the actual connection response
+                try:
+                    self.gui_socket.settimeout(60.0)
+                    response = self.gui_socket.recv(4096).decode().strip()
+                    self.gui_socket.settimeout(None)
+                    if not response:
+                        logger.warning("Empty response after handling USB response")
+                        return True if learning_mode else False
+                    data = json.loads(response)
+                except (socket.timeout, json.JSONDecodeError) as e:
+                    logger.warning(f"Error reading connection response after USB: {e}")
+                    return True if learning_mode else False
 
             allow = data.get('allow', False)
             permanent = data.get('permanent', False)
