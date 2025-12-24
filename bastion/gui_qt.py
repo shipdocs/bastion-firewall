@@ -850,11 +850,31 @@ class DashboardWindow(QMainWindow):
         cl_ufw.addLayout(ufw_btns)
         
         scroll_layout.addWidget(card_ufw)
-        
+        scroll_layout.addSpacing(20)
+
+        # 3. Tray Icon Management
+        card_tray = QFrame(objectName="card")
+        cl_tray = QVBoxLayout(card_tray)
+        cl_tray.setContentsMargins(30, 30, 30, 30)
+
+        cl_tray.addWidget(QLabel("Tray Icon", objectName="h2"))
+
+        lbl_tray_info = QLabel("The system tray icon provides quick access to firewall controls.")
+        lbl_tray_info.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px; margin-bottom: 10px;")
+        cl_tray.addWidget(lbl_tray_info)
+
+        self.btn_start_tray = QPushButton("Start Tray Icon")
+        self.btn_start_tray.setObjectName("action_btn")
+        self.btn_start_tray.setFixedWidth(200)
+        self.btn_start_tray.clicked.connect(self.start_tray_icon)
+        cl_tray.addWidget(self.btn_start_tray)
+
+        scroll_layout.addWidget(card_tray)
+
         scroll_layout.addStretch()
         scroll.setWidget(scroll_content)
         layout.addWidget(scroll)
-        
+
         return page
 
     # --- LOGIC ---
@@ -1054,7 +1074,7 @@ X-GNOME-Autostart-enabled=true
     def disable_ufw(self):
         if QMessageBox.question(self, "Confirm", "Disable Inbound Protection (UFW)?\nYour computer will be exposed to inbound connections.") != QMessageBox.StandardButton.Yes:
             return
-            
+
         try:
             subprocess.run(['pkexec', 'ufw', 'disable'], check=True)
             from .notification import show_notification
@@ -1063,6 +1083,24 @@ X-GNOME-Autostart-enabled=true
             from .notification import show_notification
             show_notification(self, "Error", f"Failed to disable UFW: {e}")
         self.refresh_ui()
+
+    def start_tray_icon(self):
+        """Start the system tray icon (bastion-gui)"""
+        from .notification import show_notification
+
+        try:
+            # Try to start bastion-gui
+            subprocess.Popen(
+                ['/usr/bin/bastion-gui'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+            show_notification(self, "Success", "Tray icon started. Look for it in your system tray.")
+            logger.info("Tray icon started from control panel")
+        except Exception as e:
+            logger.error(f"Failed to start tray icon: {e}")
+            show_notification(self, "Error", f"Failed to start tray icon: {e}")
 
     # ... (other methods remain) ...
 

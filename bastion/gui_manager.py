@@ -49,25 +49,70 @@ class GUIManager:
             return os.path.isfile(path) and os.access(path, os.X_OK)
         except:
             return False
-    
+
+    def is_gui_running(self):
+        """Check if GUI process is running"""
+        try:
+            # Check if process is still alive
+            if self.gui_process and self.gui_process.poll() is None:
+                return True
+
+            # Also check if any bastion-gui process is running
+            result = subprocess.run(
+                ['pgrep', '-f', 'bastion-gui'],
+                capture_output=True,
+                timeout=2
+            )
+            return result.returncode == 0
+        except Exception as e:
+            logger.debug(f"Error checking GUI status: {e}")
+            return False
+
     def start_gui(self):
-        """Start GUI application in background"""
+        """Start GUI application in background as the logged-in user"""
         if not self.gui_path:
             logger.error("Cannot start GUI: executable not found")
             return False
-        
-        if self.gui_process and self.gui_process.poll() is None:
+
+        if self.is_gui_running():
             logger.debug("GUI already running")
             return True
-        
+
         try:
+            # Find the logged-in user (not root)
+            # Try to get the user from SUDO_USER or look for active X session
+            user = os.environ.get('SUDO_USER')
+
+            if not user:
+                # Try to find user from active X sessions
+                try:
+                    result = subprocess.run(
+                        ['who'],
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
+                    if result.stdout:
+                        # Get first logged-in user
+                        user = result.stdout.split()[0]
+                except:
+                    pass
+
+            if not user:
+                logger.error("Cannot determine logged-in user for GUI")
+                return False
+
+            logger.info(f"Starting GUI as user: {user}")
+
+            # Start GUI as the user, not as root
             self.gui_process = subprocess.Popen(
                 [self.gui_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                start_new_session=True  # Detach from daemon
+                start_new_session=True,  # Detach from daemon
+                user=user  # Run as the logged-in user
             )
-            logger.info(f"GUI started (PID: {self.gui_process.pid})")
+            logger.info(f"GUI started (PID: {self.gui_process.pid}) as user {user}")
             return True
         except Exception as e:
             logger.error(f"Failed to start GUI: {e}")
