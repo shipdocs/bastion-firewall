@@ -110,28 +110,59 @@ class GUIManager:
             # Try to find DISPLAY from user's X session
             display_found = False
             try:
-                # Look for DISPLAY in ps output for the user's processes
+                # First try reading /proc/<pid>/environ directly (more reliable)
+                # Get PIDs of user's GUI-related processes
                 result = subprocess.run(
-                    ['ps', '-u', user, '-o', 'environ='],
+                    ['pgrep', '-u', user, '-x', 'gnome-shell|Xorg|kwin|plasmashell'],
                     capture_output=True,
                     text=True,
                     timeout=2
                 )
-                for line in result.stdout.split('\n'):
-                    if 'DISPLAY=' in line:
-                        # Extract DISPLAY value
-                        for var in line.split('\0'):
-                            if var.startswith('DISPLAY='):
-                                display = var.split('=', 1)[1]
-                                if display:
-                                    env['DISPLAY'] = display
-                                    logger.info(f"Found DISPLAY from user processes: {display}")
-                                    display_found = True
-                                    break
-                        if display_found:
-                            break
+                for pid in result.stdout.strip().split('\n'):
+                    if pid and pid.isdigit():
+                        try:
+                            with open(f'/proc/{pid}/environ', 'r') as f:
+                                # /proc environ uses NUL separators
+                                for var in f.read().split('\0'):
+                                    if var.startswith('DISPLAY='):
+                                        display = var.split('=', 1)[1]
+                                        if display:
+                                            env['DISPLAY'] = display
+                                            logger.info(f"Found DISPLAY from /proc/{pid}: {display}")
+                                            display_found = True
+                                            break
+                        except (OSError, PermissionError):
+                            continue
+                    if display_found:
+                        break
             except Exception as e:
-                logger.debug(f"Could not find DISPLAY from user processes: {e}")
+                logger.debug(f"Could not find DISPLAY from /proc: {e}")
+
+            # Fallback: try ps -o environ= (output format varies by system)
+            if not display_found:
+                try:
+                    result = subprocess.run(
+                        ['ps', '-u', user, '-o', 'environ='],
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
+                    for line in result.stdout.splitlines():
+                        if 'DISPLAY=' in line:
+                            # Try both space and NUL separators (format varies by OS)
+                            tokens = line.replace('\0', ' ').split()
+                            for tok in tokens:
+                                if tok.startswith('DISPLAY='):
+                                    display = tok.split('=', 1)[1]
+                                    if display:
+                                        env['DISPLAY'] = display
+                                        logger.info(f"Found DISPLAY from ps: {display}")
+                                        display_found = True
+                                        break
+                            if display_found:
+                                break
+                except Exception as e:
+                    logger.debug(f"Could not find DISPLAY from ps: {e}")
 
             # If still no DISPLAY, try common defaults
             if not display_found:
