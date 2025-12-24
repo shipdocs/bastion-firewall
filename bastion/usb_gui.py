@@ -8,6 +8,7 @@ Provides:
 """
 
 import logging
+import subprocess
 from typing import Optional, Callable
 
 from PyQt6.QtWidgets import (
@@ -23,6 +24,125 @@ from bastion.usb_rules import USBRuleManager, USBRule, Verdict, Scope
 from bastion.gui_theme import COLORS, STRINGS
 
 logger = logging.getLogger(__name__)
+
+
+class ConfirmDeleteDialog(QDialog):
+    """
+    Styled confirmation dialog for deleting USB rules.
+    Matches the application's design theme.
+    """
+
+    def __init__(self, device_name: str, parent=None):
+        super().__init__(parent)
+        self.device_name = device_name
+        self.confirmed = False
+        self.init_ui()
+
+    def init_ui(self):
+        self.setWindowTitle("Confirm Deletion")
+        self.setFixedSize(450, 200)
+
+        # Apply theme styling
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS["background"]};
+                border: 1px solid {COLORS["danger"]};
+            }}
+            QLabel {{
+                color: {COLORS["text_primary"]};
+            }}
+            QFrame#info_box {{
+                background-color: {COLORS["card"]};
+                border-radius: 6px;
+                border: 1px solid {COLORS["card_border"]};
+            }}
+        """)
+
+        self.setWindowFlags(
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.Dialog
+        )
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(25, 25, 25, 25)
+        layout.setSpacing(20)
+        self.setLayout(layout)
+
+        # Header
+        header_layout = QHBoxLayout()
+        icon = QLabel("⚠️")
+        icon.setStyleSheet("font-size: 32px;")
+        header_layout.addWidget(icon)
+
+        title = QLabel("Confirm Deletion")
+        title.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {COLORS['danger']};")
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+        layout.addLayout(header_layout)
+
+        # Info box
+        info_box = QFrame()
+        info_box.setObjectName("info_box")
+        info_layout = QVBoxLayout(info_box)
+        info_layout.setContentsMargins(15, 15, 15, 15)
+
+        msg = QLabel(f"Are you sure you want to delete the rule for:\n\n{self.device_name}?")
+        msg.setStyleSheet(f"color: {COLORS['text_primary']}; font-size: 13px;")
+        msg.setWordWrap(True)
+        info_layout.addWidget(msg)
+
+        layout.addWidget(info_box)
+        layout.addStretch()
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+
+        btn_cancel = self.create_button("Cancel", COLORS['text_secondary'], outline=True)
+        btn_cancel.clicked.connect(self.reject)
+        btn_layout.addWidget(btn_cancel)
+
+        btn_delete = self.create_button("Delete", COLORS['danger'])
+        btn_delete.clicked.connect(self.accept)
+        btn_layout.addWidget(btn_delete)
+
+        layout.addLayout(btn_layout)
+
+    def create_button(self, text, color, outline=False):
+        """Create a styled button matching the app theme."""
+        btn = QPushButton(text)
+        if outline:
+            style = f"""
+                QPushButton {{
+                    background-color: transparent;
+                    border: 2px solid {color};
+                    color: {color};
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {color}22;
+                }}
+            """
+        else:
+            style = f"""
+                QPushButton {{
+                    background-color: {color};
+                    border: none;
+                    color: #1e2227;
+                    padding: 10px 16px;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {color}dd;
+                }}
+            """
+        btn.setStyleSheet(style)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        return btn
 
 
 class USBPromptDialog(QDialog):
@@ -661,7 +781,6 @@ for usb_host in Path('/sys/bus/usb/devices').glob('usb*'):
         """Delete selected allowed device rules."""
         selected_rows = self.table_allowed.selectionModel().selectedRows()
         if not selected_rows:
-            QMessageBox.warning(self, "No Selection", "Please select a device to delete.")
             return
 
         # Get the row index
@@ -670,44 +789,24 @@ for usb_host in Path('/sys/bus/usb/devices').glob('usb*'):
         # Verify we have rule keys
         if not hasattr(self.table_allowed, 'rule_keys') or row_idx >= len(self.table_allowed.rule_keys):
             logger.error(f"Invalid row index {row_idx} for deletion")
-            QMessageBox.critical(self, "Error", "Failed to delete device: Invalid selection.")
             return
 
         # Get the device name and rule key
         device_name = self.table_allowed.item(row_idx, 0).text() if self.table_allowed.item(row_idx, 0) else "Unknown"
         key = self.table_allowed.rule_keys[row_idx]
 
-        # Confirm deletion
-        reply = QMessageBox.question(
-            self,
-            "Confirm Deletion",
-            f"Are you sure you want to delete the allowed rule for:\n\n{device_name}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if reply != QMessageBox.StandardButton.Yes:
+        # Show styled confirmation dialog
+        dialog = ConfirmDeleteDialog(device_name, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
         logger.info(f"Deleting allowed USB rule: {key}")
-
-        try:
-            self.rule_manager.remove_rule(key)
-            logger.info(f"Successfully deleted allowed USB rule: {key}")
-            QMessageBox.information(self, "Success", f"Deleted rule for {device_name}")
-            self.refresh()
-        except PermissionError as e:
-            logger.error(f"Permission denied deleting rule {key}: {e}")
-            QMessageBox.critical(self, "Permission Denied",
-                f"Cannot delete rule: Permission denied.\n\nYou may need to run the application with elevated privileges.")
-        except Exception as e:
-            logger.error(f"Failed to delete allowed USB rule {key}: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to delete rule: {str(e)}")
+        self._delete_rule_with_privilege(key, device_name)
 
     def _delete_blocked_selected(self):
         """Delete selected blocked device rules."""
         selected_rows = self.table_blocked.selectionModel().selectedRows()
         if not selected_rows:
-            QMessageBox.warning(self, "No Selection", "Please select a device to delete.")
             return
 
         # Get the row index
@@ -716,38 +815,80 @@ for usb_host in Path('/sys/bus/usb/devices').glob('usb*'):
         # Verify we have rule keys
         if not hasattr(self.table_blocked, 'rule_keys') or row_idx >= len(self.table_blocked.rule_keys):
             logger.error(f"Invalid row index {row_idx} for deletion")
-            QMessageBox.critical(self, "Error", "Failed to delete device: Invalid selection.")
             return
 
         # Get the device name and rule key
         device_name = self.table_blocked.item(row_idx, 0).text() if self.table_blocked.item(row_idx, 0) else "Unknown"
         key = self.table_blocked.rule_keys[row_idx]
 
-        # Confirm deletion
-        reply = QMessageBox.question(
-            self,
-            "Confirm Deletion",
-            f"Are you sure you want to delete the blocked rule for:\n\n{device_name}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if reply != QMessageBox.StandardButton.Yes:
+        # Show styled confirmation dialog
+        dialog = ConfirmDeleteDialog(device_name, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
         logger.info(f"Deleting blocked USB rule: {key}")
+        self._delete_rule_with_privilege(key, device_name)
+
+    def _delete_rule_with_privilege(self, key: str, device_name: str):
+        """
+        Delete a USB rule with elevated privileges using pkexec.
+
+        Args:
+            key: The rule key to delete
+            device_name: The device name for user feedback
+        """
+        # Create a Python script to delete the rule
+        delete_script = f"""
+import sys
+sys.path.insert(0, '/usr/lib/python3/dist-packages')
+from bastion.usb_rules import USBRuleManager
+try:
+    manager = USBRuleManager()
+    if manager.remove_rule('{key}'):
+        print("SUCCESS")
+    else:
+        print("NOT_FOUND")
+except Exception as e:
+    print(f"ERROR: {{e}}")
+"""
 
         try:
-            self.rule_manager.remove_rule(key)
-            logger.info(f"Successfully deleted blocked USB rule: {key}")
-            QMessageBox.information(self, "Success", f"Deleted rule for {device_name}")
-            self.refresh()
-        except PermissionError as e:
-            logger.error(f"Permission denied deleting rule {key}: {e}")
-            QMessageBox.critical(self, "Permission Denied",
-                f"Cannot delete rule: Permission denied.\n\nYou may need to run the application with elevated privileges.")
+            # Use pkexec to run the deletion with elevated privileges
+            result = subprocess.run(
+                ['pkexec', 'python3', '-c', delete_script],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            output = result.stdout.strip()
+
+            if result.returncode == 0 and output == "SUCCESS":
+                logger.info(f"Successfully deleted USB rule: {key}")
+                # Show success message
+                from bastion.notification import show_notification
+                show_notification(self, "Success", f"Deleted rule for {device_name}")
+                self.refresh()
+            elif output == "NOT_FOUND":
+                logger.warning(f"Rule not found: {key}")
+                from bastion.notification import show_notification
+                show_notification(self, "Not Found", f"Rule for {device_name} was not found")
+            else:
+                logger.error(f"Failed to delete rule: {result.stderr}")
+                from bastion.notification import show_notification
+                show_notification(self, "Error", f"Failed to delete rule: {result.stderr}")
+
+        except subprocess.TimeoutExpired:
+            logger.error("Rule deletion timed out")
+            from bastion.notification import show_notification
+            show_notification(self, "Timeout", "Rule deletion timed out")
+        except subprocess.CalledProcessError as e:
+            # User cancelled pkexec
+            logger.info(f"Rule deletion cancelled by user")
         except Exception as e:
-            logger.error(f"Failed to delete blocked USB rule {key}: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to delete rule: {str(e)}")
+            logger.error(f"Failed to delete rule with privilege: {e}")
+            from bastion.notification import show_notification
+            show_notification(self, "Error", f"Failed to delete rule: {str(e)}")
 
 
 def test_usb_prompt():
