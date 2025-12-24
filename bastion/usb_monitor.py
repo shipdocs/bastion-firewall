@@ -142,13 +142,15 @@ class USBMonitor:
             vendor_name = vendor_name.replace('_', ' ')
             product_name = product_name.replace('_', ' ')
             
-            # Get device class
-            device_class_str = device.get('ID_USB_CLASS_FROM_DATABASE', '') or \
-                              device.attributes.get('bDeviceClass', b'00').decode('utf-8', errors='ignore')
-            try:
-                device_class = int(device_class_str, 16) if device_class_str else 0
-            except ValueError:
-                device_class = 0
+            # Get device class (prefer numeric bDeviceClass attribute)
+            # Note: ID_USB_CLASS_FROM_DATABASE contains text like "Hub" not hex codes
+            device_class = 0
+            bclass = device.attributes.get('bDeviceClass')
+            if bclass:
+                try:
+                    device_class = int(bclass.decode('utf-8', errors='ignore'), 16)
+                except (ValueError, TypeError):
+                    device_class = 0
             
             # Get serial number and sanitize it (USB serials can contain malicious data)
             raw_serial = device.get('ID_SERIAL_SHORT', None)

@@ -293,6 +293,13 @@ class BastionDaemon:
         buffer = ""
         try:
             while self.running and self.gui_socket:
+                # Avoid race with _ask_gui: if there are pending connection requests,
+                # let _ask_gui own socket reads to prevent stealing responses
+                with self.request_lock:
+                    has_pending = bool(self.pending_requests)
+                if has_pending:
+                    time.sleep(0.1)
+                    continue
                 try:
                     data = self.gui_socket.recv(4096)
                     if not data:

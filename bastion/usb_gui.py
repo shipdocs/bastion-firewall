@@ -485,7 +485,8 @@ class USBControlWidget(QWidget):
         status_layout = QHBoxLayout(status_card)
 
         # Use PNG icon instead of emoji for better compatibility
-        from .icon_manager import IconManager
+        # Use absolute import so module can be run directly for testing
+        from bastion.icon_manager import IconManager
         status_icon = QLabel()
         nav_icon = IconManager.get_nav_icon('USB')
         if not nav_icon.isNull():
