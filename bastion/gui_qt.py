@@ -1089,9 +1089,9 @@ X-GNOME-Autostart-enabled=true
         from .notification import show_notification
 
         try:
-            # Try to start bastion-gui
+            # Try to start bastion-gui via PATH (works across different installations)
             subprocess.Popen(
-                ['/usr/bin/bastion-gui'],
+                ['bastion-gui'],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True
