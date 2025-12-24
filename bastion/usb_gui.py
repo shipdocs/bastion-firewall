@@ -20,23 +20,9 @@ from PyQt6.QtGui import QFont
 
 from bastion.usb_device import USBDeviceInfo
 from bastion.usb_rules import USBRuleManager, USBRule, Verdict, Scope
+from bastion.gui_theme import COLORS, STRINGS
 
 logger = logging.getLogger(__name__)
-
-# Reuse colors from main GUI
-COLORS = {
-    "background": "#1e2227",
-    "sidebar": "#282c34",
-    "card": "#21252b",
-    "card_border": "#3e4451",
-    "text_primary": "#abb2bf",
-    "text_secondary": "#5c6370",
-    "accent": "#61afef",
-    "danger": "#e06c75",
-    "success": "#98c379",
-    "warning": "#e5c07b",
-    "header": "#ffffff"
-}
 
 
 class USBPromptDialog(QDialog):
@@ -60,7 +46,7 @@ class USBPromptDialog(QDialog):
             self.start_timer()
 
     def init_ui(self):
-        self.setWindowTitle("Bastion - New USB Device")
+        self.setWindowTitle(STRINGS["usb_device_title"])
         self.setFixedSize(500, 550)  # Slightly taller for scope options
 
         # Determine accent color based on risk
@@ -568,7 +554,7 @@ class USBControlWidget(QWidget):
 
         if self.usb_enabled:
             # Enable: set authorized_default=0 (block new devices)
-            self.btn_toggle.setText("Disable")
+            self.btn_toggle.setText(STRINGS["usb_protection_disable"])
             self.btn_toggle.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {COLORS['danger']};
@@ -582,13 +568,13 @@ class USBControlWidget(QWidget):
                     background-color: #c0392b;
                 }}
             """)
-            self.lbl_status.setText("USB Protection Active")
+            self.lbl_status.setText(STRINGS["usb_protection_active"])
             self.lbl_status.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['success']};")
             # Set default to block (authorized_default=0)
             self._set_usb_default_policy(authorize=False)
         else:
             # Disable: set authorized_default=1 (allow new devices)
-            self.btn_toggle.setText("Enable")
+            self.btn_toggle.setText(STRINGS["usb_protection_enable"])
             self.btn_toggle.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {COLORS['success']};
@@ -602,7 +588,7 @@ class USBControlWidget(QWidget):
                     background-color: #27ae60;
                 }}
             """)
-            self.lbl_status.setText("USB Protection Disabled")
+            self.lbl_status.setText(STRINGS["usb_protection_disabled"])
             self.lbl_status.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['danger']};")
             # Set default to allow (authorized_default=1)
             self._set_usb_default_policy(authorize=True)

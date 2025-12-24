@@ -22,12 +22,9 @@ from typing import Optional, Literal
 from dataclasses import dataclass, asdict
 
 from bastion.usb_device import USBDeviceInfo
+from bastion.usb_validation import USBValidation, Verdict, Scope
 
 logger = logging.getLogger(__name__)
-
-# Rule verdicts
-Verdict = Literal['allow', 'block']
-Scope = Literal['device', 'model', 'vendor']
 
 
 @dataclass
@@ -62,52 +59,16 @@ class USBRule:
     def from_dict(cls, data: dict) -> 'USBRule':
         """Create from dictionary, with validation."""
         return cls(
-            verdict=cls._validate_verdict(data.get('verdict', 'block')),
-            vendor_id=cls._sanitize_hex_id(data.get('vendor_id', '')),
-            product_id=cls._sanitize_hex_id(data.get('product_id', '')),
-            vendor_name=cls._sanitize_string(data.get('vendor_name', 'Unknown')),
-            product_name=cls._sanitize_string(data.get('product_name', 'Unknown')),
-            scope=cls._validate_scope(data.get('scope', 'device')),
-            added=cls._sanitize_timestamp(data.get('added', '')),
+            verdict=USBValidation.validate_verdict(data.get('verdict', 'block')),
+            vendor_id=USBValidation.sanitize_hex_id(data.get('vendor_id', '')),
+            product_id=USBValidation.sanitize_hex_id(data.get('product_id', '')),
+            vendor_name=USBValidation.sanitize_string(data.get('vendor_name', 'Unknown')),
+            product_name=USBValidation.sanitize_string(data.get('product_name', 'Unknown')),
+            scope=USBValidation.validate_scope(data.get('scope', 'device')),
+            added=USBValidation.sanitize_timestamp(data.get('added', '')),
             last_seen=data.get('last_seen'),
             serial=data.get('serial'),
         )
-    
-    @staticmethod
-    def _validate_verdict(v: str) -> Verdict:
-        """Validate verdict is allow or block."""
-        return 'allow' if v == 'allow' else 'block'
-    
-    @staticmethod
-    def _validate_scope(s: str) -> Scope:
-        """Validate scope is device, model, or vendor."""
-        if s in ('device', 'model', 'vendor'):
-            return s
-        return 'device'
-    
-    @staticmethod
-    def _sanitize_hex_id(s: str) -> str:
-        """Sanitize vendor/product ID (4 hex chars only)."""
-        clean = re.sub(r'[^0-9a-fA-F]', '', str(s))[:4].lower()
-        return clean.zfill(4) if clean else '0000'
-    
-    @staticmethod
-    def _sanitize_string(s: str, max_len: int = 128) -> str:
-        """Sanitize string: remove control chars, limit length."""
-        if not isinstance(s, str):
-            s = str(s)
-        # Remove control characters except space
-        clean = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', s)
-        return clean[:max_len]
-    
-    @staticmethod
-    def _sanitize_timestamp(s: str) -> str:
-        """Validate/sanitize ISO timestamp."""
-        try:
-            datetime.fromisoformat(s)
-            return s
-        except (ValueError, TypeError):
-            return datetime.now().isoformat()
 
 
 class USBRuleManager:
@@ -239,7 +200,7 @@ class USBRuleManager:
         """Generate storage key for a device/scope combination."""
         if scope == 'device':
             # Sanitize serial to prevent injection attacks
-            serial = self._sanitize_string(device.serial) if device.serial else 'no-serial'
+            serial = USBValidation.sanitize_string(device.serial) if device.serial else 'no-serial'
             return f"{device.vendor_id}:{device.product_id}:{serial}"
         elif scope == 'model':
             return f"{device.vendor_id}:{device.product_id}"
