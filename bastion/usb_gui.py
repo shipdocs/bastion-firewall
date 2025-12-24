@@ -584,13 +584,8 @@ class USBControlWidget(QWidget):
             """)
             self.lbl_status.setText("USB Protection Active")
             self.lbl_status.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['success']};")
-            # Set default to block
-            try:
-                subprocess.run(['pkexec', 'bash', '-c',
-                    'for d in /sys/bus/usb/devices/usb*/authorized_default; do echo 0 > "$d"; done'],
-                    check=True, capture_output=True)
-            except Exception as e:
-                logger.warning(f"Failed to enable USB protection: {e}")
+            # Set default to block (authorized_default=0)
+            self._set_usb_default_policy(authorize=False)
         else:
             # Disable: set authorized_default=1 (allow new devices)
             self.btn_toggle.setText("Enable")
@@ -609,13 +604,50 @@ class USBControlWidget(QWidget):
             """)
             self.lbl_status.setText("USB Protection Disabled")
             self.lbl_status.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['danger']};")
-            # Set default to allow
-            try:
-                subprocess.run(['pkexec', 'bash', '-c',
-                    'for d in /sys/bus/usb/devices/usb*/authorized_default; do echo 1 > "$d"; done'],
-                    check=True, capture_output=True)
-            except Exception as e:
-                logger.warning(f"Failed to disable USB protection: {e}")
+            # Set default to allow (authorized_default=1)
+            self._set_usb_default_policy(authorize=True)
+
+    def _set_usb_default_policy(self, authorize: bool):
+        """
+        Set USB default authorization policy via pkexec.
+
+        Args:
+            authorize: True = allow new devices, False = block new devices
+        """
+        from pathlib import Path
+        value = '1' if authorize else '0'
+
+        try:
+            # Use pkexec to write to sysfs as root
+            # This is safer than bash loop - no shell interpretation
+            script = f"""
+import sys
+from pathlib import Path
+for usb_host in Path('/sys/bus/usb/devices').glob('usb*'):
+    auth_default = usb_host / 'authorized_default'
+    if auth_default.exists():
+        try:
+            auth_default.write_text('{value}')
+        except Exception as e:
+            print(f"Failed: {{e}}", file=sys.stderr)
+"""
+            result = subprocess.run(
+                ['pkexec', 'python3', '-c', script],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if result.returncode != 0:
+                logger.warning(f"Failed to set USB policy: {result.stderr}")
+            else:
+                logger.info(f"USB default policy set to {'allow' if authorize else 'block'}")
+
+        except subprocess.TimeoutExpired:
+            logger.error("USB policy change timed out")
+        except Exception as e:
+            logger.error(f"Failed to set USB policy: {e}")
 
     def _delete_selected(self):
         """Delete selected rules from both tables."""

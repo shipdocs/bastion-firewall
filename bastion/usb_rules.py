@@ -131,8 +131,9 @@ class USBRuleManager:
 
     DEFAULT_PATH = SYSTEM_PATH
     
-    # File permissions: owner read/write, group/other read (0644) for GUI access
-    FILE_MODE = 0o644
+    # File permissions: owner read/write, group read (0640) - GUI runs as group member
+    # More secure than 0o644 (world-readable) but allows group access
+    FILE_MODE = 0o640
     DIR_MODE = 0o755
     
     def __init__(self, db_path: Optional[Path] = None):
@@ -237,7 +238,8 @@ class USBRuleManager:
     def _make_key(self, device: USBDeviceInfo, scope: Scope) -> str:
         """Generate storage key for a device/scope combination."""
         if scope == 'device':
-            serial = device.serial if device.serial else 'no-serial'
+            # Sanitize serial to prevent injection attacks
+            serial = self._sanitize_string(device.serial) if device.serial else 'no-serial'
             return f"{device.vendor_id}:{device.product_id}:{serial}"
         elif scope == 'model':
             return f"{device.vendor_id}:{device.product_id}"
@@ -295,19 +297,6 @@ class USBRuleManager:
         self._save()
         logger.info(f"Added USB rule: {verdict} {device.product_name} (scope={scope})")
 
-    def remove_rule(self, key: str) -> bool:
-        """
-        Remove a rule by its key.
-
-        Returns True if rule was removed, False if not found.
-        """
-        if key in self._rules:
-            del self._rules[key]
-            self._save()
-            logger.info(f"Removed USB rule: {key}")
-            return True
-        return False
-
     def get_all_rules(self) -> dict[str, USBRule]:
         """Get all stored rules."""
         return self._rules.copy()
@@ -363,7 +352,12 @@ class USBAuthorizer:
     def _get_auth_path(cls, bus_id: str) -> Path:
         """Get authorization file path for device."""
         # Sanitize bus_id to prevent path traversal
-        safe_bus_id = re.sub(r'[^0-9a-zA-Z.:-]', '', bus_id)
+        # Only allow alphanumeric and dash (bus_id format: "1-2.3" becomes "1-23")
+        safe_bus_id = re.sub(r'[^0-9a-zA-Z.-]', '', bus_id)
+        # Additional safety: reject if contains ".." or starts with "/"
+        if '..' in safe_bus_id or safe_bus_id.startswith('/'):
+            logger.error(f"Invalid bus_id format: {bus_id}")
+            raise ValueError(f"Invalid bus_id: {bus_id}")
         return cls.SYSFS_USB_PATH / safe_bus_id / 'authorized'
 
     @classmethod
