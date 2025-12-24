@@ -4,7 +4,7 @@ Section: net
 Priority: optional
 Architecture: all
 Installed-Size: 976
-Depends: python3 (>= 3.6), python3-pip, python3-pyqt6, python3-dev, build-essential, libnetfilter-queue-dev, iptables, ufw, python3-psutil, python3-gi, python3-gi-cairo, gir1.2-ayatanaappindicator3-0.1, libayatana-appindicator3-1, python3-bpfcc, linux-headers-generic, python3-pyudev
+Depends: python3 (>= 3.6), python3-pip, python3-pyqt6, python3-dev, build-essential, libnetfilter-queue-dev, iptables, ufw, python3-psutil, python3-gi, python3-gi-cairo, gir1.2-ayatanaappindicator3-0.1, libayatana-appindicator3-1, python3-bpfcc, linux-headers-generic, python3-pyudev (>= 0.24.0)
 Recommends: python3-scapy
 Replaces: douane, bastion-daemon
 Conflicts: douane, bastion-daemon
