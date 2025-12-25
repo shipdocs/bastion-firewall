@@ -49,7 +49,7 @@ Features:
 %install
 rm -rf $RPM_BUILD_ROOT
 mkdir -p $RPM_BUILD_ROOT/usr/local/bin
-mkdir -p $RPM_BUILD_ROOT/usr/lib/python3/site-packages/douane
+mkdir -p $RPM_BUILD_ROOT/usr/lib/python3/site-packages/bastion
 mkdir -p $RPM_BUILD_ROOT/etc/bastion
 mkdir -p $RPM_BUILD_ROOT/usr/share/applications
 mkdir -p $RPM_BUILD_ROOT/usr/share/doc/bastion-firewall
@@ -61,9 +61,10 @@ install -m 755 bastion-daemon $RPM_BUILD_ROOT/usr/local/bin/
 install -m 755 bastion-gui $RPM_BUILD_ROOT/usr/local/bin/
 install -m 755 bastion-control-panel $RPM_BUILD_ROOT/usr/local/bin/
 install -m 755 bastion-setup-firewall $RPM_BUILD_ROOT/usr/local/bin/
+install -m 755 bastion-launch $RPM_BUILD_ROOT/usr/local/bin/
 
 # Install Python modules
-cp -r douane/* $RPM_BUILD_ROOT/usr/lib/python3/site-packages/douane/
+cp -r bastion/* $RPM_BUILD_ROOT/usr/lib/python3/site-packages/bastion/
 
 # Install config
 install -m 644 config.json $RPM_BUILD_ROOT/etc/bastion/config.json
@@ -72,13 +73,13 @@ install -m 644 config.json $RPM_BUILD_ROOT/etc/bastion/config.json
 install -m 644 bastion-firewall.service $RPM_BUILD_ROOT/lib/systemd/system/
 
 # Install Desktop files
-install -m 644 bastion-firewall.desktop $RPM_BUILD_ROOT/usr/share/applications/
+install -m 644 com.bastion.firewall.desktop $RPM_BUILD_ROOT/usr/share/applications/
 install -m 644 bastion-control-panel.desktop $RPM_BUILD_ROOT/usr/share/applications/
-install -m 644 douane-tray.desktop $RPM_BUILD_ROOT/usr/share/applications/
+install -m 644 bastion-tray.desktop $RPM_BUILD_ROOT/usr/share/applications/
 
 # Install autostart entry for tray icon
 mkdir -p $RPM_BUILD_ROOT/etc/xdg/autostart
-install -m 644 douane-tray.desktop $RPM_BUILD_ROOT/etc/xdg/autostart/
+install -m 644 bastion-tray.desktop $RPM_BUILD_ROOT/etc/xdg/autostart/
 
 %files
 /usr/local/bin/bastion-firewall
@@ -87,13 +88,13 @@ install -m 644 douane-tray.desktop $RPM_BUILD_ROOT/etc/xdg/autostart/
 /usr/local/bin/bastion-control-panel
 /usr/local/bin/bastion-setup-firewall
 /usr/local/bin/bastion-launch
-/usr/lib/python3/site-packages/douane/
+/usr/lib/python3/site-packages/bastion/
 %config(noreplace) /etc/bastion/config.json
 /lib/systemd/system/bastion-firewall.service
-/usr/share/applications/bastion-firewall.desktop
+/usr/share/applications/com.bastion.firewall.desktop
 /usr/share/applications/bastion-control-panel.desktop
-/usr/share/applications/douane-tray.desktop
-/etc/xdg/autostart/douane-tray.desktop
+/usr/share/applications/bastion-tray.desktop
+/etc/xdg/autostart/bastion-tray.desktop
 /usr/share/metainfo/com.bastion.firewall.metainfo.xml
 /usr/share/polkit-1/actions/com.bastion.daemon.policy
 %doc /usr/share/doc/bastion-firewall/
@@ -109,7 +110,7 @@ fi
 # Post-installation script
 echo ""
 echo "============================================================"
-echo "Douane Firewall - Post Installation"
+echo "Bastion Firewall - Post Installation"
 echo "============================================================"
 echo ""
 
@@ -127,14 +128,14 @@ fi
 
 echo ""
 echo "============================================================"
-echo "✓ Douane Firewall Installed"
+echo "✓ Bastion Firewall Installed"
 echo "============================================================"
 echo ""
 echo "To start manually:"
 echo "  /usr/local/bin/bastion-gui"
 echo ""
 echo "Or from the application menu:"
-echo "  Search for 'Douane Firewall'"
+echo "  Search for 'Bastion Firewall'"
 echo ""
 echo "Documentation: /usr/share/doc/bastion-firewall/"
 echo ""
@@ -145,7 +146,7 @@ if [ $1 -eq 0 ]; then
     # Complete removal (not upgrade)
     echo ""
     echo "============================================================"
-    echo "Douane Firewall - Pre-Removal"
+    echo "Bastion Firewall - Pre-Removal"
     echo "============================================================"
     echo ""
 
@@ -163,7 +164,7 @@ if [ $1 -eq 0 ]; then
     fi
 
     # Kill all processes
-    echo "Terminating all Douane processes..."
+    echo "Terminating all Bastion processes..."
     pkill -f bastion-daemon 2>/dev/null || true
     pkill -f bastion-gui 2>/dev/null || true
     pkill -f bastion-control-panel 2>/dev/null || true
@@ -176,15 +177,15 @@ if [ $1 -eq 0 ]; then
     echo "✓ Firewall rules removed"
 
     # Remove socket
-    if [ -S "/var/run/douane.sock" ]; then
+    if [ -S "/var/run/bastion.sock" ]; then
         echo "Removing socket file..."
-        rm -f /var/run/douane.sock
+        rm -f /var/run/bastion.sock
         echo "✓ Socket removed"
     fi
 
     echo ""
     echo "============================================================"
-    echo "✓ Douane Firewall stopped and cleaned up"
+    echo "✓ Bastion Firewall stopped and cleaned up"
     echo "============================================================"
     echo ""
     echo "⚠ IMPORTANT: Your firewall outbound policy may still be restrictive."
@@ -197,7 +198,7 @@ if [ $1 -eq 0 ]; then
     # Complete removal (not upgrade)
     echo ""
     echo "============================================================"
-    echo "Douane Firewall - Post-Removal Cleanup"
+    echo "Bastion Firewall - Post-Removal Cleanup"
     echo "============================================================"
     echo ""
 
@@ -214,7 +215,7 @@ if [ $1 -eq 0 ]; then
     # Remove autostart entries from user directories
     for user_home in /home/*; do
         if [ -d "$user_home/.config/autostart" ]; then
-            rm -f "$user_home/.config/autostart/douane"*.desktop 2>/dev/null || true
+            rm -f "$user_home/.config/autostart/bastion"*.desktop 2>/dev/null || true
         fi
     done
 
@@ -229,7 +230,7 @@ if [ $1 -eq 0 ]; then
     fi
 
     echo ""
-    echo "✓ Douane Firewall removed"
+    echo "✓ Bastion Firewall removed"
     echo ""
     echo "Configuration files remain in /etc/bastion"
     echo "To completely remove: sudo rm -rf /etc/bastion"
