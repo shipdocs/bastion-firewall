@@ -141,12 +141,10 @@ class BastionDaemon:
         gui_thread.start()
         logger.info("Waiting for GUI to connect...")
 
-        # AUTO-START GUI: Launch GUI as logged-in user (not root)
-        self._auto_start_gui()
-        
-        # Wait for GUI to connect (with timeout)
-        # 10 seconds should be enough since we just launched it
-        self._wait_for_gui_connection(timeout=10)
+        # GUI auto-starts via desktop autostart file (~/.config/autostart/)
+        # This is the standard Linux desktop pattern - daemon waits for user session GUI
+        # Wait for GUI to connect (timeout allows for user login)
+        self._wait_for_gui_connection(timeout=30)
 
         # Start health monitor
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
@@ -204,108 +202,6 @@ class BastionDaemon:
             except Exception as e:
                 logger.error(f"Error in monitor loop: {e}")
                 time.sleep(5)
-
-    def _auto_start_gui(self):
-        """Auto-start GUI as the logged-in user (not root)"""
-        import os
-        
-        try:
-            # Find the logged-in user (not root)
-            result = subprocess.run(
-                ['who'], 
-                capture_output=True, 
-                text=True, 
-                timeout=2
-            )
-            
-            # Parse who output to find real user
-            lines = result.stdout.strip().split('\n')
-            logged_in_user = None
-            display = None
-            
-            for line in lines:
-                if line and 'tty' in line or ':0' in line:
-                    parts = line.split()
-                    if len(parts) >= 1:
-                        user = parts[0]
-                        if user != 'root':
-                            logged_in_user = user
-                            # Extract display from line (usually :0 or :1)
-                            for part in parts:
-                                if part.startswith(':'):
-                                    display = part
-                                    break
-                            if display:
-                                break
-            
-            if not logged_in_user:
-                logger.warning("No logged-in user found, GUI will not auto-start")
-                return
-            
-            if not display:
-                display = ':0'  # Default display
-            
-            logger.info(f"Auto-starting GUI for user {logged_in_user} on display {display}")
-            
-            # Clean up any stale lock file first
-            gui_lock = '/tmp/bastion-gui.lock'
-            try:
-                if os.path.exists(gui_lock):
-                    os.remove(gui_lock)
-                    logger.debug("Removed stale GUI lock file")
-            except Exception as e:
-                logger.warning(f"Could not remove GUI lock file: {e}")
-            
-            # Launch GUI as the logged-in user with proper environment
-            # Use 'runuser' which is designed for this purpose
-            
-            # First, grant X11 access to the user
-            try:
-                # Allow local user to connect to X11
-                subprocess.run(
-                    ['runuser', '-u', logged_in_user, '--', 'xhost', f'+SI:localuser:{logged_in_user}'],
-                    env={'DISPLAY': display},
-                    capture_output=True,
-                    timeout=2
-                )
-            except Exception as e:
-                logger.debug(f"xhost command  failed (may not be needed): {e}")
-            
-            #  Build command that will work with X11
-            gui_cmd = f"DISPLAY={display} /usr/bin/bastion-gui 2>&1"
-            
-            try:
-                result = subprocess.Popen(
-                    ['runuser', '-u', logged_in_user, '--', 'sh', '-c', gui_cmd],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    start_new_session=True
-                )
-                
-                # Give it a moment to start
-                time.sleep(1.0)
-                
-                # Check if it's still running
-                poll = result.poll()
-                if poll is not None:
-                    # Process ended, check why
-                    try:
-                        stdout, stderr = result.communicate(timeout=2)
-                        logger.error(f"GUI failed to start: exit={poll}")
-                        if stdout:
-                            logger.error(f"GUI stdout: {stdout.decode()[:300]}")
-                        if stderr:
-                            logger.error(f"GUI stderr: {stderr.decode()[:300]}")
-                    except subprocess.TimeoutExpired:
-                        logger.error("GUI output capture timed out")
-                else:
-                    logger.info(f"GUI launched successfully (PID: {result.pid})")
-                    
-            except Exception as e:
-                logger.error(f"Failed to launch GUI: {e}")
-            
-        except Exception as e:
-            logger.warning(f"Could not auto-start GUI: {e}")
 
 
     def _wait_for_gui_connection(self, timeout=10):
