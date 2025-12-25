@@ -246,7 +246,6 @@ class PacketProcessor:
                     pkt_info.pid = cached_app['pid']
                     pkt_info.app_name = cached_app['name']
                     pkt_info.app_path = cached_app['path']
-                    pkt_info.app_path = cached_app['path']
                     logger.debug(f"Cache hit for {src_port}/{protocol}: {pkt_info.app_name}")
 
             # 2. Try eBPF (High Performance, solves race condition)
@@ -492,4 +491,3 @@ class IPTablesManager:
             return result.returncode == 0
         except Exception:
             return False
-

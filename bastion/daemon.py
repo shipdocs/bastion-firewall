@@ -504,10 +504,10 @@ class BastionDaemon:
                 self.stats['blocked_connections'] += 1
                 return False
 
-            # Learning mode - allow everything (don't block when GUI not connected)
-            logger.debug(f"Learning mode: allowing {app_name or 'unknown'} (no GUI connected yet)")
-            self.stats['allowed_connections'] += 1
-            return True
+            # Learning mode - prefer fail-closed without GUI to avoid silent leaks
+            logger.warning(f"Learning mode: blocking {app_name or 'unknown'} because GUI is unavailable")
+            self.stats['blocked_connections'] += 1
+            return False
 
         # Rate limiting to prevent DoS
         if not self.rate_limiter.allow_request():
@@ -552,7 +552,8 @@ class BastionDaemon:
                 response = self.gui_socket.recv(4096).decode().strip()
             except socket.timeout:
                 logger.warning("GUI socket timeout waiting for user decision")
-                return True if learning_mode else False
+                self.stats['blocked_connections'] += 1
+                return False
             finally:
                 self.gui_socket.settimeout(None)
 
@@ -582,12 +583,8 @@ class BastionDaemon:
                 self.pending_requests.pop(cache_key, None)
             
             # Default action on error
-            allowed = True if learning_mode else False
-            if allowed:
-                self.stats['allowed_connections'] += 1
-            else:
-                self.stats['blocked_connections'] += 1
-            return allowed
+            self.stats['blocked_connections'] += 1
+            return False
 
     def _notify_gui_rate_limit(self, app_name):
         """Send rate limit notification to GUI"""
