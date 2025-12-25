@@ -141,10 +141,12 @@ class BastionDaemon:
         gui_thread.start()
         logger.info("Waiting for GUI to connect...")
 
-        # NOTE: GUI is started by user session via autostart, not by daemon
+        # AUTO-START GUI: Launch GUI as logged-in user (not root)
+        self._auto_start_gui()
+        
         # Wait for GUI to connect (with timeout)
-        # 30 seconds allows time for user to log in and GUI to start
-        self._wait_for_gui_connection(timeout=30)
+        # 10 seconds should be enough since we just launched it
+        self._wait_for_gui_connection(timeout=10)
 
         # Start health monitor
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
@@ -202,6 +204,69 @@ class BastionDaemon:
             except Exception as e:
                 logger.error(f"Error in monitor loop: {e}")
                 time.sleep(5)
+
+    def _auto_start_gui(self):
+        """Auto-start GUI as the logged-in user (not root)"""
+        try:
+            # Find the logged-in user (not root)
+            result = subprocess.run(
+                ['who'], 
+                capture_output=True, 
+                text=True, 
+                timeout=2
+            )
+            
+            # Parse who output to find real user
+            lines = result.stdout.strip().split('\n')
+            logged_in_user = None
+            display = None
+            
+            for line in lines:
+                if line and 'tty' in line or ':0' in line:
+                    parts = line.split()
+                    if len(parts) >= 1:
+                        user = parts[0]
+                        if user != 'root':
+                            logged_in_user = user
+                            # Extract display from line (usually :0 or :1)
+                            for part in parts:
+                                if part.startswith(':'):
+                                    display = part
+                                    break
+                            if display:
+                                break
+            
+            if not logged_in_user:
+                logger.warning("No logged-in user found, GUI will not auto-start")
+                return
+            
+            if not display:
+                display = ':0'  # Default display
+            
+            logger.info(f"Auto-starting GUI for user {logged_in_user} on display {display}")
+            
+            # Launch GUI as the logged-in user with proper environment
+            # Use 'su' instead of 'sudo' for better X11/GUI support
+            import os
+            env = os.environ.copy()
+            env['DISPLAY'] = display
+            env['XAUTHORITY'] = f'/home/{logged_in_user}/.Xauthority'
+            env['HOME'] = f'/home/{logged_in_user}'
+            env['USER'] = logged_in_user
+            
+            subprocess.Popen(
+                ['su', '-', logged_in_user, '-c', '/usr/bin/bastion-gui'],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+            
+            logger.info("GUI launch command sent")
+            
+        except Exception as e:
+            logger.warning(f"Could not auto-start GUI: {e}")
+
 
     def _wait_for_gui_connection(self, timeout=10):
         """Wait for GUI to connect with timeout"""
@@ -299,16 +364,25 @@ class BastionDaemon:
         self.server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server_socket.bind(self.SOCKET_PATH)
         
-        # Allow local users to connect (essential for GUI on single-user systems)
-        # Using 0o666 because group membership changes require logout/login,
-        # which breaks the "install and run" experience.
+        # SECURITY FIX: Use group-based permissions instead of world-writable
+        # Users must be added to 'bastion' group during installation
+        # This prevents local privilege escalation (CVE-BASTION-2025-001)
         try:
-            os.chmod(self.SOCKET_PATH, 0o666)
-            logger.info("Socket permissions set to 0666 (world-writable for immediate GUI access)")
+            os.chmod(self.SOCKET_PATH, 0o660)  # Owner + group only
+            logger.info("Socket permissions set to 0660 (group-readable for GUI access)")
+            
+            # Try to set group ownership to 'bastion' group if it exists
+            try:
+                import grp
+                bastion_gid = grp.getgrnam('bastion').gr_gid
+                os.chown(self.SOCKET_PATH, -1, bastion_gid)
+                logger.info("Socket group ownership set to 'bastion'")
+            except KeyError:
+                logger.warning("Group 'bastion' does not exist. Run: sudo groupadd -f bastion")
+            except Exception as e:
+                logger.warning(f"Could not set socket group ownership: {e}")
         except Exception as e:
             logger.warning(f"Could not set socket permissions: {e}")
-        except Exception as e:
-            logger.warning(f"Could not set socket group ownership: {e}")
             
         self.server_socket.listen(1)
 
@@ -544,8 +618,8 @@ class BastionDaemon:
                 self.gui_socket.sendall(json.dumps(msg).encode() + b'\n')
         except (BrokenPipeError, ConnectionResetError, OSError):
             self.gui_socket = None
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Error sending rate limit notification: {e}")
 
     def stop(self):
         """Stop daemon"""
@@ -561,15 +635,15 @@ class BastionDaemon:
             try:
                 self.gui_socket.shutdown(socket.SHUT_RDWR)
                 self.gui_socket.close()
-            except:
-                pass
+            except (OSError, socket.error) as e:
+                logger.debug(f"Error closing GUI socket: {e}")
             self.gui_socket = None
 
         if self.server_socket:
             try:
                 self.server_socket.close()
-            except:
-                pass
+            except (OSError, socket.error) as e:
+                logger.debug(f"Error closing server socket: {e}")
             self.server_socket = None
             
         if self.packet_processor:
@@ -580,6 +654,6 @@ class BastionDaemon:
         if os.path.exists(self.SOCKET_PATH):
             try:
                 os.remove(self.SOCKET_PATH)
-            except:
-                pass
+            except (OSError, PermissionError) as e:
+                logger.debug(f"Error removing socket file: {e}")
         logger.info("Daemon stopped")
