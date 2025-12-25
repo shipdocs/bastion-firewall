@@ -5,6 +5,21 @@ All notable changes to Bastion Firewall will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.5] - 2025-12-25
+
+### 🛡️ Security Hardening
+- **Root Bypass Removal**: Removed `BASTION_SKIP_ROOT_CHECK` environment variable bypass from production code. Now requires explicit `--dev-mode` CLI flag with audit logging.
+- **Config Validation**: Implemented strict validation for `config.json` loading. Detects type mismatches, invalid values (e.g. timeouts > 600s), and unknown keys.
+- **Decision Cache TTL**: Added Time-To-Live caching (5m for connections, 24h for app rules) to prevent stale cache entries and potential port reuse attacks.
+
+### ✨ UX Improvements
+- **Smart GUI Launch**: Daemon now automatically detects active graphical sessions (X11/Wayland) and launches the tray icon for all logged-in users.
+- **Learning Mode Visibility**: Added prominent "Graduate" banner to connection dialogs when in Learning Mode, clearly indicating that connections are auto-allowed.
+- **Dynamic Version Display**: Replaced hardcoded version strings with dynamic lookups, ensuring the dashboard correctly identifies as v1.4.5.
+
+### 📝 Documentation
+- Added `SECURITY_UX_ASSESSMENT_2025-12-25.md` with deep-dive analysis.
+
 ## [1.4.4] - 2025-12-25
 
 ### 🔒 Security

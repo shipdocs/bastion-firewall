@@ -16,6 +16,7 @@ from .config import ConfigManager
 from .rules import RuleManager
 from .firewall_core import PacketProcessor, PacketInfo, IPTablesManager
 from .service_whitelist import should_auto_allow, get_app_category
+from .gui_manager import GUIManager
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ class BastionDaemon:
     def __init__(self):
         self.config = ConfigManager.load_config()
         self.rule_manager = RuleManager()
+        self.gui_manager = GUIManager()
         self.packet_processor: Optional[PacketProcessor] = None
         self.server_socket: Optional[socket.socket] = None
         self.gui_socket: Optional[socket.socket] = None
@@ -141,8 +143,10 @@ class BastionDaemon:
         gui_thread.start()
         logger.info("Waiting for GUI to connect...")
 
-        # GUI auto-starts via desktop autostart file (~/.config/autostart/)
-        # This is the standard Linux desktop pattern - daemon waits for user session GUI
+        # Smart GUI launch: attempt to start gui for all active graphical sessions
+        logger.info("Triggering smart GUI auto-start for active sessions...")
+        self.gui_manager.start_gui()
+
         # Wait for GUI to connect (timeout allows for user login)
         self._wait_for_gui_connection(timeout=30)
 
