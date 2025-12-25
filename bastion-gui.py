@@ -289,15 +289,30 @@ class BastionClient(QObject):
                     self.handle_disconnect()
             return
 
-        # Convert request to USBDeviceInfo
-        # Include interface_classes for proper risk classification (HID on composite devices)
+        # Normalize and validate device class fields to prevent crashes
+        raw_device_class = req.get('device_class', 0)
+        try:
+            device_class = int(raw_device_class)
+        except (TypeError, ValueError):
+            device_class = 0
+
+        raw_ifaces = req.get('interface_classes', [])
+        if not isinstance(raw_ifaces, list):
+            raw_ifaces = []
+        interface_classes = []
+        for v in raw_ifaces:
+            try:
+                interface_classes.append(int(v))
+            except (TypeError, ValueError):
+                continue
+
         device = USBDeviceInfo(
             vendor_id=req.get('vendor_id', '0000'),
             product_id=req.get('product_id', '0000'),
             vendor_name=req.get('vendor_name', 'Unknown'),
             product_name=req.get('product_name', 'Unknown Device'),
-            device_class=req.get('device_class', 0),
-            interface_classes=req.get('interface_classes', []),
+            device_class=device_class,
+            interface_classes=interface_classes,
             serial=req.get('serial'),
             bus_id=req.get('bus_id', '1-1')
         )

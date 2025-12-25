@@ -97,8 +97,9 @@ class GUIManager:
                         # Filter for real users (UID >= 1000) to avoid system accounts
                         users = result.stdout.strip().split('\n')
                         for line in users:
-                            if line.strip():
-                                user = line.strip()
+                            line = line.strip()
+                            if line:
+                                user = line.split()[0] # Take first token (username)
                                 # Verify this is a real user account
                                 try:
                                     import pwd
@@ -235,8 +236,10 @@ class GUIManager:
 
                 def demote_to_user():
                     """Drop privileges to target user before exec"""
+                    os.setgroups([])
                     os.setgid(user_gid)
                     os.setuid(user_uid)
+                    os.umask(0o077)
 
                 # Start GUI as the user, not as root
                 self.gui_process = subprocess.Popen(

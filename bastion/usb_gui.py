@@ -418,11 +418,7 @@ class USBPromptDialog(QDialog):
         self.scope = self._get_selected_scope()
         self.save_rule = save_rule
         action = "allowed" if save_rule else "allowed once"
-        try:
-            username = getpass.getuser()
-        except Exception:
-            username = "unknown"
-        logger.info(f"User '{username}' {action} USB device: {self.device.product_name} (scope={self.scope})")
+        logger.info(f"User action: {action} USB device: {self.device.product_name} (scope={self.scope})")
         self.accept()
 
     def block_device(self, save_rule: bool = True):
@@ -432,11 +428,7 @@ class USBPromptDialog(QDialog):
         self.scope = self._get_selected_scope()
         self.save_rule = save_rule
         action = "blocked" if save_rule else "blocked once"
-        try:
-            username = getpass.getuser()
-        except Exception:
-            username = "unknown"
-        logger.info(f"User '{username}' {action} USB device: {self.device.product_name} (scope={self.scope})")
+        logger.info(f"User action: {action} USB device: {self.device.product_name} (scope={self.scope})")
         self.reject()
 
     def keyPressEvent(self, event):
@@ -706,10 +698,14 @@ class USBControlWidget(QWidget):
     def _toggle_usb_protection(self):
         """Toggle USB protection on/off."""
 
-        self.usb_enabled = not self.usb_enabled
+        desired_enabled = not self.usb_enabled
 
-        if self.usb_enabled:
+        if desired_enabled:
             # Enable: set authorized_default=0 (block new devices)
+            if not self._set_usb_default_policy(authorize=False):
+                return
+            
+            self.usb_enabled = True
             self.btn_toggle.setText(STRINGS["usb_protection_disable"])
             self.btn_toggle.setStyleSheet(f"""
                 QPushButton {{
@@ -726,10 +722,12 @@ class USBControlWidget(QWidget):
             """)
             self.lbl_status.setText(STRINGS["usb_protection_active"])
             self.lbl_status.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['success']};")
-            # Set default to block (authorized_default=0)
-            self._set_usb_default_policy(authorize=False)
         else:
             # Disable: set authorized_default=1 (allow new devices)
+            if not self._set_usb_default_policy(authorize=True):
+                return
+            
+            self.usb_enabled = False
             self.btn_toggle.setText(STRINGS["usb_protection_enable"])
             self.btn_toggle.setStyleSheet(f"""
                 QPushButton {{
@@ -746,10 +744,8 @@ class USBControlWidget(QWidget):
             """)
             self.lbl_status.setText(STRINGS["usb_protection_disabled"])
             self.lbl_status.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['danger']};")
-            # Set default to allow (authorized_default=1)
-            self._set_usb_default_policy(authorize=True)
 
-    def _set_usb_default_policy(self, authorize: bool):
+    def _set_usb_default_policy(self, authorize: bool) -> bool:
         """
         Set USB default authorization policy via bastion-root-helper.
 
@@ -758,6 +754,9 @@ class USBControlWidget(QWidget):
 
         Args:
             authorize: True = allow new devices, False = block new devices
+        
+        Returns:
+            bool: True on success, False on failure
         """
         policy_arg = '--authorize' if authorize else '--block'
         policy_name = 'allow' if authorize else 'block'
@@ -775,25 +774,31 @@ class USBControlWidget(QWidget):
 
             if result.returncode == 0:
                 logger.info(f"USB default policy set to {policy_name}")
+                return True
             elif result.returncode == 126:
                 # User cancelled pkexec authentication dialog
                 logger.info("USB policy change cancelled by user")
+                return False
             else:
                 # Log details internally, show generic message to user
                 logger.warning(f"Failed to set USB policy: {result.stderr}")
                 from bastion.notification import show_notification
                 show_notification(self, "Error", "Failed to change USB policy. Check logs for details.")
+                return False
 
         except subprocess.TimeoutExpired:
             logger.error("USB policy change timed out")
             from bastion.notification import show_notification
             show_notification(self, "Timeout", "USB policy change timed out")
+            return False
         except FileNotFoundError:
             logger.error("bastion-root-helper not found")
             from bastion.notification import show_notification
             show_notification(self, "Error", "Root helper not installed. Please reinstall Bastion.")
+            return False
         except Exception as e:
             logger.error(f"Failed to set USB policy: {e}")
+            return False
 
     def _delete_allowed_selected(self):
         """Delete selected allowed device rules."""

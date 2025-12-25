@@ -605,21 +605,30 @@ class BastionDaemon:
                 # In learning mode, we wait for response but allow timeout logic to handle defaults
                 pass 
 
+            # Wrapper for robust socket reading
+            def read_json_message(sock, timeout=60.0):
+                sock.settimeout(timeout)
+                buffer = ""
+                try:
+                    while True:
+                        chunk = sock.recv(4096)
+                        if not chunk:
+                            return None
+                        buffer += chunk.decode('utf-8', errors='replace')
+                        if '\n' in buffer:
+                            line, buffer = buffer.split('\n', 1) # Take first line
+                            return json.loads(line.strip())
+                except (socket.timeout, json.JSONDecodeError):
+                    return None
+                finally:
+                    sock.settimeout(None)
+
             # Wait for response
-            # Set a timeout on recv?
-            self.gui_socket.settimeout(60.0) # 1 min timeout for user response
-            try:
-                response = self.gui_socket.recv(4096).decode().strip()
-            except socket.timeout:
-                logger.warning("GUI socket timeout waiting for user decision")
+            data = read_json_message(self.gui_socket, timeout=60.0)
+            
+            if not data:
+                logger.warning("No valid response from GUI")
                 return True if learning_mode else False
-            finally:
-                self.gui_socket.settimeout(None)
-
-            if not response:
-                return False
-
-            data = json.loads(response)
 
             # Handle case where a USB response arrives while waiting for connection decision
             # This is a race condition - keep reading until we get the connection response
@@ -628,15 +637,10 @@ class BastionDaemon:
                 self.gui_socket.settimeout(60.0)
                 while data.get('type') == 'usb_response':
                     self.handle_usb_response(data)
-                    # Read next message to get the actual connection response
-                    try:
-                        response = self.gui_socket.recv(4096).decode().strip()
-                        if not response:
-                            logger.warning("Empty response after handling USB response")
-                            return True if learning_mode else False
-                        data = json.loads(response)
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Error parsing connection response after USB: {e}")
+                    # Read next message
+                    data = read_json_message(self.gui_socket, timeout=60.0)
+                    if not data:
+                        logger.warning("Empty response after handling USB response")
                         return True if learning_mode else False
             except socket.timeout:
                 logger.warning("Socket timeout waiting for connection response after USB")
@@ -850,6 +854,8 @@ class BastionDaemon:
                 self.stats['usb_devices_blocked'] += 1
             else:
                 logger.info(f"Allowing low-risk USB device without GUI: {device.product_name}")
+                if not USBAuthorizer.authorize(device.bus_id):
+                     logger.warning(f"Failed to authorize low-risk USB device without GUI: {device.product_name}")
                 self.stats['usb_devices_allowed'] += 1
             return
 
@@ -894,14 +900,24 @@ class BastionDaemon:
                     action = "allowed" if save_rule else "allowed once"
                     logger.info(f"User {action} USB device: {device.product_name}")
                     if save_rule:
-                        self.usb_rule_manager.add_rule(device, 'allow', scope)
+                        with self.usb_rules_lock:
+                            self.usb_rule_manager.add_rule(device, 'allow', scope)
+                            try:
+                                self.usb_rules_last_modified = self.usb_rule_manager.db_path.stat().st_mtime
+                            except OSError:
+                                pass
                     USBAuthorizer.authorize(device.bus_id)
                     self.stats['usb_devices_allowed'] += 1
                 else:
                     action = "blocked" if save_rule else "blocked once"
                     logger.info(f"User {action} USB device: {device.product_name}")
                     if save_rule:
-                        self.usb_rule_manager.add_rule(device, 'block', scope)
+                        with self.usb_rules_lock:
+                            self.usb_rule_manager.add_rule(device, 'block', scope)
+                            try:
+                                self.usb_rules_last_modified = self.usb_rule_manager.db_path.stat().st_mtime
+                            except OSError:
+                                pass
                     USBAuthorizer.deauthorize(device.bus_id)
                     self.stats['usb_devices_blocked'] += 1
             else:
@@ -917,6 +933,8 @@ class BastionDaemon:
                     self.stats['usb_devices_blocked'] += 1
                 else:
                     logger.info(f"Allowing low-risk USB device on timeout: {device.product_name}")
+                    if not USBAuthorizer.authorize(device.bus_id):
+                        logger.warning(f"Failed to authorize low-risk USB device on timeout: {device.product_name}")
                     self.stats['usb_devices_allowed'] += 1
 
         except Exception as e:
