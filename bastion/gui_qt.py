@@ -224,8 +224,8 @@ class FirewallDialog(QDialog):
         
         # Header
         header_layout = QHBoxLayout()
-        icon = QLabel("🛡️")
-        icon.setStyleSheet("font-size: 32px;")
+        icon = QLabel("Bastion")
+        icon.setStyleSheet("font-size: 18px; font-weight: bold;")
         header_layout.addWidget(icon)
         
         title_text = "Connection Request"
@@ -468,10 +468,10 @@ class DashboardWindow(QMainWindow):
         
         # Navigation
         self.nav_btns = []
-        self.add_nav_btn(sb_layout, "Status", "📊")
-        self.add_nav_btn(sb_layout, "Rules", "📋")
-        self.add_nav_btn(sb_layout, "Logs", "📝")
-        self.add_nav_btn(sb_layout, "Settings", "⚙️")
+        self.add_nav_btn(sb_layout, "Status", "")
+        self.add_nav_btn(sb_layout, "Rules", "")
+        self.add_nav_btn(sb_layout, "Logs", "")
+        self.add_nav_btn(sb_layout, "Settings", "")
         
         sb_layout.addStretch()
         

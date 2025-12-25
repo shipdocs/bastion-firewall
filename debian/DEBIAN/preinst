@@ -10,7 +10,7 @@ case "$1" in
     install|upgrade)
         echo ""
         echo "============================================================"
-        echo "🏰 Bastion Firewall - Pre-Installation Cleanup"
+        echo "Bastion Firewall - Pre-Installation Cleanup"
         echo "============================================================"
         echo ""
 

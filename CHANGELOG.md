@@ -7,22 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.4.5] - 2025-12-25
 
-### 🛡️ Security Hardening
+### Security Hardening
 - **Root Bypass Removal**: Removed `BASTION_SKIP_ROOT_CHECK` environment variable bypass from production code. Now requires explicit `--dev-mode` CLI flag with audit logging.
 - **Config Validation**: Implemented strict validation for `config.json` loading. Detects type mismatches, invalid values (e.g. timeouts > 600s), and unknown keys.
 - **Decision Cache TTL**: Added Time-To-Live caching (5m for connections, 24h for app rules) to prevent stale cache entries and potential port reuse attacks.
 
-### ✨ UX Improvements
+### UX Improvements
 - **Smart GUI Launch**: Daemon now automatically detects active graphical sessions (X11/Wayland) and launches the tray icon for all logged-in users.
 - **Learning Mode Visibility**: Added prominent "Graduate" banner to connection dialogs when in Learning Mode, clearly indicating that connections are auto-allowed.
 - **Dynamic Version Display**: Replaced hardcoded version strings with dynamic lookups, ensuring the dashboard correctly identifies as v1.4.5.
 
-### 📝 Documentation
+### Documentation
 - Added `SECURITY_UX_ASSESSMENT_2025-12-25.md` with deep-dive analysis.
 
 ## [1.4.4] - 2025-12-25
 
-### 🔒 Security
+### Security
 - **CRITICAL**: Fixed rollback script path vulnerability in `setup_firewall.sh` (CVE-BASTION-2025-002)
   - Uninitialized `$BACKUP_DIR` variable caused script to write to root directory
   - Added proper initialization to `/var/backups/bastion` with secure permissions (700)
@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Logs all connection attempts for security audit
   - Hardens against misconfigured permissions or group memberships
 
-### 🐛 Bug Fixes
+### Bug Fixes
 - **Fixed**: Global socket timeout side effect in `bastion/gui.py`
   - Removed process-wide `socket.setdefaulttimeout()` call
   - Now saves and restores previous timeout around DNS lookups
@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Guards against "unknown" app paths to skip unnecessary work
   - Reduces CPU usage and latency on popup dialogs
 
-### ✨ Enhancements
+### Enhancements
 - **UX**: Responsive dialog sizing for smaller laptops
   - Changed from fixed 900×750 to dynamic sizing (70% of screen)
   - Reduced minimum size to 700×550 (fits 1366×768 displays)
@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Better experience on budget Zorin/Ubuntu laptops
 - **Docs**: Added comprehensive implementation report (`IMPLEMENTATION_REPORT_2025-12-25.md`)
 
-### 📝 Notes
+### Notes
 - All Python files verified to compile without errors
 - Shell script syntax validated with bash -n
 - Recommended for all users as a security patch

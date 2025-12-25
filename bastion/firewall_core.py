@@ -355,8 +355,7 @@ class IPTablesManager:
         """
         import subprocess
 
-        # 0. Clean up existing rules first (Idempotency)
-        # This prevents duplicate rules from accumulating (Fixes 16x duplicates issue)
+        # Remove existing rules to prevent duplicates
         IPTablesManager.cleanup_nfqueue(queue_num)
 
         # Rule to queue new outbound connections
@@ -371,8 +370,7 @@ class IPTablesManager:
             result = subprocess.run(rule, capture_output=True, text=True, check=True)
             logger.info(f"Added iptables NFQUEUE rule: {' '.join(rule)}")
 
-            # 2. Optimization: Bypass NFQUEUE for root and systemd services
-            # "If root is compromised, we are compromised" -> minimal risk, high performance gain
+            # Bypass NFQUEUE for root and systemd services for performance gain
             bypass_rules = [
                 # Allow root (UID 0) - manages system updates, cron, etc.
                 ['iptables', '-I', 'OUTPUT', '1', 
@@ -408,10 +406,7 @@ class IPTablesManager:
 
     @staticmethod
     def cleanup_nfqueue(queue_num=1):
-        """
-        Aggressively remove ALL NFQUEUE and BASTION_BYPASS rules.
-        Ensures a completely clean state to prevent "connected but no internet".
-        """
+        """Remove all NFQUEUE and BASTION_BYPASS rules."""
         import subprocess
 
         logger.info("Cleaning up iptables NFQUEUE and BYPASS rules...")

@@ -1,13 +1,7 @@
 #!/usr/bin/env python3
 """
 GUI Manager - Unified GUI/Daemon Integration
-
-Manages the lifecycle of the GUI application, ensuring it:
-1. Starts automatically with the daemon
-2. Reconnects if it crashes
-3. Provides tray icon and control panel
-4. Handles connection requests from daemon
-5. Persists across reboots
+Manages the lifecycle of the GUI application.
 """
 
 import os
@@ -110,8 +104,8 @@ class GUIManager:
                 pass # Not running
 
             # Set environment for the user
-            # Use systemd-run --user for modern session integration if possible
-            # This is the "smartest" way as it inherits user environment properly
+            # Use systemd-run --user for modern session integration.
+            # This inherits the user environment properties properly.
             launch_cmd = [
                 'systemd-run',
                 '--user',
