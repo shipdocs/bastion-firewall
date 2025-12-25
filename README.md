@@ -41,12 +41,37 @@ cd bastion-firewall
 sudo dpkg -i bastion-firewall_*.deb
 ```
 
+### Development Setup
+
+For development and testing:
+
+```bash
+git clone https://github.com/shipdocs/bastion-firewall.git
+cd bastion-firewall
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run tests
+./run_tests.sh
+
+# Or manually:
+pip install -r test-requirements.txt
+python -m pytest tests/
+```
+
 ### Requirements
 
 - Linux kernel 5.0+ with eBPF support
 - Python 3.10+
 - PyQt6
 - BCC (eBPF toolkit)
+- psutil>=5.9.0
+- tabulate>=0.9.0
+- NetfilterQueue>=1.1.0
+- scapy>=2.5.0
+- pystray>=0.19.0
+- Pillow>=10.2.0
 
 ## Usage
 
