@@ -130,5 +130,5 @@ echo "Running rpmbuild..."
 rpmbuild --define "_topdir $(pwd)/$BUILD_DIR" -bb "$BUILD_DIR/SPECS/bastion.spec"
 
 # Move artifact
-mv "$BUILD_DIR/RPMS/noarch/${NAME}-${VERSION}-1.*.rpm" .
-echo "Build complete: ${NAME}-${VERSION}-1.noarch.rpm"
+find "$BUILD_DIR/RPMS" -name "*.rpm" -exec mv {} . \;
+echo "Build complete."
