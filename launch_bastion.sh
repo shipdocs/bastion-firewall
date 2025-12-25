@@ -1,7 +1,7 @@
 #!/bin/bash
-# Wrapper to start Douane.
-# If daemon not running, start client (which starts daemon).
-# If running, open control panel.
+# Wrapper to start Bastion Firewall.
+# If tray icon not running, start it.
+# Always open control panel when launched from menu.
 
 # Debug logging
 exec 1> >(tee -a "/tmp/bastion-launch.log") 2>&1

@@ -18,11 +18,23 @@ setup(
         "bastion-gui.py",
         "bastion_control_panel.py"
     ],
-    # Note: entry_points removed because script files use hyphens (bastion-daemon.py)
-    # which cannot be imported as Python modules. Use scripts[] instead.
+    entry_points={
+        'console_scripts': [
+            # Root helper for privileged operations (invoked via pkexec)
+            'bastion-root-helper=bastion.root_helper:main',
+        ],
+    },
     data_files=[
         ('/etc/bastion', ['config.json']),
-        ('/usr/share/applications', ['bastion-firewall.desktop']),
+        ('/usr/share/applications', [
+            'com.bastion.firewall.desktop',
+            'bastion-control-panel.desktop',
+        ]),
+        ('/etc/xdg/autostart', ['bastion-tray.desktop']),
+        ('/usr/share/polkit-1/actions', [
+            'com.bastion.root-helper.policy',
+        ]),
+        ('/lib/systemd/system', ['bastion-firewall.service']),
     ],
     classifiers=[
         "Programming Language :: Python :: 3",

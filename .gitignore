@@ -65,3 +65,16 @@ temp/
 
 # Test cache
 .pytest_cache/
+
+# Augment/AI tool files
+.augment/
+.cursor/
+.aider/
+
+# Analysis and review files (generated)
+*_ANALYSIS.md
+*_REVIEW.md
+*_REPORT.md
+CODE_QUALITY_*.md
+SECURITY_*.md
+REFACTORING_*.md

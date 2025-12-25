@@ -17,7 +17,15 @@ from bastion.gui_qt import FirewallDialog
 from bastion.icon_manager import IconManager
 
 # Lock file to prevent multiple instances
-LOCK_FILE = '/tmp/bastion-gui.lock'
+# Lock file in user's runtime dir (XDG_RUNTIME_DIR) - private per-user directory
+# Fallback to ~/.cache/bastion (NOT /tmp which is shared and causes cross-user blocking)
+import os as _os
+_runtime_dir = _os.environ.get('XDG_RUNTIME_DIR')
+if not _runtime_dir:
+    # Fallback to user-specific cache directory
+    _runtime_dir = _os.path.join(_os.path.expanduser('~'), '.cache', 'bastion')
+    _os.makedirs(_runtime_dir, mode=0o700, exist_ok=True)
+LOCK_FILE = _os.path.join(_runtime_dir, 'bastion-gui.lock')
 
 def acquire_lock():
     """Try to acquire a lock file. Returns file handle if successful, None if already running."""
@@ -45,11 +53,12 @@ class BastionClient(QObject):
     def __init__(self, app):
         super().__init__()
         self.app = app
-        self.socket_path = '/tmp/bastion-daemon.sock'
+        self.socket_path = '/run/bastion/daemon.sock'
         self.sock = None
         self.notifier = None
         self.buffer = ""
         self.connected = False
+        self.control_panel = None  # Track control panel window
 
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
@@ -75,6 +84,11 @@ class BastionClient(QObject):
         self.tray_icon.setIcon(icon)
         self.tray_icon.setVisible(True)
         print(f"[TRAY] Tray icon visible: {self.tray_icon.isVisible()}")
+
+        # Timer to check tray icon visibility (in case it disappears)
+        self.tray_check_timer = QTimer()
+        self.tray_check_timer.timeout.connect(self._ensure_tray_visible)
+        self.tray_check_timer.start(5000)  # Check every 5 seconds
         
         # Menu
         self.menu = QMenu()
@@ -111,10 +125,16 @@ class BastionClient(QObject):
         # Initial connection attempt
         self.try_connect()
 
+    def _ensure_tray_visible(self):
+        """Ensure tray icon is visible (check every 5 seconds)."""
+        if not self.tray_icon.isVisible():
+            print("[TRAY] Tray icon is hidden, making it visible again")
+            self.tray_icon.setVisible(True)
+
     def try_connect(self):
         if self.connected:
             return
-            
+
         if not os.path.exists(self.socket_path):
             self.update_status("Daemon not running", "security-low")
             return
@@ -204,6 +224,8 @@ class BastionClient(QObject):
             req = json.loads(line)
             if req['type'] == 'connection_request':
                 self.handle_connection_request(req)
+            elif req['type'] == 'usb_request':
+                self.handle_usb_request(req)
             elif req['type'] == 'stats_update':
                 # Update stats in menu if needed
                 pass
@@ -229,17 +251,102 @@ class BastionClient(QObject):
     def handle_connection_request(self, req):
         dialog = FirewallDialog(req, timeout=30)
         result = dialog.exec()
-        
+
         decision = (dialog.decision == 'allow')
         permanent = dialog.permanent
-        
+
         # Send response
         if self.connected and self.sock:
             resp = json.dumps({'allow': decision, 'permanent': permanent}) + '\n'
             try:
                 self.sock.sendall(resp.encode())
-            except:
+            except OSError:
                 self.handle_disconnect()
+
+    def handle_usb_request(self, req):
+        """Handle USB device authorization request from daemon."""
+        from bastion.usb_device import USBDeviceInfo
+        from bastion.usb_gui import USBPromptDialog
+
+        print(f"[USB] Received USB request: {req.get('product_name', 'Unknown')}")
+
+        # Extract nonce for anti-spoofing (daemon requires this to be echoed back)
+        # Reject requests without nonce - could be malicious injection attempt
+        nonce = req.get('nonce')
+        if not nonce:
+            print("[USB] Missing nonce in request - rejecting (possible spoofing)")
+            if self.connected and self.sock:
+                resp = json.dumps({
+                    'type': 'usb_response',
+                    'nonce': '',
+                    'verdict': 'block',
+                    'scope': 'device',
+                    'save_rule': False
+                }) + '\n'
+                try:
+                    self.sock.sendall(resp.encode())
+                except OSError:
+                    self.handle_disconnect()
+            return
+
+        # Normalize and validate device class fields to prevent crashes
+        raw_device_class = req.get('device_class', 0)
+        try:
+            device_class = int(raw_device_class)
+        except (TypeError, ValueError):
+            device_class = 0
+
+        raw_ifaces = req.get('interface_classes', [])
+        if not isinstance(raw_ifaces, list):
+            raw_ifaces = []
+        interface_classes = []
+        for v in raw_ifaces:
+            try:
+                interface_classes.append(int(v))
+            except (TypeError, ValueError):
+                continue
+
+        device = USBDeviceInfo(
+            vendor_id=req.get('vendor_id', '0000'),
+            product_id=req.get('product_id', '0000'),
+            vendor_name=req.get('vendor_name', 'Unknown'),
+            product_name=req.get('product_name', 'Unknown Device'),
+            device_class=device_class,
+            interface_classes=interface_classes,
+            serial=req.get('serial'),
+            bus_id=req.get('bus_id', '1-1')
+        )
+
+        # Show USB prompt dialog
+        print(f"[USB] Showing prompt dialog for: {device.product_name}")
+        dialog = USBPromptDialog(device, timeout=30)
+
+        # Make sure dialog is shown (raise to top, set focus)
+        dialog.raise_()
+        dialog.activateWindow()
+        dialog.setFocus()
+
+        result = dialog.exec()
+
+        print(f"[USB] Dialog result: {dialog.verdict} (scope={dialog.scope}, save_rule={dialog.save_rule})")
+
+        # Send response with nonce (daemon validates this to prevent spoofing)
+        if self.connected and self.sock:
+            resp = json.dumps({
+                'type': 'usb_response',
+                'nonce': nonce,  # Echo back for anti-spoofing
+                'verdict': dialog.verdict or 'block',
+                'scope': dialog.scope,
+                'save_rule': dialog.save_rule
+            }) + '\n'
+            try:
+                self.sock.sendall(resp.encode())
+                print(f"[USB] Response sent: {dialog.verdict} (save_rule={dialog.save_rule})")
+            except Exception as e:
+                print(f"[USB] Failed to send response: {e}")
+                self.handle_disconnect()
+        else:
+            print(f"[USB] Not connected, cannot send response")
 
     def open_control_panel(self):
         import subprocess
@@ -259,7 +366,6 @@ class BastionClient(QObject):
         self.update_status(f"{action.capitalize()}ing...", "disconnected")
 
         def do_action():
-            import subprocess
             try:
                 result = subprocess.run(['pkexec', 'systemctl', action, 'bastion-firewall'],
                                        capture_output=True, text=True, timeout=30)

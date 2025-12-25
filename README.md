@@ -22,6 +22,7 @@ Bastion intercepts outbound connections and prompts you to allow or deny them pe
 - Per-application rules stored in `/etc/bastion/rules.json`
 - Learning mode for initial configuration
 - UFW integration for inbound protection
+- **USB Device Control** - block unauthorized USB devices until approved
 
 ## Installation
 
@@ -57,9 +58,10 @@ bastion-gui
 ```
 
 The system tray icon provides access to the control panel where you can:
-- View and manage rules
+- View and manage firewall rules
 - Switch between learning and enforcement modes
 - Monitor connection logs
+- Manage USB device access (allow/block new devices)
 
 ## Configuration
 

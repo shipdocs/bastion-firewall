@@ -50,6 +50,7 @@ mkdir -p debian/usr/share/doc/bastion-firewall
 mkdir -p debian/usr/share/applications
 mkdir -p debian/usr/share/metainfo
 mkdir -p debian/lib/systemd/system
+mkdir -p debian/usr/lib/tmpfiles.d
 mkdir -p debian/usr/share/polkit-1/actions
 mkdir -p debian/DEBIAN
 # Note: /etc/bastion is created by postinst, not in package
@@ -68,6 +69,23 @@ chmod +x debian/usr/bin/bastion-daemon
 chmod +x debian/usr/bin/bastion-gui
 chmod +x debian/usr/bin/bastion-control-panel
 chmod +x debian/usr/bin/bastion-launch
+
+# Create root helper wrapper script
+print_step "Creating root helper..."
+cat > debian/usr/bin/bastion-root-helper << 'HELPER_EOF'
+#!/usr/bin/env python3
+"""Bastion Root Helper - wrapper script for privileged operations."""
+import sys
+sys.path.insert(0, '/usr/lib/python3/dist-packages')
+from bastion.root_helper import main
+sys.exit(main(sys.argv[1:]))
+HELPER_EOF
+chmod +x debian/usr/bin/bastion-root-helper
+
+# Copy polkit policy for root helper with safe permissions
+# Policy files should be root-owned and not writable by others (0644)
+print_step "Copying polkit policies..."
+install -m 0644 com.bastion.root-helper.policy debian/usr/share/polkit-1/actions/
 
 # Copy Python modules
 print_step "Copying Python modules..."
@@ -104,6 +122,10 @@ EOF
 # Copy systemd service
 print_step "Copying systemd service..."
 cp bastion-firewall.service debian/lib/systemd/system/
+
+# Copy tmpfiles.d config for /run/bastion directory
+print_step "Copying tmpfiles.d config..."
+cp bastion.conf debian/usr/lib/tmpfiles.d/bastion.conf
 
 # Note: config.json is NOT copied to /etc/bastion/ in the package
 # It will be created by postinst script during installation with user prompts

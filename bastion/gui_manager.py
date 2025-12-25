@@ -49,25 +49,212 @@ class GUIManager:
             return os.path.isfile(path) and os.access(path, os.X_OK)
         except:
             return False
-    
+
+    def is_gui_running(self):
+        """Check if GUI process is running"""
+        try:
+            # Check if process is still alive
+            if self.gui_process and self.gui_process.poll() is None:
+                return True
+
+            # Also check if any bastion-gui process is running
+            # Use exact binary path to avoid matching unrelated processes
+            result = subprocess.run(
+                ['pgrep', '-x', 'bastion-gui'],
+                capture_output=True,
+                timeout=2
+            )
+            return result.returncode == 0
+        except Exception as e:
+            logger.debug(f"Error checking GUI status: {e}")
+            return False
+
     def start_gui(self):
-        """Start GUI application in background"""
+        """Start GUI application in background as the logged-in user"""
         if not self.gui_path:
             logger.error("Cannot start GUI: executable not found")
             return False
-        
-        if self.gui_process and self.gui_process.poll() is None:
+
+        if self.is_gui_running():
             logger.debug("GUI already running")
             return True
-        
+
         try:
-            self.gui_process = subprocess.Popen(
-                [self.gui_path],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True  # Detach from daemon
-            )
-            logger.info(f"GUI started (PID: {self.gui_process.pid})")
+            # Find the logged-in user (not root)
+            # Try to get the user from SUDO_USER or look for active X session
+            user = os.environ.get('SUDO_USER')
+
+            if not user:
+                # Try to find user from active X sessions
+                try:
+                    result = subprocess.run(
+                        ['who'],
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
+                    if result.stdout:
+                        # Filter for real users (UID >= 1000) to avoid system accounts
+                        users = result.stdout.strip().split('\n')
+                        for line in users:
+                            line = line.strip()
+                            if line:
+                                user = line.split()[0] # Take first token (username)
+                                # Verify this is a real user account
+                                try:
+                                    import pwd
+                                    pw = pwd.getpwnam(user)
+                                    if pw and pw.pw_uid >= 1000:
+                                        break  # Found valid user
+                                except (KeyError, ImportError):
+                                    pass
+                except:
+                    pass
+
+            if not user:
+                logger.error("Cannot determine logged-in user for GUI")
+                return False
+
+            logger.info(f"Starting GUI as user: {user}")
+
+            # Get user's environment variables (especially DISPLAY)
+            env = os.environ.copy()
+
+            # Try to find DISPLAY from user's X session
+            display_found = False
+            try:
+                # First try reading /proc/<pid>/environ directly (more reliable)
+                # Get PIDs of user's GUI-related processes (check each separately)
+                gui_processes = ['gnome-shell', 'Xorg', 'kwin', 'plasmashell']
+                pids = []
+                for proc_name in gui_processes:
+                    try:
+                        result = subprocess.run(
+                            ['pgrep', '-u', user, '-x', proc_name],
+                            capture_output=True,
+                            text=True,
+                            timeout=2
+                        )
+                        pids.extend(result.stdout.strip().split('\n'))
+                    except subprocess.TimeoutExpired:
+                        continue
+                for pid in pids:
+                    if pid and pid.isdigit():
+                        try:
+                            with open(f'/proc/{pid}/environ', 'rb') as f:
+                                # /proc environ uses NUL separators, read as binary to avoid decode issues
+                                for var in f.read().split(b'\0'):
+                                    try:
+                                        var_str = var.decode('utf-8', errors='replace')
+                                    except UnicodeDecodeError:
+                                        continue  # Skip malformed entries
+                                    if var_str.startswith('DISPLAY='):
+                                        display = var_str.split('=', 1)[1]
+                                        if display:
+                                            env['DISPLAY'] = display
+                                            logger.info(f"Found DISPLAY from /proc/{pid}: {display}")
+                                            display_found = True
+                                            break
+                        except (OSError, PermissionError, UnicodeDecodeError):
+                            continue
+                    if display_found:
+                        break
+            except Exception as e:
+                logger.debug(f"Could not find DISPLAY from /proc: {e}")
+
+            # Fallback: try ps -o environ= (output format varies by system)
+            if not display_found:
+                try:
+                    result = subprocess.run(
+                        ['ps', '-u', user, '-o', 'environ='],
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
+                    for line in result.stdout.splitlines():
+                        if 'DISPLAY=' in line:
+                            # Try both space and NUL separators (format varies by OS)
+                            tokens = line.replace('\0', ' ').split()
+                            for tok in tokens:
+                                if tok.startswith('DISPLAY='):
+                                    display = tok.split('=', 1)[1]
+                                    if display:
+                                        env['DISPLAY'] = display
+                                        logger.info(f"Found DISPLAY from ps: {display}")
+                                        display_found = True
+                                        break
+                            if display_found:
+                                break
+                except Exception as e:
+                    logger.debug(f"Could not find DISPLAY from ps: {e}")
+
+            # If still no DISPLAY, try common defaults
+            if not display_found:
+                for display in [':0', ':1', ':0.0', ':1.0']:
+                    try:
+                        # Test if display is accessible
+                        result = subprocess.run(
+                            ['xset', '-display', display, 'q'],
+                            capture_output=True,
+                            timeout=1
+                        )
+                        if result.returncode == 0:
+                            env['DISPLAY'] = display
+                            logger.info(f"Using DISPLAY: {display}")
+                            display_found = True
+                            break
+                    except:
+                        pass
+
+            if not display_found:
+                logger.warning("Could not determine DISPLAY, GUI may not start")
+
+            # Get user's UID/GID to actually run as that user
+            import pwd
+            try:
+                pw = pwd.getpwnam(user)
+                user_uid = pw.pw_uid
+                user_gid = pw.pw_gid
+                user_home = pw.pw_dir
+
+                # Set HOME and XDG_RUNTIME_DIR for the user
+                env['HOME'] = user_home
+                env['USER'] = user
+                env['LOGNAME'] = user
+                xdg_runtime = f"/run/user/{user_uid}"
+                # Ensure XDG_RUNTIME_DIR exists with proper permissions
+                try:
+                    os.makedirs(xdg_runtime, mode=0o700, exist_ok=True)
+                    env['XDG_RUNTIME_DIR'] = xdg_runtime
+                except (OSError, PermissionError) as e:
+                    logger.warning(f"Could not create XDG_RUNTIME_DIR {xdg_runtime}: {e}")
+
+                # Also try to get XAUTHORITY
+                xauthority = os.path.join(user_home, '.Xauthority')
+                if os.path.exists(xauthority):
+                    env['XAUTHORITY'] = xauthority
+
+                def demote_to_user():
+                    """Drop privileges to target user before exec"""
+                    os.setgroups([])
+                    os.setgid(user_gid)
+                    os.setuid(user_uid)
+                    os.umask(0o077)
+
+                # Start GUI as the user, not as root
+                self.gui_process = subprocess.Popen(
+                    [self.gui_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,  # Detach from daemon
+                    env=env,  # Pass environment with DISPLAY
+                    preexec_fn=demote_to_user  # Actually switch to user
+                )
+                logger.info(f"GUI started (PID: {self.gui_process.pid}) as user {user} (uid={user_uid})")
+            except KeyError:
+                logger.error(f"User '{user}' not found in passwd database")
+                return False
+
             return True
         except Exception as e:
             logger.error(f"Failed to start GUI: {e}")

@@ -465,44 +465,61 @@ class DashboardWindow(QMainWindow):
         brand_layout.addStretch()
         sb_layout.addLayout(brand_layout)
         
-        # Navigation
+        # Navigation with custom icons
         self.nav_btns = []
         self.add_nav_btn(sb_layout, "Status", "📊")
         self.add_nav_btn(sb_layout, "Rules", "📋")
+        self.add_nav_btn(sb_layout, "USB", "🔌")
         self.add_nav_btn(sb_layout, "Logs", "📝")
         self.add_nav_btn(sb_layout, "Settings", "⚙️")
-        
+
         sb_layout.addStretch()
-        
-        ver = QLabel("v1.4.0")
+
+        ver = QLabel("v1.5.0-dev")
         ver.setObjectName("muted")
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sb_layout.addWidget(ver)
-        
+
         main_layout.addWidget(sidebar)
-        
+
         # Content Stack
         self.stack = QStackedWidget()
         self.stack.setContentsMargins(30, 30, 30, 30)
-        
+
         self.page_status = self.create_status_page()
         self.page_rules = self.create_rules_page()
+        self.page_usb = self.create_usb_page()
         self.page_logs = self.create_logs_page()
         self.page_settings = self.create_settings_page()
-        
+
         self.stack.addWidget(self.page_status)
         self.stack.addWidget(self.page_rules)
+        self.stack.addWidget(self.page_usb)
         self.stack.addWidget(self.page_logs)
         self.stack.addWidget(self.page_settings)
-        
+
         main_layout.addWidget(self.stack)
         self.nav_btns[0].setChecked(True)
 
-    def add_nav_btn(self, layout, text, icon_char):
-        btn = QPushButton(f"  {icon_char}   {text}")
+    def add_nav_btn(self, layout, text, fallback_emoji):
+        """Add navigation button with custom icon or emoji fallback."""
+        from .icon_manager import IconManager
+
+        btn = QPushButton()
         btn.setObjectName("nav_btn")
         btn.setCheckable(True)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # Try to get custom nav icon
+        icon = IconManager.get_nav_icon(text)
+        if not icon.isNull():
+            btn.setIcon(icon)
+            btn.setIconSize(QSize(20, 20))
+            btn.setText(f"  {text}")
+        else:
+            # Fallback to emoji
+            btn.setText(f"  {fallback_emoji}   {text}")
+
         btn.clicked.connect(lambda: self.navigate(btn, text))
         layout.addWidget(btn)
         self.nav_btns.append(btn)
@@ -513,6 +530,7 @@ class DashboardWindow(QMainWindow):
         sender.setChecked(True)
         if page_name == "Status": self.stack.setCurrentWidget(self.page_status); self.refresh_status()
         elif page_name == "Rules": self.stack.setCurrentWidget(self.page_rules); self.refresh_rules_table()
+        elif page_name == "USB": self.stack.setCurrentWidget(self.page_usb); self.refresh_usb()
         elif page_name == "Logs": self.stack.setCurrentWidget(self.page_logs); self.refresh_logs()
         elif page_name == "Settings": self.stack.setCurrentWidget(self.page_settings)
 
@@ -595,7 +613,43 @@ class DashboardWindow(QMainWindow):
         card_in_layout.addWidget(self.btn_inbound)
 
         status_cards.addWidget(card_in)
-        
+
+        # 3. USB Device Control Card
+        card_usb = QFrame(objectName="card")
+        card_usb_layout = QVBoxLayout(card_usb)
+        card_usb_layout.setContentsMargins(20, 20, 20, 20)
+
+        # Card title
+        card_usb_title_layout = QHBoxLayout()
+        icon_usb = QLabel()
+        usb_icon = IconManager.get_nav_icon('USB')
+        if not usb_icon.isNull():
+            icon_usb.setPixmap(usb_icon.pixmap(24, 24))
+        else:
+            icon_usb.setText("🔌")
+        card_usb_title_layout.addWidget(icon_usb)
+        lbl_usb_title = QLabel("USB Control")
+        lbl_usb_title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLORS['header']};")
+        card_usb_title_layout.addWidget(lbl_usb_title)
+        card_usb_title_layout.addStretch()
+        card_usb_layout.addLayout(card_usb_title_layout)
+
+        # Status - dynamic
+        self.lbl_usb_title = QLabel("Checking...")
+        self.lbl_usb_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['text_primary']}; margin-top: 8px;")
+        card_usb_layout.addWidget(self.lbl_usb_title)
+
+        self.lbl_usb_desc = QLabel("USB Device Control")
+        self.lbl_usb_desc.setStyleSheet(f"color: {COLORS['text_secondary']}; margin-bottom: 10px;")
+        card_usb_layout.addWidget(self.lbl_usb_desc)
+
+        self.btn_usb = QPushButton("Manage")
+        self.btn_usb.setObjectName("action_btn")
+        self.btn_usb.clicked.connect(lambda: self.navigate(self.nav_btns[2], "USB"))
+        card_usb_layout.addWidget(self.btn_usb)
+
+        status_cards.addWidget(card_usb)
+
         layout.addLayout(status_cards)
         
         # Stats
@@ -697,6 +751,17 @@ class DashboardWindow(QMainWindow):
         layout.addLayout(btn_box)
         return page
 
+    def create_usb_page(self):
+        """Create the USB Device Control page."""
+        from .usb_gui import USBControlWidget
+        self.usb_widget = USBControlWidget()
+        return self.usb_widget
+
+    def refresh_usb(self):
+        """Refresh the USB device lists."""
+        if hasattr(self, 'usb_widget'):
+            self.usb_widget.refresh()
+
     def create_settings_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -785,11 +850,31 @@ class DashboardWindow(QMainWindow):
         cl_ufw.addLayout(ufw_btns)
         
         scroll_layout.addWidget(card_ufw)
-        
+        scroll_layout.addSpacing(20)
+
+        # 3. Tray Icon Management
+        card_tray = QFrame(objectName="card")
+        cl_tray = QVBoxLayout(card_tray)
+        cl_tray.setContentsMargins(30, 30, 30, 30)
+
+        cl_tray.addWidget(QLabel("Tray Icon", objectName="h2"))
+
+        lbl_tray_info = QLabel("The system tray icon provides quick access to firewall controls.")
+        lbl_tray_info.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px; margin-bottom: 10px;")
+        cl_tray.addWidget(lbl_tray_info)
+
+        self.btn_start_tray = QPushButton("Start Tray Icon")
+        self.btn_start_tray.setObjectName("action_btn")
+        self.btn_start_tray.setFixedWidth(200)
+        self.btn_start_tray.clicked.connect(self.start_tray_icon)
+        cl_tray.addWidget(self.btn_start_tray)
+
+        scroll_layout.addWidget(card_tray)
+
         scroll_layout.addStretch()
         scroll.setWidget(scroll_content)
         layout.addWidget(scroll)
-        
+
         return page
 
     # --- LOGIC ---
@@ -803,12 +888,12 @@ class DashboardWindow(QMainWindow):
         # 1. Outbound (Bastion)
         try:
             # Check Active
-            res = subprocess.run(['systemctl', 'is-active', 'bastion-firewall'], 
+            res = subprocess.run(['/usr/bin/systemctl', 'is-active', 'bastion-firewall'],
                                capture_output=True, text=True)
             is_active = res.stdout.strip() == 'active'
             
             # Check Enabled (Boot)
-            res_en = subprocess.run(['systemctl', 'is-enabled', 'bastion-firewall'], 
+            res_en = subprocess.run(['/usr/bin/systemctl', 'is-enabled', 'bastion-firewall'],
                                    capture_output=True, text=True)
             is_enabled = res_en.stdout.strip() == 'enabled'
             
@@ -860,20 +945,53 @@ class DashboardWindow(QMainWindow):
                 self.lbl_ufw_status.setText("Status: <b>Inactive</b>. Enable UFW to block inbound threats.")
                 self.btn_ufw_enable.setVisible(True)
                 self.btn_ufw_disable.setVisible(False)
-        except:
+        except Exception as e:
+            logger.debug(f"Could not check UFW status: {e}")
             self.lbl_inbound_title.setText("Unknown")
-            
-        # 3. Update Stats (Approximate from rules and logs)
+
+        # 3. USB Device Control Status
+        try:
+            # Check if USB protection is enabled (authorized_default=0)
+            usb_protected = False
+            usb_controllers = 0
+            for path in Path('/sys/bus/usb/devices').glob('usb*/authorized_default'):
+                usb_controllers += 1
+                try:
+                    val = path.read_text().strip()
+                    if val == '0':
+                        usb_protected = True
+                except (OSError, PermissionError) as e:
+                    logger.debug(f"Could not read {path}: {e}")
+
+            # Get rule counts
+            from .usb_rules import USBRuleManager
+            usb_mgr = USBRuleManager()
+            allowed = len(usb_mgr.get_allowed_devices())
+            blocked = len(usb_mgr.get_blocked_devices())
+
+            if usb_protected and usb_controllers > 0:
+                self.lbl_usb_title.setText("Protected")
+                self.lbl_usb_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['success']}; margin-top: 8px;")
+                self.lbl_usb_desc.setText(f"{allowed} allowed, {blocked} blocked devices")
+            else:
+                self.lbl_usb_title.setText("Disabled")
+                self.lbl_usb_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['warning']}; margin-top: 8px;")
+                self.lbl_usb_desc.setText("USB devices not monitored")
+        except Exception as e:
+            self.lbl_usb_title.setText("Unknown")
+            self.lbl_usb_desc.setText("Could not check USB status")
+
+        # 4. Update Stats (Approximate from rules and logs)
         self.stat_rules.findChild(QLabel, "").setText(str(len(self.data_rules)))
         
         try:
             if self.log_path.exists():
                 # SECURITY FIX: Use list arguments instead of shell=True to prevent command injection
-                res = subprocess.run(['wc', '-l', str(self.log_path)], capture_output=True, text=True)
+                res = subprocess.run(['/usr/bin/wc', '-l', str(self.log_path)], capture_output=True, text=True)
                 total = res.stdout.strip().split()[0] if res.returncode == 0 else "0"
                 self.stat_connections.findChild(QLabel, "").setText(total)
                 
-                res = subprocess.run(['grep', '-c', 'decision: deny', str(self.log_path)], 
+                res = subprocess.run(['/usr/bin/grep', '-c', 'decision: deny', str(self.log_path)],
                                    capture_output=True, text=True)
                 denied = res.stdout.strip() if res.returncode == 0 else "0"
                 self.stat_blocked.findChild(QLabel, "").setText(denied)
@@ -895,7 +1013,7 @@ class DashboardWindow(QMainWindow):
             
         try:
             # 1. System Service (Daemon)
-            subprocess.run(['pkexec', 'systemctl', action, 'bastion-firewall'], check=True)
+            subprocess.run(['pkexec', '/usr/bin/systemctl', action, 'bastion-firewall'], check=True)
             
             # 2. User GUI (Tray) - Manage ~/.config/autostart
             self._manage_gui_autostart(should_enable)
@@ -957,15 +1075,32 @@ X-GNOME-Autostart-enabled=true
     def disable_ufw(self):
         if QMessageBox.question(self, "Confirm", "Disable Inbound Protection (UFW)?\nYour computer will be exposed to inbound connections.") != QMessageBox.StandardButton.Yes:
             return
-            
+
         try:
-            subprocess.run(['pkexec', 'ufw', 'disable'], check=True)
+            subprocess.run(['pkexec', '/usr/bin/ufw', 'disable'], check=True)
             from .notification import show_notification
             show_notification(self, "Success", "UFW disabled.")
         except Exception as e:
             from .notification import show_notification
             show_notification(self, "Error", f"Failed to disable UFW: {e}")
         self.refresh_ui()
+
+    def start_tray_icon(self):
+        """Start the system tray icon (bastion-gui)"""
+        try:
+            # Use absolute path to prevent PATH hijacking
+            subprocess.Popen(
+                ['/usr/bin/bastion-gui'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+            show_notification(self, "Success", "Tray icon started. Look for it in your system tray.")
+            logger.info("Tray icon started from control panel")
+        except Exception as e:
+            logger.exception(f"Failed to start tray icon: {e}")
+            # Don't expose internal exception details to user
+            show_notification(self, "Error", "Failed to start tray icon. Check logs for details.")
 
     # ... (other methods remain) ...
 
@@ -1005,7 +1140,7 @@ X-GNOME-Autostart-enabled=true
     def refresh_logs(self):
         try:
             # Read last 50 lines
-            cmd = ['tail', '-n', '50', str(self.log_path)]
+            cmd = ['/usr/bin/tail', '-n', '50', str(self.log_path)]
             # If plain read fails, try pkexec (but pkexec for read is annoying in loop, assume readable or valid user group)
             # The daemon log should be readable by adm group or similar, but for now we try best effort
             if not os.access(self.log_path, os.R_OK):
@@ -1075,11 +1210,11 @@ X-GNOME-Autostart-enabled=true
                 json.dump(self.data_rules, tmp, indent=2)
                 tmp_path = tmp.name
             
-            subprocess.run(['pkexec', 'mv', tmp_path, str(self.rules_path)], check=True)
-            subprocess.run(['pkexec', 'chmod', '644', str(self.rules_path)])
+            subprocess.run(['pkexec', '/usr/bin/mv', tmp_path, str(self.rules_path)], check=True)
+            subprocess.run(['pkexec', '/usr/bin/chmod', '644', str(self.rules_path)])
             
             # signal daemon
-            subprocess.run(['pkill', '-HUP', '-f', 'bastion-daemon'])
+            subprocess.run(['/usr/bin/pkill', '-HUP', '-f', 'bastion-daemon'])
         except Exception as e:
             from .notification import show_notification
             show_notification(self, "Error", f"Failed to save rules: {e}")
@@ -1091,11 +1226,11 @@ X-GNOME-Autostart-enabled=true
                 json.dump(self.data_config, tmp, indent=2)
                 tmp_path = tmp.name
                 
-            subprocess.run(['pkexec', 'mv', tmp_path, str(self.config_path)], check=True)
-            subprocess.run(['pkexec', 'chmod', '644', str(self.config_path)])
+            subprocess.run(['pkexec', '/usr/bin/mv', tmp_path, str(self.config_path)], check=True)
+            subprocess.run(['pkexec', '/usr/bin/chmod', '644', str(self.config_path)])
             
             # signal daemon
-            subprocess.run(['pkill', '-HUP', '-f', 'bastion-daemon'])
+            subprocess.run(['/usr/bin/pkill', '-HUP', '-f', 'bastion-daemon'])
             from .notification import show_notification
             show_notification(self, "Success", "Configuration saved.")
         except Exception as e:

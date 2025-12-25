@@ -24,7 +24,16 @@ class IconManager:
     ICON_DIR = Path(__file__).parent / 'resources'
     BASTION_ICON_PNG = ICON_DIR / 'bastion-icon.png'
     BASTION_ICON_SVG = ICON_DIR / 'bastion-icon.svg'
-    
+
+    # Navigation icons (PNG for best compatibility)
+    NAV_ICONS = {
+        'Status': 'nav-status.png',
+        'Rules': 'nav-rules.png',
+        'USB': 'nav-usb.png',
+        'Logs': 'nav-logs.png',
+        'Settings': 'nav-settings.png'
+    }
+
     # Status colors
     COLORS = {
         'connected': '#98c379',    # Green
@@ -149,7 +158,40 @@ class IconManager:
         indicator_size = size // 4
         painter.drawEllipse(size - indicator_size - 4, size - indicator_size - 4, 
                            indicator_size, indicator_size)
-        
+
         painter.end()
         return pixmap
+
+    @classmethod
+    def get_nav_icon(cls, name: str) -> QIcon:
+        """
+        Get navigation icon for sidebar
+
+        Args:
+            name: One of 'Status', 'Rules', 'USB', 'Logs', 'Settings'
+
+        Returns:
+            QIcon object (empty if not found, triggering emoji fallback)
+        """
+        icon_file = cls.NAV_ICONS.get(name)
+        if not icon_file:
+            logger.warning(f"Unknown nav icon: {name}")
+            return QIcon()
+
+        icon_path = cls.ICON_DIR / icon_file
+        if not icon_path.exists():
+            logger.warning(f"Nav icon not found: {icon_path}")
+            return QIcon()
+
+        try:
+            icon = QIcon(str(icon_path))
+            # Verify the icon actually has content
+            if not icon.isNull() and not icon.pixmap(24, 24).isNull():
+                return icon
+            else:
+                logger.warning(f"Nav icon loaded but empty: {icon_path}")
+                return QIcon()
+        except Exception as e:
+            logger.warning(f"Failed to load nav icon {name}: {e}")
+            return QIcon()
 

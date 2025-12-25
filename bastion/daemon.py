@@ -7,6 +7,7 @@ import logging
 import signal
 import time
 import subprocess
+import secrets
 from pathlib import Path
 from typing import Dict, Optional
 from collections import deque
@@ -16,6 +17,10 @@ from .config import ConfigManager
 from .rules import RuleManager
 from .firewall_core import PacketProcessor, PacketInfo, IPTablesManager
 from .service_whitelist import should_auto_allow, get_app_category
+from .usb_monitor import USBMonitor, is_pyudev_available
+from .usb_device import USBDeviceInfo
+from .usb_rules import USBRuleManager, USBAuthorizer, Verdict
+from .gui_manager import GUIManager
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +89,10 @@ class SystemdNotifier:
 
 class BastionDaemon:
     """Core Daemon Logic"""
-    
-    SOCKET_PATH = '/tmp/bastion-daemon.sock'
+
+    # Socket in /run for security (not world-writable like /tmp)
+    SOCKET_DIR = '/run/bastion'
+    SOCKET_PATH = '/run/bastion/daemon.sock'
     
     def __init__(self):
         self.config = ConfigManager.load_config()
@@ -98,18 +105,38 @@ class BastionDaemon:
         self.systemd = SystemdNotifier()
         self.monitor_thread = None
 
+        # GUI Manager - ensures GUI is always running
+        self.gui_manager = GUIManager()
+        self.last_gui_check = 0
+        self.gui_check_interval = 10  # Check GUI every 10 seconds
+
         self.pending_requests: Dict[str, float] = {}
         self.last_request_time: Dict[str, float] = {}
         self.request_lock = threading.Lock()
         self.socket_lock = threading.Lock()
         self.rate_limiter = RateLimiter(max_requests_per_second=10, window_seconds=1)
 
+        # USB Device Control
+        self.usb_monitor: Optional[USBMonitor] = None
+        self.usb_rule_manager = USBRuleManager()
+        self.usb_rules_lock = threading.Lock()  # Lock for thread-safe rule reloading
+        self.usb_rules_last_modified = 0  # Track last modification time
+        self.usb_pending_lock = threading.Lock()
+        self.usb_pending_device: Optional[USBDeviceInfo] = None
+        self.usb_pending_nonce: Optional[str] = None  # Anti-spoofing nonce
+        self.usb_response_event = threading.Event()
+        self.usb_response_verdict: Optional[Verdict] = None
+        self.usb_response_scope: str = 'device'
+        self.usb_response_save_rule: bool = True
+
         # Statistics
         self.stats = {
             'total_connections': 0,
             'allowed_connections': 0,
             'blocked_connections': 0,
-            'rate_limited': 0  # Track rate-limited requests
+            'rate_limited': 0,  # Track rate-limited requests
+            'usb_devices_allowed': 0,
+            'usb_devices_blocked': 0
         }
 
     def start(self):
@@ -150,6 +177,9 @@ class BastionDaemon:
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.monitor_thread.start()
 
+        # Start USB Device Monitor (if pyudev available)
+        self._start_usb_monitor()
+
         # Watchdog loop (legacy main loop, now just fallback/keepalive)
         self._run_watchdog()
 
@@ -163,11 +193,24 @@ class BastionDaemon:
 
         last_rule_check = 0
         rule_check_interval = 60 # Check every minute
+        last_usb_rule_check = 0
+        usb_rule_check_interval = 5  # Check USB rules every 5 seconds
 
         while self.running:
             try:
                 # 1. Ping systemd watchdog each loop (every 5s)
                 self.systemd.ping()
+
+                # Check if USB rules file has been modified
+                current_time = time.time()
+                if current_time - last_usb_rule_check >= usb_rule_check_interval:
+                    self._reload_usb_rules_if_changed()
+                    last_usb_rule_check = current_time
+
+                # Check if GUI is running and restart if needed
+                if current_time - self.last_gui_check >= self.gui_check_interval:
+                    self._ensure_gui_running()
+                    self.last_gui_check = current_time
 
                 # 2. Periodic Rule Check
                 now = time.time()
@@ -231,6 +274,9 @@ class BastionDaemon:
                         gui_socket, addr = self.server_socket.accept()
                         logger.info(f"GUI connected from {addr}")
                         self.gui_socket = gui_socket
+                        # Start reader thread for this connection
+                        reader = threading.Thread(target=self._read_gui_messages, daemon=True)
+                        reader.start()
                     else:
                         time.sleep(1)  # Already connected, just wait
                 except socket.timeout:
@@ -241,6 +287,67 @@ class BastionDaemon:
                     break
         except Exception as e:
             logger.error(f"GUI acceptor thread error: {e}")
+
+    def _read_gui_messages(self):
+        """Read messages from GUI in background (for USB responses etc.)"""
+        buffer = ""
+        MAX_BUFFER_SIZE = 65536  # 64KB limit to prevent memory exhaustion
+        try:
+            while self.running and self.gui_socket:
+                # Avoid race with _ask_gui: if there are pending connection requests,
+                # let _ask_gui own socket reads to prevent stealing responses
+                with self.request_lock:
+                    has_pending = bool(self.pending_requests)
+                if has_pending:
+                    time.sleep(0.1)
+                    continue
+                try:
+                    data = self.gui_socket.recv(4096)
+                    if not data:
+                        logger.warning("GUI disconnected")
+                        break
+                    try:
+                        buffer += data.decode('utf-8', errors='replace')
+                    except UnicodeDecodeError:
+                        logger.warning("Invalid UTF-8 data from GUI, skipping")
+                        continue
+                    # Prevent buffer overflow from malicious/buggy GUI
+                    if len(buffer) > MAX_BUFFER_SIZE:
+                        logger.warning("GUI message buffer overflow, resetting")
+                        buffer = ""
+                        continue
+                    while '\n' in buffer:
+                        line, buffer = buffer.split('\n', 1)
+                        if line.strip():
+                            self._process_gui_message(line)
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    logger.debug(f"GUI read error: {e}")
+                    break
+        except Exception as e:
+            logger.error(f"GUI reader thread error: {e}")
+        finally:
+            # Mark socket as disconnected
+            with self.socket_lock:
+                if self.gui_socket:
+                    try:
+                        self.gui_socket.close()
+                    except OSError:
+                        pass
+                    self.gui_socket = None
+
+    def _process_gui_message(self, line: str):
+        """Process a message from GUI"""
+        try:
+            msg = json.loads(line)
+            msg_type = msg.get('type', '')
+            if msg_type == 'usb_response':
+                self.handle_usb_response(msg)
+            else:
+                logger.debug(f"Unknown GUI message type: {msg_type}")
+        except json.JSONDecodeError:
+            logger.debug(f"Invalid JSON from GUI: {line[:50]}")
 
     def _run_processor(self):
         """Run the packet processor"""
@@ -292,24 +399,48 @@ class BastionDaemon:
             logger.error(f"Error sending stats: {e}")
 
     def _setup_socket(self):
-        """Setup Unix domain socket"""
+        """Setup Unix domain socket in /run/bastion for security"""
+        import grp
+
+        # Create socket directory if it doesn't exist
+        # /run is tmpfs, so this needs to be created each boot
+        if not os.path.exists(self.SOCKET_DIR):
+            os.makedirs(self.SOCKET_DIR, mode=0o755)
+            logger.info(f"Created socket directory: {self.SOCKET_DIR}")
+
         if os.path.exists(self.SOCKET_PATH):
             os.remove(self.SOCKET_PATH)
-            
+
         self.server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server_socket.bind(self.SOCKET_PATH)
-        
-        # Allow local users to connect (essential for GUI on single-user systems)
-        # Using 0o666 because group membership changes require logout/login,
-        # which breaks the "install and run" experience.
+
+        # Set socket permissions: owner (root) + group read/write
+        # Try to use 'bastion' group, fall back to 'users' or world-readable
         try:
-            os.chmod(self.SOCKET_PATH, 0o666)
-            logger.info("Socket permissions set to 0666 (world-writable for immediate GUI access)")
+            socket_gid = None
+            socket_mode = 0o660  # rw-rw---- by default
+
+            # Try bastion group first (preferred for multi-user security)
+            for group_name in ['bastion', 'users']:
+                try:
+                    socket_gid = grp.getgrnam(group_name).gr_gid
+                    logger.info(f"Using group '{group_name}' for socket access")
+                    break
+                except KeyError:
+                    continue
+
+            if socket_gid is not None:
+                os.chown(self.SOCKET_PATH, 0, socket_gid)  # root:bastion or root:users
+                os.chmod(self.SOCKET_PATH, socket_mode)
+                logger.info(f"Socket created at {self.SOCKET_PATH} (mode={oct(socket_mode)})")
+            else:
+                # Fallback: user-readable only (no group access)
+                # SECURITY: Never use world-writable permissions for IPC sockets
+                os.chmod(self.SOCKET_PATH, 0o600)  # rw-------
+                logger.warning(f"Socket created at {self.SOCKET_PATH} with user-only permissions (no suitable group found)")
         except Exception as e:
             logger.warning(f"Could not set socket permissions: {e}")
-        except Exception as e:
-            logger.warning(f"Could not set socket group ownership: {e}")
-            
+
         self.server_socket.listen(1)
 
     def reload_config(self):
@@ -469,26 +600,50 @@ class BastionDaemon:
         try:
             with self.socket_lock:
                 self.gui_socket.sendall(json.dumps(request).encode() + b'\n')
-            
-            if learning_mode:
-                # In learning mode, we wait for response but allow timeout logic to handle defaults
-                pass 
+
+            # Wrapper for robust socket reading
+            def read_json_message(sock, timeout=60.0):
+                sock.settimeout(timeout)
+                buffer = ""
+                try:
+                    while True:
+                        chunk = sock.recv(4096)
+                        if not chunk:
+                            return None
+                        buffer += chunk.decode('utf-8', errors='replace')
+                        if '\n' in buffer:
+                            line, buffer = buffer.split('\n', 1) # Take first line
+                            return json.loads(line.strip())
+                except (socket.timeout, json.JSONDecodeError):
+                    return None
+                finally:
+                    sock.settimeout(None)
 
             # Wait for response
-            # Set a timeout on recv?
-            self.gui_socket.settimeout(60.0) # 1 min timeout for user response
+            data = read_json_message(self.gui_socket, timeout=60.0)
+            
+            if not data:
+                logger.warning("No valid response from GUI")
+                return True if learning_mode else False
+
+            # Handle case where a USB response arrives while waiting for connection decision
+            # This is a race condition - keep reading until we get the connection response
+            original_timeout = self.gui_socket.gettimeout()
             try:
-                response = self.gui_socket.recv(4096).decode().strip()
+                self.gui_socket.settimeout(60.0)
+                while data.get('type') == 'usb_response':
+                    self.handle_usb_response(data)
+                    # Read next message
+                    data = read_json_message(self.gui_socket, timeout=60.0)
+                    if not data:
+                        logger.warning("Empty response after handling USB response")
+                        return True if learning_mode else False
             except socket.timeout:
-                logger.warning("GUI socket timeout waiting for user decision")
+                logger.warning("Socket timeout waiting for connection response after USB")
                 return True if learning_mode else False
             finally:
-                self.gui_socket.settimeout(None)
+                self.gui_socket.settimeout(original_timeout)
 
-            if not response:
-                return False
-                
-            data = json.loads(response)
             allow = data.get('allow', False)
             permanent = data.get('permanent', False)
             
@@ -561,25 +716,259 @@ class BastionDaemon:
             try:
                 self.gui_socket.shutdown(socket.SHUT_RDWR)
                 self.gui_socket.close()
-            except:
+            except OSError:
                 pass
             self.gui_socket = None
 
         if self.server_socket:
             try:
                 self.server_socket.close()
-            except:
+            except OSError:
                 pass
             self.server_socket = None
             
         if self.packet_processor:
             self.packet_processor.stop()
-            
+
+        # Stop USB monitor and restore default policy
+        if self.usb_monitor:
+            self.usb_monitor.stop()
+            self.usb_monitor = None
+            # Restore default USB policy to allow (so system works normally without daemon)
+            USBAuthorizer.set_default_policy(authorize=True)
+            logger.info("USB default policy restored to allow")
+
         IPTablesManager.cleanup_nfqueue(queue_num=1)
-        
+
         if os.path.exists(self.SOCKET_PATH):
             try:
                 os.remove(self.SOCKET_PATH)
-            except:
+            except OSError:
                 pass
         logger.info("Daemon stopped")
+
+    # ========== USB DEVICE CONTROL ==========
+
+    def _ensure_gui_running(self):
+        """
+        Ensure GUI is running. If it's not, start it.
+        This ensures the tray icon is always available.
+        """
+        try:
+            if not self.gui_manager.is_gui_running():
+                logger.warning("GUI is not running, attempting to start it...")
+                if self.gui_manager.start_gui():
+                    logger.info("GUI restarted successfully")
+                else:
+                    logger.error("Failed to restart GUI")
+        except Exception as e:
+            logger.error(f"Error checking/starting GUI: {e}")
+
+    def _reload_usb_rules_if_changed(self):
+        """
+        Check if USB rules file has been modified and reload if needed.
+        This allows the daemon to pick up rule changes from the GUI without restart.
+        """
+        try:
+            rules_path = self.usb_rule_manager.db_path
+            if not rules_path.exists():
+                return
+
+            # Get current modification time
+            current_mtime = rules_path.stat().st_mtime
+
+            # If file has been modified, reload rules
+            if current_mtime > self.usb_rules_last_modified:
+                with self.usb_rules_lock:
+                    # Reload rules from disk
+                    self.usb_rule_manager = USBRuleManager()
+                    self.usb_rules_last_modified = current_mtime
+                    logger.info(f"USB rules reloaded from disk (mtime: {current_mtime})")
+        except Exception as e:
+            logger.error(f"Error checking USB rules file: {e}")
+
+    def _start_usb_monitor(self):
+        """Start USB device monitoring."""
+        if not is_pyudev_available():
+            logger.warning("USB monitoring disabled: pyudev not available")
+            return
+
+        try:
+            # Set default policy to BLOCK new USB devices
+            # This ensures devices are blocked until user explicitly allows them
+            if USBAuthorizer.set_default_policy(authorize=False):
+                logger.info("USB default policy: block new devices")
+            else:
+                logger.warning("Could not set USB default policy - devices may auto-authorize")
+
+            self.usb_monitor = USBMonitor(callback=self._handle_usb_event)
+            if self.usb_monitor.start():
+                logger.info("USB device monitor started")
+            else:
+                logger.warning("Failed to start USB device monitor")
+                self.usb_monitor = None
+        except Exception as e:
+            logger.error(f"Error starting USB monitor: {e}")
+            self.usb_monitor = None
+
+    def _handle_usb_event(self, device: USBDeviceInfo, action: str):
+        """Handle USB device insert/remove event."""
+        if action != 'add':
+            # Only handle device additions
+            logger.debug(f"USB device removed: {device.product_name}")
+            return
+
+        logger.info(f"USB device inserted: {device.product_name} ({device.vendor_id}:{device.product_id})")
+
+        # Check existing rules (with thread-safe access)
+        with self.usb_rules_lock:
+            verdict = self.usb_rule_manager.get_verdict(device)
+
+        if verdict == 'allow':
+            logger.info(f"USB device allowed by rule: {device.product_name}")
+            self.stats['usb_devices_allowed'] += 1
+            USBAuthorizer.authorize(device.bus_id)
+            return
+
+        if verdict == 'block':
+            logger.info(f"USB device blocked by rule: {device.product_name}")
+            self.stats['usb_devices_blocked'] += 1
+            USBAuthorizer.deauthorize(device.bus_id)
+            return
+
+        # No rule - prompt user
+        self._prompt_usb_decision(device)
+
+    def _prompt_usb_decision(self, device: USBDeviceInfo):
+        """Prompt user for USB device decision via GUI."""
+        if not self.gui_socket:
+            logger.warning("No GUI connected - cannot prompt for USB device decision")
+            # Default: block high-risk, allow low-risk
+            if device.is_high_risk:
+                logger.warning(f"Blocking high-risk USB device without GUI: {device.product_name}")
+                USBAuthorizer.deauthorize(device.bus_id)
+                self.stats['usb_devices_blocked'] += 1
+            else:
+                logger.info(f"Allowing low-risk USB device without GUI: {device.product_name}")
+                if not USBAuthorizer.authorize(device.bus_id):
+                     logger.warning(f"Failed to authorize low-risk USB device without GUI: {device.product_name}")
+                self.stats['usb_devices_allowed'] += 1
+            return
+
+        # Generate anti-spoofing nonce (32 bytes, hex encoded = 64 chars)
+        nonce = secrets.token_hex(32)
+
+        # Send USB request to GUI
+        request = {
+            'type': 'usb_request',
+            'nonce': nonce,  # Anti-spoofing: GUI must echo this back
+            'vendor_id': device.vendor_id,
+            'product_id': device.product_id,
+            'vendor_name': device.vendor_name,
+            'product_name': device.product_name,
+            'device_class': device.device_class,
+            'serial': device.serial,
+            'bus_id': device.bus_id,
+            'is_high_risk': device.is_high_risk,
+            'class_name': device.class_name
+        }
+
+        try:
+            with self.usb_pending_lock:
+                self.usb_pending_device = device
+                self.usb_pending_nonce = nonce
+                self.usb_response_event.clear()
+
+            with self.socket_lock:
+                self.gui_socket.sendall(json.dumps(request).encode() + b'\n')
+
+            logger.debug(f"USB request sent, waiting for GUI response...")
+
+            # Wait for response (60 second timeout)
+            if self.usb_response_event.wait(timeout=60):
+                with self.usb_pending_lock:
+                    verdict = self.usb_response_verdict
+                    scope = self.usb_response_scope
+                    save_rule = self.usb_response_save_rule
+                    self.usb_pending_device = None
+
+                if verdict == 'allow':
+                    action = "allowed" if save_rule else "allowed once"
+                    logger.info(f"User {action} USB device: {device.product_name}")
+                    if save_rule:
+                        with self.usb_rules_lock:
+                            self.usb_rule_manager.add_rule(device, 'allow', scope)
+                            try:
+                                self.usb_rules_last_modified = self.usb_rule_manager.db_path.stat().st_mtime
+                            except OSError:
+                                pass
+                    USBAuthorizer.authorize(device.bus_id)
+                    self.stats['usb_devices_allowed'] += 1
+                else:
+                    action = "blocked" if save_rule else "blocked once"
+                    logger.info(f"User {action} USB device: {device.product_name}")
+                    if save_rule:
+                        with self.usb_rules_lock:
+                            self.usb_rule_manager.add_rule(device, 'block', scope)
+                            try:
+                                self.usb_rules_last_modified = self.usb_rule_manager.db_path.stat().st_mtime
+                            except OSError:
+                                pass
+                    USBAuthorizer.deauthorize(device.bus_id)
+                    self.stats['usb_devices_blocked'] += 1
+            else:
+                # Timeout - default based on risk
+                logger.warning(f"USB decision timeout for: {device.product_name}")
+                with self.usb_pending_lock:
+                    self.usb_pending_device = None
+                    self.usb_pending_nonce = None
+
+                if device.is_high_risk:
+                    logger.warning(f"Blocking high-risk USB device on timeout: {device.product_name}")
+                    USBAuthorizer.deauthorize(device.bus_id)
+                    self.stats['usb_devices_blocked'] += 1
+                else:
+                    logger.info(f"Allowing low-risk USB device on timeout: {device.product_name}")
+                    if not USBAuthorizer.authorize(device.bus_id):
+                        logger.warning(f"Failed to authorize low-risk USB device on timeout: {device.product_name}")
+                    self.stats['usb_devices_allowed'] += 1
+
+        except Exception as e:
+            logger.error(f"Error prompting for USB decision: {e}")
+            with self.usb_pending_lock:
+                self.usb_pending_device = None
+                self.usb_pending_nonce = None
+
+    def handle_usb_response(self, response: dict):
+        """Handle USB decision response from GUI.
+
+        Security: Validates nonce to prevent spoofed responses from malicious
+        local processes. Only responses with the correct nonce are accepted.
+        """
+        response_nonce = response.get('nonce', '')
+
+        # Validate verdict and scope values (sanitize untrusted input)
+        raw_verdict = response.get('verdict', 'block')
+        verdict = raw_verdict if raw_verdict in ('allow', 'block') else 'block'
+
+        raw_scope = response.get('scope', 'device')
+        scope = raw_scope if raw_scope in ('device', 'model', 'vendor') else 'device'
+
+        save_rule = bool(response.get('save_rule', True))  # Coerce to bool
+
+        with self.usb_pending_lock:
+            # Validate nonce to prevent spoofing attacks
+            if not self.usb_pending_nonce:
+                logger.warning("USB response received but no request pending - ignoring")
+                return
+
+            if not secrets.compare_digest(response_nonce, self.usb_pending_nonce):
+                logger.warning("USB response nonce mismatch - possible spoofing attempt")
+                return
+
+            # Valid response - clear nonce and process
+            self.usb_pending_nonce = None
+            self.usb_response_verdict = verdict
+            self.usb_response_scope = scope
+            self.usb_response_save_rule = save_rule
+            self.usb_response_event.set()
