@@ -57,7 +57,7 @@ def reverse_dns_lookup(ip, timeout=0.5):
         socket.setdefaulttimeout(timeout)
         hostname, _, _ = socket.gethostbyaddr(ip)
         return hostname
-    except:
+    except (socket.timeout, socket.error, OSError):
         return None
 
 
@@ -82,7 +82,7 @@ def get_process_info(app_path):
                         'cpu': parts[2],
                         'mem': parts[3],
                     }
-    except:
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
         pass
     return None
 

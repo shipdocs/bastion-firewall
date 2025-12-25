@@ -413,7 +413,6 @@ class USBPromptDialog(QDialog):
 
     def allow_device(self, save_rule: bool = True):
         """User chose to allow the device."""
-        import getpass
         self.verdict = 'allow'
         self.scope = self._get_selected_scope()
         self.save_rule = save_rule
@@ -423,7 +422,6 @@ class USBPromptDialog(QDialog):
 
     def block_device(self, save_rule: bool = True):
         """User chose to block the device."""
-        import getpass
         self.verdict = 'block'
         self.scope = self._get_selected_scope()
         self.save_rule = save_rule

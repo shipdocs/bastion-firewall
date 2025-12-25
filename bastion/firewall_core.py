@@ -6,6 +6,7 @@ import sys
 import logging
 import socket
 import struct
+import subprocess
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 import psutil

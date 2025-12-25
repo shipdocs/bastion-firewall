@@ -600,10 +600,6 @@ class BastionDaemon:
         try:
             with self.socket_lock:
                 self.gui_socket.sendall(json.dumps(request).encode() + b'\n')
-            
-            if learning_mode:
-                # In learning mode, we wait for response but allow timeout logic to handle defaults
-                pass 
 
             # Wrapper for robust socket reading
             def read_json_message(sock, timeout=60.0):
