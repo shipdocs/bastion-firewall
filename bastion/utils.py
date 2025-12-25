@@ -9,37 +9,41 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def require_root(allow_dev_mode: bool = False) -> None:
-    """Exit the program if not running as root.
+def require_root(build_mode: bool = False) -> None:
+    """Exit program if not running as root.
 
-    Keeping the privilege check in a dedicated function prevents import-time
-    failures, which improves testability and avoids surprises when the module
-    is used as a library while still enforcing root for runtime execution.
-
-    Args:
-        allow_dev_mode: If True and --dev-mode is in sys.argv, skip root check.
-                       This must be explicitly enabled by the caller.
+    SECURITY: Root privileges are required for firewall operations.
+    This function prevents privilege escalation and ensures proper security boundaries.
     
-    SECURITY NOTE: Root checking cannot be bypassed via environment variables
-    for security reasons. Dev mode must be explicitly enabled via CLI flag.
+    Args:
+        build_mode: If True, allows running without root ONLY during build/package testing
+    
+    SECURITY NOTE: 
+    - Dev mode bypass has been removed for production security
+    - Only build_mode is allowed for package testing scenarios
+    - Environment variable bypasses are explicitly blocked
     """
-    # Check for explicit dev mode flag (must be in argv AND explicitly allowed)
-    if allow_dev_mode and '--dev-mode' in sys.argv:
-        logger.warning(f"ROOT CHECK BYPASSED via --dev-mode flag")
-        logger.warning(f"   PID: {os.getpid()}, UID: {os.getuid()}, EUID: {os.geteuid() if hasattr(os, 'geteuid') else 'N/A'}")
-        logger.warning(f"   This mode is for development only and should never be used in production!")
-        print("WARNING: Running in development mode without root privileges", file=sys.stderr)
-        print("   Firewall operations will likely fail. This is for testing only.", file=sys.stderr)
+    # SECURITY: Explicitly block any environment variable bypass attempts
+    if os.environ.get('BASTION_SKIP_ROOT_CHECK'):
+        logger.critical("SECURITY ALERT: BASTION_SKIP_ROOT_CHECK environment variable detected")
+        logger.critical("This bypass mechanism has been removed for security reasons")
+        print("CRITICAL: Environment variable bypass detected and blocked", file=sys.stderr)
+        sys.exit(1)
+    
+    # Allow build mode ONLY for package testing (not runtime)
+    if build_mode and '--build-mode' in sys.argv:
+        logger.warning("BUILD MODE: Running without root for package testing only")
+        print("WARNING: Build mode active - firewall operations will be simulated", file=sys.stderr)
         return
 
     # Check if geteuid is available (Linux/Unix only)
     if not hasattr(os, 'geteuid'):
-        logger.warning("os.geteuid() not available on this platform, skipping root check")
-        return
-
-    if os.geteuid() != 0:
-        logger.error("This application must be run as root (use sudo)")
-        print("ERROR: This application must be run as root (use sudo)", file=sys.stderr)
-        print("       For development/testing, use: --dev-mode flag", file=sys.stderr)
+        logger.error("Platform does not support privilege checking")
+        print("ERROR: This platform is not supported for security operations", file=sys.stderr)
         sys.exit(1)
 
+    if os.geteuid() != 0:
+        logger.error("SECURITY: Application must be run as root (use sudo)")
+        print("ERROR: This application must be run as root (use sudo)", file=sys.stderr)
+        print("       Root privileges are required for firewall operations", file=sys.stderr)
+        sys.exit(1)
