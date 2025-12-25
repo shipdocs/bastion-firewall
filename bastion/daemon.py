@@ -223,15 +223,42 @@ class BastionDaemon:
         return False
 
     def _accept_gui_connections(self):
-        """Accept GUI connections in background"""
+        """Accept GUI connections in background with credential verification"""
         try:
             self.server_socket.settimeout(1.0)
             while self.running:
                 try:
                     if not self.gui_socket:  # Only accept if not already connected
                         gui_socket, addr = self.server_socket.accept()
-                        logger.info(f"GUI connected from {addr}")
-                        self.gui_socket = gui_socket
+                        
+                        # SECURITY: Verify peer credentials (SO_PEERCRED on Linux)
+                        # This hardens against misconfigured permissions or group memberships
+                        try:
+                            import struct
+                            # SO_PEERCRED = 17 on Linux
+                            creds = gui_socket.getsockopt(socket.SOL_SOCKET, 17, struct.calcsize('3i'))
+                            pid, uid, gid = struct.unpack('3i', creds)
+                            
+                            # Log the connection for security audit
+                            logger.info(f"GUI connection from PID {pid}, UID {uid}, GID {gid}")
+                            
+                            # Reject connections from root (UID 0) unless explicitly allowed
+                            # GUI should run as normal user, not root
+                            if uid == 0:
+                                logger.warning(f"Rejected GUI connection from root (UID 0) - GUI should run as normal user")
+                                gui_socket.close()
+                                continue
+                            
+                            # Accept the connection
+                            logger.info(f"GUI connected from {addr}")
+                            self.gui_socket = gui_socket
+                            
+                        except (OSError, struct.error) as e:
+                            # SO_PEERCRED not supported on this platform (non-Linux)
+                            # Fall back to file permission-based security
+                            logger.debug(f"Peer credential check not available: {e}")
+                            logger.info(f"GUI connected from {addr} (credentials not verified)")
+                            self.gui_socket = gui_socket
                     else:
                         time.sleep(1)  # Already connected, just wait
                 except socket.timeout:
