@@ -84,7 +84,7 @@ class USBMonitor:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to start USB monitor: {e}")
+            logger.exception("Failed to start USB monitor")
             return False
     
     def stop(self):
@@ -243,7 +243,7 @@ def list_usb_devices() -> list[USBDeviceInfo]:
         # Don't log as warning - this is expected on systems without udev
         logger.debug("pyudev not available - cannot list USB devices")
         return []
-    monitor = USBMonitor(callback=lambda d, a: None)
+    monitor = USBMonitor(callback=lambda _d, _a: None)
     return monitor.get_connected_devices()
 
 

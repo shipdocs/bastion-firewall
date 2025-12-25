@@ -58,8 +58,9 @@ class GUIManager:
                 return True
 
             # Also check if any bastion-gui process is running
+            # Use exact binary path to avoid matching unrelated processes
             result = subprocess.run(
-                ['pgrep', '-f', 'bastion-gui'],
+                ['pgrep', '-x', 'bastion-gui'],
                 capture_output=True,
                 timeout=2
             )
@@ -93,8 +94,19 @@ class GUIManager:
                         timeout=2
                     )
                     if result.stdout:
-                        # Get first logged-in user
-                        user = result.stdout.split()[0]
+                        # Filter for real users (UID >= 1000) to avoid system accounts
+                        users = result.stdout.strip().split('\n')
+                        for line in users:
+                            if line.strip():
+                                user = line.strip()
+                                # Verify this is a real user account
+                                try:
+                                    import pwd
+                                    pw = pwd.getpwnam(user)
+                                    if pw and pw.pw_uid >= 1000:
+                                        break  # Found valid user
+                                except (KeyError, ImportError):
+                                    pass
                 except:
                     pass
 
@@ -128,17 +140,21 @@ class GUIManager:
                 for pid in pids:
                     if pid and pid.isdigit():
                         try:
-                            with open(f'/proc/{pid}/environ', 'r') as f:
-                                # /proc environ uses NUL separators
-                                for var in f.read().split('\0'):
-                                    if var.startswith('DISPLAY='):
-                                        display = var.split('=', 1)[1]
+                            with open(f'/proc/{pid}/environ', 'rb') as f:
+                                # /proc environ uses NUL separators, read as binary to avoid decode issues
+                                for var in f.read().split(b'\0'):
+                                    try:
+                                        var_str = var.decode('utf-8', errors='replace')
+                                    except UnicodeDecodeError:
+                                        continue  # Skip malformed entries
+                                    if var_str.startswith('DISPLAY='):
+                                        display = var_str.split('=', 1)[1]
                                         if display:
                                             env['DISPLAY'] = display
                                             logger.info(f"Found DISPLAY from /proc/{pid}: {display}")
                                             display_found = True
                                             break
-                        except (OSError, PermissionError):
+                        except (OSError, PermissionError, UnicodeDecodeError):
                             continue
                     if display_found:
                         break
@@ -205,8 +221,12 @@ class GUIManager:
                 env['USER'] = user
                 env['LOGNAME'] = user
                 xdg_runtime = f"/run/user/{user_uid}"
-                if os.path.isdir(xdg_runtime):
+                # Ensure XDG_RUNTIME_DIR exists with proper permissions
+                try:
+                    os.makedirs(xdg_runtime, mode=0o700, exist_ok=True)
                     env['XDG_RUNTIME_DIR'] = xdg_runtime
+                except (OSError, PermissionError) as e:
+                    logger.warning(f"Could not create XDG_RUNTIME_DIR {xdg_runtime}: {e}")
 
                 # Also try to get XAUTHORITY
                 xauthority = os.path.join(user_home, '.Xauthority')

@@ -82,6 +82,12 @@ class USBRule:
         if serial == 'no-serial':
             serial = None
 
+        # Validate and sanitize last_seen timestamp if present
+        raw_last_seen = data.get('last_seen')
+        last_seen = None
+        if raw_last_seen:
+            last_seen = USBValidation.sanitize_timestamp(raw_last_seen)
+            
         return cls(
             verdict=USBValidation.validate_verdict(data.get('verdict', 'block')),
             vendor_id=USBValidation.sanitize_hex_id(data.get('vendor_id', '')),
@@ -90,7 +96,7 @@ class USBRule:
             product_name=USBValidation.sanitize_string(data.get('product_name', 'Unknown')),
             scope=USBValidation.validate_scope(data.get('scope', 'device')),
             added=USBValidation.sanitize_timestamp(data.get('added', '')),
-            last_seen=data.get('last_seen'),
+            last_seen=last_seen,
             serial=serial,
         )
 
@@ -152,7 +158,9 @@ class USBRuleManager:
             logger.error(f"Directory {parent} became a symlink, refusing to use")
             raise SecurityError(f"Directory {parent} is a symlink")
 
-        os.chmod(parent, self.DIR_MODE)
+        # Only chmod if we created the directory (don't change existing permissions)
+        if not parent.exists():
+            os.chmod(parent, self.DIR_MODE)
     
     def _load(self):
         """
@@ -300,6 +308,7 @@ class USBRuleManager:
         - model: vid:pid:* (e.g., '046d:c52b:*')
         - vendor: vid:*:* (e.g., '046d:*:*')
         """
+        # Use the same validation logic as USBRule.key property
         # Sanitize vendor/product IDs (should already be clean, but defense in depth)
         vendor_id = USBValidation.sanitize_hex_id(device.vendor_id)
         product_id = USBValidation.sanitize_hex_id(device.product_id)
@@ -307,6 +316,9 @@ class USBRuleManager:
         if scope == 'device':
             # Sanitize serial with strict charset to prevent injection
             serial = USBValidation.sanitize_serial(device.serial)
+            # Use 'no-serial' for None to match USBRule.key logic
+            if not serial:
+                serial = 'no-serial'
             return f"{vendor_id}:{product_id}:{serial}"
         elif scope == 'model':
             return f"{vendor_id}:{product_id}:*"
@@ -361,6 +373,7 @@ class USBRuleManager:
             serial=device.serial if scope == 'device' else None
         )
 
+        # Save immediately to maintain consistency with in-memory state
         self._save()
         logger.info(f"Added USB rule: {verdict} {device.product_name} (scope={scope})")
 
@@ -426,6 +439,12 @@ class USBAuthorizer:
         if not bus_id or not bus_id.strip():
             logger.error("Invalid bus_id: empty string")
             raise ValueError("Invalid bus_id: empty string")
+        
+        # Validate bus_id format more strictly (expected format: ^\d+-[\d.]+$ like "1-2.3")
+        # First check if it matches the expected pattern
+        if not re.match(r'^\d+-[\d.]+$', bus_id):
+            logger.error(f"Invalid bus_id format (expected format like '1-2.3'): {bus_id}")
+            raise ValueError(f"Invalid bus_id: {bus_id}")
         
         # Sanitize bus_id to prevent path traversal
         # Only allow alphanumeric and dash (bus_id format: "1-2.3" becomes "1-23")

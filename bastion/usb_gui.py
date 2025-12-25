@@ -278,7 +278,7 @@ class USBPromptDialog(QDialog):
 
         self.scope_group = QButtonGroup(self)
 
-        self.rb_device = QRadioButton(f"This device only")
+        self.rb_device = QRadioButton("This device only")
         self.rb_model = QRadioButton(f"All {self.device.product_name} devices")
         self.rb_vendor = QRadioButton(f"All {self.device.vendor_name} devices")
 
@@ -680,7 +680,6 @@ class USBControlWidget(QWidget):
         self._populate_table(self.table_blocked, blocked)
 
         # Update status
-        total = len(allowed) + len(blocked)
         self.lbl_status_desc.setText(f"Monitoring • {len(allowed)} allowed, {len(blocked)} blocked")
 
     def _populate_table(self, table: QTableWidget, rules: list[USBRule]):
