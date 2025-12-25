@@ -1,0 +1,13 @@
+# Test dependencies for Bastion Firewall
+# Install with: pip install -r test-requirements.txt
+
+# Base requirements
+-r requirements.txt
+
+# Test framework
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Additional test utilities
+mock>=5.0.0
+coverage>=7.0.0

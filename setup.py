@@ -12,6 +12,9 @@ setup(
         "tabulate>=0.9.0",
         "NetfilterQueue>=1.1.0",
         "scapy>=2.5.0",
+        "PyQt6>=6.0.0",
+        "pystray>=0.19.0",
+        "Pillow>=10.2.0",
     ],
     scripts=[
         "bastion-daemon.py",
