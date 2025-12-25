@@ -14,16 +14,8 @@ from collections import OrderedDict
 class TTLCache:
     """Thread-safe cache with TTL and LRU eviction.
     
-    This prevents long-running daemons from accumulating stale entries
-    that could lead to incorrect allow/deny decisions due to:
-    - Port reuse (different apps binding to same port)
-    - Dynamic IP addresses (CDN rotation, load balancers)
-    - Memory growth over time
-    
-    Example:
-        cache = TTLCache(max_size=10000, default_ttl=300)  # 5 minutes
-        cache.set("key", "value", ttl=600)  # Custom 10 min TTL
-        val = cache.get("key")  # Returns value or None if expired
+    Prevents stale entries from accumulating over time, mitigating risks like
+    port reuse or dynamic IP rotation in long-running processes.
     """
     
     def __init__(self, max_size: int = 10000, default_ttl: int = 300):
