@@ -216,11 +216,13 @@ class ImprovedFirewallDialog:
         title_frame.grid(row=0, column=0, columnspan=2, pady=(0, 20))
 
         if self.learning_mode:
-            title_text = "📚 Network Connection (Learning Mode)"
-            title_color = '#27ae60'  # Green for learning
+            # Learning mode - Green Theme
+            title_text = "📚 Learning Mode Active"
+            title_color = '#27ae60'  # Green
         else:
+            # Enforcement mode - Orange/Red Theme
             title_text = "🔒 Network Connection Request"
-            title_color = '#d35400'  # Orange for enforcement
+            title_color = '#d35400'  # Orange
 
         title_label = ttk.Label(
             title_frame,
@@ -230,13 +232,17 @@ class ImprovedFirewallDialog:
         )
         title_label.pack()
 
-        # Learning mode notice
+        # Learning mode prominent banner
         if self.learning_mode:
-            notice_label = ttk.Label(
-                title_frame,
-                text="(Connection will be allowed - just learning your preferences)",
-                font=('Arial', 9, 'italic'),
-                foreground='#27ae60'
+            banner_frame = tk.Frame(title_frame, bg='#e8f8f5', bd=1, relief='solid')
+            banner_frame.pack(fill=tk.X, pady=(5, 0), ipadx=10, ipady=5)
+            
+            notice_label = tk.Label(
+                banner_frame,
+                text="🎓 All connections allowed while learning your preferences",
+                font=('Ubuntu', 10, 'bold'),
+                fg='#27ae60',
+                bg='#e8f8f5'
             )
             notice_label.pack()
         
