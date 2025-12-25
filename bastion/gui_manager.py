@@ -47,8 +47,8 @@ class GUIManager:
         """Check if executable exists and is executable"""
         try:
             return os.path.isfile(path) and os.access(path, os.X_OK)
-        except:
-            return False
+        except (OSError, PermissionError) as e:
+            logger.debug(f\"Failed to check executable {path}: {e}\")\n            return False
     
     def start_gui(self):
         """Start GUI application in background"""

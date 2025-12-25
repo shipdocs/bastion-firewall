@@ -428,8 +428,8 @@ class DashboardWindow(QMainWindow):
         # Check Inbound
         try:
             self.inbound_status = InboundFirewallDetector.detect_firewall()
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to detect inbound firewall: {e}")
 
     def init_ui(self):
         self.setWindowTitle("Bastion Firewall")
@@ -837,7 +837,8 @@ class DashboardWindow(QMainWindow):
                 self.lbl_status_desc.setText("Outbound traffic is not monitored")
                 self.btn_toggle.setText("Start")
                 self.btn_toggle.setStyleSheet(f"background-color: {COLORS['success']}; color: white; border: none; padding: 6px 12px; border-radius: 4px;")
-        except:
+        except (subprocess.SubprocessError, OSError,ValueError) as e:
+            logger.error(f"Failed to check bastion firewall status: {e}")
             self.lbl_status_title.setText("Error")
 
         # 2. Inbound (UFW)
@@ -860,7 +861,8 @@ class DashboardWindow(QMainWindow):
                 self.lbl_ufw_status.setText("Status: <b>Inactive</b>. Enable UFW to block inbound threats.")
                 self.btn_ufw_enable.setVisible(True)
                 self.btn_ufw_disable.setVisible(False)
-        except:
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.error(f"Failed to check UFW status: {e}")
             self.lbl_inbound_title.setText("Unknown")
             
         # 3. Update Stats (Approximate from rules and logs)
@@ -983,7 +985,8 @@ X-GNOME-Autostart-enabled=true
                 path = parts[0]
                 port = parts[1]
                 app_name = os.path.basename(path)
-            except:
+            except (ValueError, IndexError) as e:
+                logger.debug(f"Failed to parse rule key {key}: {e}")
                 path = key
                 port = "?"
                 app_name = key
