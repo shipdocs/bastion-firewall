@@ -48,7 +48,7 @@ SERVICE_WHITELIST = {
 TRUSTED_APP_PORTS = {
     'systemd-resolved': [53],                    # DNS only
     'systemd-timesyncd': [123],                  # NTP only
-    'NetworkManager': [53, 67, 68, 123, 5353],  # DNS, DHCP, NTP, mDNS
+    'networkmanager': [53, 67, 68, 123, 5353],  # DNS, DHCP, NTP, mDNS
     'systemd-networkd': [53, 67, 68, 123],      # DNS, DHCP, NTP
     'dhclient': [67, 68],                        # DHCP only
     'dhcpcd': [67, 68],                          # DHCP only

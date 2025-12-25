@@ -71,9 +71,13 @@ class TestDaemonIntegration(unittest.TestCase):
     def test_learning_mode_default_allow(self):
         """Test logic in learning mode"""
         self.daemon.config['mode'] = 'learning'
-        # No GUI socket needed for learning mode (it just sends and returns True)
-        # But we mock it to avoid errors log
-        self.daemon.gui_socket = MagicMock()
+        
+        # In learning mode, the daemon still queries the GUI (so user can see/interact)
+        # We must mock a valid JSON response to avoid parsing errors
+        mock_socket = MagicMock()
+        import json
+        mock_socket.recv.return_value = json.dumps({'allow': True, 'permanent': False}).encode()
+        self.daemon.gui_socket = mock_socket
         
         pkt = PacketInfo("1.2.3.4", 123, "5.6.7.8", 80, "tcp")
         pkt.app_name = "test"
