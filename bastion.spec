@@ -81,6 +81,10 @@ install -m 644 bastion-tray.desktop $RPM_BUILD_ROOT/usr/share/applications/
 mkdir -p $RPM_BUILD_ROOT/etc/xdg/autostart
 install -m 644 bastion-tray.desktop $RPM_BUILD_ROOT/etc/xdg/autostart/
 
+# Install AppStream metadata
+mkdir -p $RPM_BUILD_ROOT/usr/share/metainfo
+install -m 644 com.bastion.firewall.metainfo.xml $RPM_BUILD_ROOT/usr/share/metainfo/
+
 %files
 /usr/local/bin/bastion-firewall
 /usr/local/bin/bastion-daemon
@@ -96,7 +100,6 @@ install -m 644 bastion-tray.desktop $RPM_BUILD_ROOT/etc/xdg/autostart/
 /usr/share/applications/bastion-tray.desktop
 /etc/xdg/autostart/bastion-tray.desktop
 /usr/share/metainfo/com.bastion.firewall.metainfo.xml
-/usr/share/polkit-1/actions/com.bastion.daemon.policy
 %doc /usr/share/doc/bastion-firewall/
 
 %pre
