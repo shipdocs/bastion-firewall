@@ -131,6 +131,18 @@ sudo dpkg --purge bastion-firewall
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
+## Development & Release
+
+### automated Local Release
+To create a new release (update versions, build packages, tag git, release on GitHub):
+```bash
+# 1. Update CHANGELOG.md with new notes
+# 2. Run the release tool
+./release_tool.sh 1.4.8
+```
+This requires `rpm` and `gh` CLI to be installed and authenticated.
+
 ## License
+
 
 GPL-3.0. See [LICENSE](LICENSE) for details.
