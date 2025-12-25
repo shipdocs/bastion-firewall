@@ -7,6 +7,7 @@ import logging
 import signal
 import time
 import subprocess
+import stat
 from pathlib import Path
 from typing import Dict, Optional
 from collections import deque
@@ -86,7 +87,8 @@ class SystemdNotifier:
 class BastionDaemon:
     """Core Daemon Logic"""
     
-    SOCKET_PATH = '/tmp/bastion-daemon.sock'
+    # Use secure runtime directory instead of /tmp to prevent TOCTOU attacks
+    SOCKET_PATH = '/var/run/bastion/bastion-daemon.sock'
     
     def __init__(self):
         self.config = ConfigManager.load_config()
@@ -324,31 +326,64 @@ class BastionDaemon:
             logger.error(f"Error sending stats: {e}")
 
     def _setup_socket(self):
-        """Setup Unix domain socket"""
+        """Setup Unix domain socket with security hardening"""
+        # SECURITY: Use secure directory with proper permissions
+        socket_dir = os.path.dirname(self.SOCKET_PATH)
+        
+        # Create secure directory if it doesn't exist
+        os.makedirs(socket_dir, mode=0o755, exist_ok=True)
+        
+        # SECURITY: Check for symlink attacks before removing
         if os.path.exists(self.SOCKET_PATH):
-            os.remove(self.SOCKET_PATH)
+            try:
+                # Verify it's a socket and not a symlink
+                stat_info = os.lstat(self.SOCKET_PATH)
+                if stat.S_ISSOCK(stat_info.st_mode) and not os.path.islink(self.SOCKET_PATH):
+                    os.remove(self.SOCKET_PATH)
+                    logger.info("Removed existing socket file")
+                else:
+                    logger.error("SECURITY: Socket path exists but is not a regular socket or is a symlink")
+                    logger.error(f"Path: {self.SOCKET_PATH}")
+                    raise RuntimeError("Socket path security check failed")
+            except OSError as e:
+                logger.error(f"SECURITY: Failed to check socket path: {e}")
+                raise RuntimeError("Socket path security check failed")
             
         self.server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server_socket.bind(self.SOCKET_PATH)
         
         try:
+            # SECURITY: Set restrictive permissions immediately after bind
             os.chmod(self.SOCKET_PATH, 0o660)
             logger.info("Socket permissions set to 0660")
             
             # Try to set group ownership to 'bastion' group if it exists
             try:
                 import grp
+                import stat as stat_module
                 bastion_gid = grp.getgrnam('bastion').gr_gid
-                os.chown(self.SOCKET_PATH, -1, bastion_gid)
-                logger.info("Socket group ownership set to 'bastion'")
+                os.chown(self.SOCKET_PATH, 0, bastion_gid)  # root:bastion
+                logger.info("Socket ownership set to root:bastion")
+                
+                # Verify ownership was set correctly
+                stat_info = os.stat(self.SOCKET_PATH)
+                if stat_info.st_uid != 0 or stat_info.st_gid != bastion_gid:
+                    logger.warning("Socket ownership verification failed")
             except KeyError:
-                logger.warning("Group 'bastion' does not exist. Run: sudo groupadd -f bastion")
+                logger.warning("Group 'bastion' does not exist. Run: sudo groupadd bastion")
             except Exception as e:
                 logger.warning(f"Could not set socket group ownership: {e}")
         except Exception as e:
-            logger.warning(f"Could not set socket permissions: {e}")
+            logger.error(f"CRITICAL: Failed to secure socket: {e}")
+            # Clean up on failure
+            try:
+                os.remove(self.SOCKET_PATH)
+            except:
+                pass
+            raise RuntimeError("Socket security setup failed")
             
         self.server_socket.listen(1)
+        logger.info(f"Secure socket established at {self.SOCKET_PATH}")
 
     def reload_config(self):
         """Reload configuration and rules"""

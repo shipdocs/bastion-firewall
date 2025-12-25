@@ -470,17 +470,9 @@ class BastionFirewall:
 
 def main():
     """Main entry point"""
-    # Use shared require_root from bastion.utils, or fallback for development
-    if require_root is not None:
-        # Allow --dev-mode flag for testing (explicitly enabled)
-        require_root(allow_dev_mode=True)
-    else:
-        # Inline fallback for development mode (should not happen in production)
-        if '--dev-mode' not in sys.argv:
-            if hasattr(os, 'geteuid') and os.geteuid() != 0:
-                logger.error("This application must be run as root (use sudo)")
-                print("ERROR: This application must be run as root (use sudo)", file=sys.stderr)
-                sys.exit(1)
+    # Use secure require_root from bastion.utils
+    # No dev mode bypass allowed for security
+    require_root()
 
     print("\n" + "=" * 60)
     print("Bastion Firewall - Outbound Connection Control")
