@@ -64,18 +64,51 @@ class UFWManager:
     
     @staticmethod
     def add_allow_rule(app_path=None, ip=None, port=None, protocol='tcp'):
-        """Add an allow rule to UFW"""
+        """Add an allow rule to UFW with input validation"""
         try:
-            if ip and port:
-                # IP and port-based rule (primary method)
-                cmd = ['ufw', 'allow', 'out', 'to', ip, 'port', str(port), 
-                       'proto', protocol]
-                comment = f"Allow {os.path.basename(app_path) if app_path else 'app'}"
-            else:
+            # SECURITY: Validate inputs to prevent command injection
+            if not ip or not port:
                 logger.warning("Insufficient information to add allow rule")
                 return False
             
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            # Validate IP address format
+            import ipaddress
+            try:
+                ipaddress.ip_address(ip)
+            except ValueError:
+                logger.error(f"Invalid IP address: {ip}")
+                return False
+            
+            # Validate port range
+            try:
+                port_int = int(port)
+                if not (1 <= port_int <= 65535):
+                    logger.error(f"Invalid port number: {port}")
+                    return False
+            except ValueError:
+                logger.error(f"Port must be numeric: {port}")
+                return False
+            
+            # Validate protocol
+            if protocol not in ('tcp', 'udp', 'icmp'):
+                logger.error(f"Invalid protocol: {protocol}")
+                return False
+            
+            # Sanitize app path for comment
+            app_name = 'app'
+            if app_path:
+                app_name = os.path.basename(app_path)
+                # Remove any non-alphanumeric characters for safety
+                import re
+                app_name = re.sub(r'[^a-zA-Z0-9._-]', '', app_name)
+                if not app_name:
+                    app_name = 'app'
+            
+            # Build command with validated inputs
+            cmd = ['ufw', 'allow', 'out', 'to', ip, 'port', str(port_int),
+                   'proto', protocol, 'comment', f'Allow {app_name}']
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 logger.info(f"Added UFW allow rule: {' '.join(cmd)}")
                 return True
@@ -88,22 +121,55 @@ class UFWManager:
     
     @staticmethod
     def add_deny_rule(app_path=None, ip=None, port=None, protocol='tcp'):
-        """Add a deny rule to UFW
+        """Add a deny rule to UFW with input validation
         
         Note: UFW deny rules are IP/port-based. Application-based deny rules
         are not consistently supported across UFW versions.
         """
         try:
-            if ip and port:
-                # IP and port-based rule
-                cmd = ['ufw', 'deny', 'out', 'to', ip, 'port', str(port), 
-                       'proto', protocol]
-                comment = f"Deny {os.path.basename(app_path) if app_path else 'app'}"
-            else:
+            # SECURITY: Validate inputs to prevent command injection
+            if not ip or not port:
                 logger.warning("Insufficient information to add deny rule")
                 return False
             
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            # Validate IP address format
+            import ipaddress
+            try:
+                ipaddress.ip_address(ip)
+            except ValueError:
+                logger.error(f"Invalid IP address: {ip}")
+                return False
+            
+            # Validate port range
+            try:
+                port_int = int(port)
+                if not (1 <= port_int <= 65535):
+                    logger.error(f"Invalid port number: {port}")
+                    return False
+            except ValueError:
+                logger.error(f"Port must be numeric: {port}")
+                return False
+            
+            # Validate protocol
+            if protocol not in ('tcp', 'udp', 'icmp'):
+                logger.error(f"Invalid protocol: {protocol}")
+                return False
+            
+            # Sanitize app path for comment
+            app_name = 'app'
+            if app_path:
+                app_name = os.path.basename(app_path)
+                # Remove any non-alphanumeric characters for safety
+                import re
+                app_name = re.sub(r'[^a-zA-Z0-9._-]', '', app_name)
+                if not app_name:
+                    app_name = 'app'
+            
+            # Build command with validated inputs
+            cmd = ['ufw', 'deny', 'out', 'to', ip, 'port', str(port_int),
+                   'proto', protocol, 'comment', f'Deny {app_name}']
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 logger.info(f"Added UFW deny rule: {' '.join(cmd)}")
                 return True
@@ -254,7 +320,9 @@ class NetworkMonitor:
     def __init__(self, config_path='config.json'):
         self.config = self._load_config(config_path)
         self.ufw_manager = UFWManager()
-        self.decision_cache = {}  # Cache decisions to avoid repeated prompts
+        # SECURITY: Use bounded cache with TTL to prevent memory exhaustion
+        from bastion.ttl_cache import TTLCache
+        self.decision_cache = TTLCache(max_size=10000, default_ttl=300)  # 5 minutes TTL
         
         # Check UFW
         if not self.ufw_manager.check_ufw_installed():
@@ -294,12 +362,13 @@ class NetworkMonitor:
         
         logger.info(f"Connection attempt: {conn_info}")
         
-        # Check cache
+        # Check cache with TTL
         cache_key = self._get_cache_key(conn_info)
-        if self.config.get('cache_decisions') and cache_key in self.decision_cache:
-            cached_decision = self.decision_cache[cache_key]
-            logger.info(f"Using cached decision: {cached_decision}")
-            return cached_decision == 'allow'
+        if self.config.get('cache_decisions'):
+            cached_decision = self.decision_cache.get(cache_key)
+            if cached_decision is not None:
+                logger.info(f"Using cached decision: {cached_decision}")
+                return cached_decision == 'allow'
         
         # Show dialog
         dialog = FirewallDialog(conn_info)
@@ -310,9 +379,9 @@ class NetworkMonitor:
         
         logger.info(f"User decision: {decision} (permanent: {permanent})")
         
-        # Add to cache
+        # Add to cache with TTL
         if self.config.get('cache_decisions'):
-            self.decision_cache[cache_key] = decision
+            self.decision_cache.set(cache_key, decision)
         
         # Add UFW rule if permanent
         if permanent:
