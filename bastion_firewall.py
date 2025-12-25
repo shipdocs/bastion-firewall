@@ -46,11 +46,13 @@ try:
         from bastion.ufw_manager import UFWManager, ConnectionInfo
         from bastion.gui_improved import ImprovedFirewallDialog
         from bastion.utils import require_root
+        from bastion.ttl_cache import TTLCache
     except ImportError:
         # Fall back to local imports for development
         from firewall_core import PacketProcessor, PacketInfo, IPTablesManager, NETFILTER_AVAILABLE
         from ufw_firewall_gui import UFWManager, ConnectionInfo
         from bastion_gui_improved import ImprovedFirewallDialog
+        from ttl_cache import TTLCache
         # Local fallback for require_root
         require_root = None
 except ImportError as e:
@@ -72,36 +74,75 @@ class FirewallDecisionEngine:
         self.config = self._load_config(config_path)
         self.ufw_manager = UFWManager()
         
-        # Decision cache: key = (app_path, dest_ip, dest_port), value = 'allow' or 'deny'
-        self.decision_cache = {}
+        # Decision cache with TTL to prevent stale entries
+        # Connection-specific: 5 minutes (port reuse, dynamic IPs)
+        # App-level rules: 24 hours (more stable, less churndecisions)
+        self.decision_cache = TTLCache(max_size=10000, default_ttl=300)  # 5 min default
         
-        # Application-level rules: key = app_path, value = 'allow' or 'deny'
-        self.app_rules = {}
+        # Application-level rules cache (longer TTL)
+        self.app_rules = TTLCache(max_size=5000, default_ttl=86400)  # 24 hours
         
         # Pending decisions (for GUI thread coordination)
         self.pending_decisions = {}
         self.decision_lock = threading.Lock()
         
-        logger.info("Firewall decision engine initialized")
+        logger.info("Firewall decision engine initialized with TTL caching")
+        logger.info(f"  Connection cache: {self.decision_cache.stats()}")
+        logger.info(f"  App rules cache: {self.app_rules.stats()}")
     
     def _load_config(self, config_path):
-        """Load configuration"""
+        """Load configuration with validation"""
         default_config = {
-            "cache_decisions": True,
-            "default_action": "deny",
-            "timeout_seconds": 30,
-            "allow_localhost": True,
-            "allow_lan": False
+            "cache_decisions": True,  # bool
+            "default_action": "deny", # str: 'allow' or 'deny'
+            "timeout_seconds": 30,    # int: 1-300
+            "allow_localhost": True,  # bool
+            "allow_lan": False,       # bool
+            "mode": "enforcement"     # str: 'enforcement' or 'learning'
         }
+        
+        config = default_config.copy()
         
         if os.path.exists(config_path):
             try:
                 with open(config_path, 'r') as f:
-                    return {**default_config, **json.load(f)}
+                    loaded = json.load(f)
+                    
+                # Validate and merge known keys
+                for key, value in loaded.items():
+                    if key not in default_config:
+                        logger.warning(f"Unknown config key: {key}")
+                        continue
+                        
+                    # Type validation
+                    expected_type = type(default_config[key])
+                    if not isinstance(value, expected_type):
+                        # Handle int/float mismatch
+                        if expected_type == int and isinstance(value, float):
+                            value = int(value)
+                        else:
+                            logger.error(f"Config type mismatch for {key}: expected {expected_type}, got {type(value)}")
+                            continue
+                    
+                    # Value validation
+                    if key == "default_action" and value not in ("allow", "deny"):
+                        logger.error(f"Invalid default_action: {value}")
+                        continue
+                        
+                    if key == "mode" and value not in ("enforcement", "learning"):
+                        logger.error(f"Invalid mode: {value}")
+                        continue
+                        
+                    if key == "timeout_seconds" and not (0 < value <= 600):
+                        logger.error(f"Invalid timeout_seconds: {value} (must be 1-600)")
+                        continue
+                        
+                    config[key] = value
+                    
             except Exception as e:
                 logger.warning(f"Error loading config: {e}, using defaults")
         
-        return default_config
+        return config
     
     def should_allow_packet(self, pkt_info: PacketInfo) -> bool:
         """
@@ -117,21 +158,22 @@ class FirewallDecisionEngine:
         if self.config.get('allow_lan') and self._is_lan_ip(pkt_info.dest_ip):
             return True
 
-        # Check if we have an application-level rule
-        if pkt_info.app_path and pkt_info.app_path in self.app_rules:
-            decision = self.app_rules[pkt_info.app_path]
-            logger.debug(f"Using app rule for {pkt_info.app_name}: {decision}")
+        # Check if we have an application-level rule (from TTL cache)
+        if pkt_info.app_path:
+            decision = self.app_rules.get(pkt_info.app_path)
+            if decision is not None:
+                logger.debug(f"Using app rule for {pkt_info.app_name}: {decision}")
 
-            # In learning mode, always allow but still show popup for new connections
-            if self.config.get('mode') == 'learning':
-                return True
+                # In learning mode, always allow but still show popup for new connections
+                if self.config.get('mode') == 'learning':
+                    return True
 
-            return decision == 'allow'
+                return decision == 'allow'
 
-        # Check decision cache
+        # Check decision cache (TTL-based)
         cache_key = self._get_cache_key(pkt_info)
-        if cache_key in self.decision_cache:
-            decision = self.decision_cache[cache_key]
+        decision = self.decision_cache.get(cache_key)
+        if decision is not None:
             logger.debug(f"Using cached decision for {pkt_info}: {decision}")
 
             # In learning mode, always allow but still show popup for new connections
@@ -214,8 +256,8 @@ class FirewallDecisionEngine:
 
             # Cache the decision
             if permanent and pkt_info.app_path:
-                # Application-level rule
-                self.app_rules[pkt_info.app_path] = decision
+                # Application-level rule (uses default 24h TTL)
+                self.app_rules.set(pkt_info.app_path, decision)
 
                 # Add to UFW if requested
                 if decision == 'allow':
@@ -233,9 +275,9 @@ class FirewallDecisionEngine:
                         protocol=pkt_info.protocol
                     )
             else:
-                # Connection-specific rule
+                # Connection-specific rule (uses default 5m TTL)
                 cache_key = self._get_cache_key(pkt_info)
-                self.decision_cache[cache_key] = decision
+                self.decision_cache.set(cache_key, decision)
 
             return decision
 
@@ -430,10 +472,11 @@ def main():
     """Main entry point"""
     # Use shared require_root from bastion.utils, or fallback for development
     if require_root is not None:
-        require_root()
+        # Allow --dev-mode flag for testing (explicitly enabled)
+        require_root(allow_dev_mode=True)
     else:
-        # Inline fallback for development mode
-        if os.environ.get('BASTION_SKIP_ROOT_CHECK') != '1':
+        # Inline fallback for development mode (should not happen in production)
+        if '--dev-mode' not in sys.argv:
             if hasattr(os, 'geteuid') and os.geteuid() != 0:
                 logger.error("This application must be run as root (use sudo)")
                 print("ERROR: This application must be run as root (use sudo)", file=sys.stderr)

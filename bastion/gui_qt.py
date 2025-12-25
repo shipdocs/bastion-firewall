@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QSystemTrayIcon, QMenu, QMessageBox, QDialog, QCheckBox, 
                             QScrollArea, QAbstractItemView)
 from .notification import show_notification
+from . import __version__
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QPoint
 from PyQt6.QtGui import QIcon, QFont, QColor, QAction, QPixmap
 
@@ -474,7 +475,7 @@ class DashboardWindow(QMainWindow):
         
         sb_layout.addStretch()
         
-        ver = QLabel("v1.4.0")
+        ver = QLabel(f"v{__version__}")
         ver.setObjectName("muted")
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sb_layout.addWidget(ver)
