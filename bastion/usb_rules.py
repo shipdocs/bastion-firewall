@@ -5,9 +5,9 @@ Securely stores and retrieves USB device allow/block decisions.
 
 Security features:
 - Atomic writes (temp file + rename) to prevent corruption
-- File permissions: 0644 (owner read/write, world readable)
-  Note: USB rules contain device IDs only (not secrets), and must be
-  readable by GUI running as the desktop user
+- File permissions: 0640 (owner read/write, group readable)
+  Note: USB rules contain device IDs only (not secrets), but should
+  not be world-readable. GUI needs group read access.
 - Input validation (sanitize all fields before storage)
 - Fixed file path (no user-controllable paths)
 - Safe JSON parsing (no pickle/eval)

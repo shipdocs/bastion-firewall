@@ -6,7 +6,7 @@ Notifies callbacks when new devices are connected.
 """
 
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 try:
     import pyudev

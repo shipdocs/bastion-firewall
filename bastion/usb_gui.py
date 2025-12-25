@@ -8,6 +8,7 @@ Provides:
 """
 
 import logging
+import subprocess
 from typing import Optional
 
 from PyQt6.QtWidgets import (
