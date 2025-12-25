@@ -25,10 +25,10 @@ def require_root(allow_dev_mode: bool = False) -> None:
     """
     # Check for explicit dev mode flag (must be in argv AND explicitly allowed)
     if allow_dev_mode and '--dev-mode' in sys.argv:
-        logger.warning(f"⚠️  ROOT CHECK BYPASSED via --dev-mode flag")
+        logger.warning(f"ROOT CHECK BYPASSED via --dev-mode flag")
         logger.warning(f"   PID: {os.getpid()}, UID: {os.getuid()}, EUID: {os.geteuid() if hasattr(os, 'geteuid') else 'N/A'}")
         logger.warning(f"   This mode is for development only and should never be used in production!")
-        print("⚠️  WARNING: Running in development mode without root privileges", file=sys.stderr)
+        print("WARNING: Running in development mode without root privileges", file=sys.stderr)
         print("   Firewall operations will likely fail. This is for testing only.", file=sys.stderr)
         return
 

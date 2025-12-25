@@ -215,15 +215,15 @@ class BastionDaemon:
 
         while self.running and (time.time() - start_time) < timeout:
             if self.gui_socket:
-                logger.info("✅ GUI connected successfully")
+                logger.info("GUI connected successfully")
                 return True
             time.sleep(0.5)
 
         if self.gui_socket:
-            logger.info("✅ GUI connected successfully")
+            logger.info("GUI connected successfully")
             return True
 
-        logger.warning(f"⚠️ GUI did not connect within {timeout}s - continuing anyway")
+        logger.warning(f"GUI did not connect within {timeout}s - continuing anyway")
         return False
 
     def _accept_gui_connections(self):
@@ -331,12 +331,9 @@ class BastionDaemon:
         self.server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server_socket.bind(self.SOCKET_PATH)
         
-        # SECURITY FIX: Use group-based permissions instead of world-writable
-        # Users must be added to 'bastion' group during installation
-        # This prevents local privilege escalation (CVE-BASTION-2025-001)
         try:
-            os.chmod(self.SOCKET_PATH, 0o660)  # Owner + group only
-            logger.info("Socket permissions set to 0660 (group-readable for GUI access)")
+            os.chmod(self.SOCKET_PATH, 0o660)
+            logger.info("Socket permissions set to 0660")
             
             # Try to set group ownership to 'bastion' group if it exists
             try:
@@ -383,10 +380,9 @@ class BastionDaemon:
         # Always use current config (defaults to learning mode for safety)
         learning_mode = self.config.get('mode', 'learning') == 'learning'
 
-        # APP INFO - Keep as None if not identified (security fix v2.0.18)
-        # This prevents "Unknown Application" string from bypassing whitelist checks
-        app_path = pkt_info.app_path  # Can be None
-        app_name = pkt_info.app_name  # Can be None
+        # App identification
+        app_path = pkt_info.app_path
+        app_name = pkt_info.app_name
 
         # For display purposes only
         display_name = app_name or "Unknown Application"
@@ -478,8 +474,7 @@ class BastionDaemon:
             self.stats['allowed_connections'] += 1
             return True
 
-        # GUI is connected - apply rate limiting only when we're about to ask GUI
-        # SECURITY: Apply global rate limiting to prevent DoS (VULN-009)
+        # Rate limiting to prevent DoS
         if not self.rate_limiter.allow_request():
             logger.warning(f"Rate limit exceeded - dropping packet from {app_name or 'unknown'}")
             logger.warning(f"Current rate: {self.rate_limiter.get_current_rate()} requests/second")
@@ -596,7 +591,6 @@ class BastionDaemon:
         self.running = False
         logger.info("Stopping daemon...")
 
-        # NOTE: GUI is managed by user session, not by daemon
         # Close GUI socket first to unblock any pending recv
         if self.gui_socket:
             try:

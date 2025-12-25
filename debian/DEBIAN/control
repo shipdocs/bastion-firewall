@@ -9,7 +9,7 @@ Recommends: python3-scapy
 Replaces: douane, bastion-daemon
 Conflicts: douane, bastion-daemon
 Maintainer: Martin <shipdocs@users.noreply.github.com>
-Description: 🏰 Your Last Line of Defense - Application Firewall for Linux
+Description: Your Last Line of Defense - Application Firewall for Linux
  Bastion Firewall is an outbound application firewall built specifically for
  Zorin OS 18 (and compatible with all Debian-based distributions). Like a
  medieval bastion protecting a fortress, Bastion stands guard over your
