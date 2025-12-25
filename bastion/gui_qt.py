@@ -12,6 +12,7 @@ import socket
 import logging
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -607,9 +608,9 @@ class DashboardWindow(QMainWindow):
         stats_layout = QHBoxLayout()
         stats_layout.setSpacing(20)
         
-        self.stat_connections = self.create_stat_card("Approx. Events", "0", COLORS["accent"])
-        self.stat_blocked = self.create_stat_card("Deny Events", "0", COLORS["danger"])
-        self.stat_rules = self.create_stat_card("Active Rules", "0", COLORS["warning"])
+        self.stat_connections, self.stat_connections_label = self.create_stat_card("Approx. Events", "0", COLORS["accent"])
+        self.stat_blocked, self.stat_blocked_label = self.create_stat_card("Deny Events", "0", COLORS["danger"])
+        self.stat_rules, self.stat_rules_label = self.create_stat_card("Active Rules", "0", COLORS["warning"])
         
         stats_layout.addWidget(self.stat_connections)
         stats_layout.addWidget(self.stat_blocked)
@@ -628,7 +629,7 @@ class DashboardWindow(QMainWindow):
         lbl_title = QLabel(title); lbl_title.setObjectName("muted")
         lbl_val = QLabel(value); lbl_val.setStyleSheet(f"font-size: 32px; font-weight: bold; color: {accent_color};")
         layout.addWidget(lbl_title); layout.addWidget(lbl_val)
-        return card
+        return card, lbl_val
 
     def create_rules_page(self):
         page = QWidget()
@@ -867,19 +868,19 @@ class DashboardWindow(QMainWindow):
             self.lbl_inbound_title.setText("Unknown")
             
         # 3. Update Stats (Approximate from rules and logs)
-        self.stat_rules.findChild(QLabel, "").setText(str(len(self.data_rules)))
+        self.stat_rules_label.setText(str(len(self.data_rules)))
         
         try:
             if self.log_path.exists():
                 # SECURITY FIX: Use list arguments instead of shell=True to prevent command injection
                 res = subprocess.run(['wc', '-l', str(self.log_path)], capture_output=True, text=True)
                 total = res.stdout.strip().split()[0] if res.returncode == 0 else "0"
-                self.stat_connections.findChild(QLabel, "").setText(total)
+                self.stat_connections_label.setText(total)
                 
                 res = subprocess.run(['grep', '-c', 'decision: deny', str(self.log_path)], 
                                    capture_output=True, text=True)
                 denied = res.stdout.strip() if res.returncode == 0 else "0"
-                self.stat_blocked.findChild(QLabel, "").setText(denied)
+                self.stat_blocked_label.setText(denied)
         except Exception as e:
             # Log the error but don't crash the GUI
             import logging
@@ -896,22 +897,17 @@ class DashboardWindow(QMainWindow):
             QMessageBox.critical(self, "Security Error", f"Invalid action: {action}")
             return
             
-        try:
-            # 1. System Service (Daemon)
-            subprocess.run(['pkexec', 'systemctl', action, 'bastion-firewall'], check=True)
-            
+        cmd = ['pkexec', 'systemctl', action, 'bastion-firewall']
+        ok = self._run_privileged(cmd, success_message=None, error_hint=f"Failed to {action} autostart. Please check system logs.")
+        if ok:
             # 2. User GUI (Tray) - Manage ~/.config/autostart
             self._manage_gui_autostart(should_enable)
-            
             self.refresh_status() # Updates text
-        except Exception as e:
+        else:
             # Revert checkbox state
             self.chk_autostart.blockSignals(True)
             self.chk_autostart.setChecked(not should_enable)
             self.chk_autostart.blockSignals(False)
-            # Modern error notification
-            from .notification import show_notification
-            show_notification(self, "Error", f"Failed to {action} autostart: {e}")
 
     def _manage_gui_autostart(self, enable: bool):
         try:
@@ -961,13 +957,8 @@ X-GNOME-Autostart-enabled=true
         if QMessageBox.question(self, "Confirm", "Disable Inbound Protection (UFW)?\nYour computer will be exposed to inbound connections.") != QMessageBox.StandardButton.Yes:
             return
             
-        try:
-            subprocess.run(['pkexec', 'ufw', 'disable'], check=True)
-            from .notification import show_notification
-            show_notification(self, "Success", "UFW disabled.")
-        except Exception as e:
-            from .notification import show_notification
-            show_notification(self, "Error", f"Failed to disable UFW: {e}")
+        if self._run_privileged(['pkexec', 'ufw', 'disable'], success_message="UFW disabled.", error_hint="Failed to disable UFW."):
+            pass
         self.refresh_ui()
 
     # ... (other methods remain) ...
@@ -1007,27 +998,31 @@ X-GNOME-Autostart-enabled=true
             self.table_rules.item(row, 0).setData(Qt.ItemDataRole.UserRole, key)
 
     def refresh_logs(self):
-        try:
-            # Read last 50 lines
-            cmd = ['tail', '-n', '50', str(self.log_path)]
-            # If plain read fails, try pkexec (but pkexec for read is annoying in loop, assume readable or valid user group)
-            # The daemon log should be readable by adm group or similar, but for now we try best effort
-            if not os.access(self.log_path, os.R_OK):
-                # Try pkexec only if we really can't read
-                cmd = ['pkexec'] + cmd
-                
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            lines = res.stdout.strip().split('\n')
-            
-            self.table_logs.setRowCount(0)
-            for line in reversed(lines): # Newest first
-                if not line.strip(): continue
-                row = self.table_logs.rowCount()
-                self.table_logs.insertRow(row)
-                self.table_logs.setItem(row, 0, QTableWidgetItem(line))
-        except Exception as e:
-            self.table_logs.setRowCount(1)
-            self.table_logs.setItem(0, 0, QTableWidgetItem(f"Error reading logs: {e}"))
+        def load_logs():
+            try:
+                cmd = ['tail', '-n', '50', str(self.log_path)]
+                if not os.access(self.log_path, os.R_OK):
+                    cmd = ['pkexec'] + cmd
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                lines = res.stdout.strip().split('\n') if res.stdout else []
+            except Exception as e:
+                lines = [f"Error reading logs: {e}"]
+
+            QTimer.singleShot(0, lambda: self._populate_logs(lines))
+
+        threading.Thread(target=load_logs, daemon=True).start()
+
+    def _populate_logs(self, lines):
+        self.table_logs.setRowCount(0)
+        for line in reversed(lines):  # Newest first
+            if not line.strip():
+                continue
+            row = self.table_logs.rowCount()
+            self.table_logs.insertRow(row)
+            self.table_logs.setItem(row, 0, QTableWidgetItem(line))
+        if self.table_logs.rowCount() == 0:
+            self.table_logs.insertRow(0)
+            self.table_logs.setItem(0, 0, QTableWidgetItem("No log entries available."))
 
     def toggle_firewall(self):
         is_active = "Stop" in self.btn_toggle.text()
@@ -1037,18 +1032,10 @@ X-GNOME-Autostart-enabled=true
             cmd = ['pkexec', 'systemctl', 'disable', '--now', 'bastion-firewall']
         else:
             cmd = ['pkexec', 'systemctl', 'enable', '--now', 'bastion-firewall']
-            
-        try:
-            subprocess.run(cmd, check=True)
-            state = "stopped" if is_active else "started"
-            from .notification import show_notification
-            show_notification(self, "Success", f"Firewall {state} successfully.")
-        except Exception as e:
-            from .notification import show_notification
-            show_notification(self, "Error", f"Failed to toggle firewall: {e}")
-        
-        # Force immediate status refresh
-        self.refresh_status()
+
+        state = "stopped" if is_active else "started"
+        if self._run_privileged(cmd, success_message=f"Firewall {state} successfully.", error_hint="Unable to change firewall state. Check system logs." ):
+            self.refresh_status()
 
     def delete_selected_rule(self):
         rows = self.table_rules.selectionModel().selectedRows()
@@ -1079,11 +1066,14 @@ X-GNOME-Autostart-enabled=true
                 json.dump(self.data_rules, tmp, indent=2)
                 tmp_path = tmp.name
             
-            subprocess.run(['pkexec', 'mv', tmp_path, str(self.rules_path)], check=True)
-            subprocess.run(['pkexec', 'chmod', '644', str(self.rules_path)])
-            
-            # signal daemon
-            subprocess.run(['pkill', '-HUP', '-f', 'bastion-daemon'])
+            if not self._run_privileged(['pkexec', 'mv', tmp_path, str(self.rules_path)],
+                                        error_hint="Failed to save rules (move)."):
+                return
+            if not self._run_privileged(['pkexec', 'chmod', '644', str(self.rules_path)],
+                                        error_hint="Failed to set rule permissions."):
+                return
+            self._run_privileged(['pkill', '-HUP', '-f', 'bastion-daemon'],
+                                 error_hint=None)
         except Exception as e:
             from .notification import show_notification
             show_notification(self, "Error", f"Failed to save rules: {e}")
@@ -1095,16 +1085,44 @@ X-GNOME-Autostart-enabled=true
                 json.dump(self.data_config, tmp, indent=2)
                 tmp_path = tmp.name
                 
-            subprocess.run(['pkexec', 'mv', tmp_path, str(self.config_path)], check=True)
-            subprocess.run(['pkexec', 'chmod', '644', str(self.config_path)])
+            if not self._run_privileged(['pkexec', 'mv', tmp_path, str(self.config_path)],
+                                        error_hint="Failed to write configuration."):
+                return
+            if not self._run_privileged(['pkexec', 'chmod', '644', str(self.config_path)],
+                                        error_hint="Failed to set configuration permissions."):
+                return
             
             # signal daemon
-            subprocess.run(['pkill', '-HUP', '-f', 'bastion-daemon'])
+            self._run_privileged(['pkill', '-HUP', '-f', 'bastion-daemon'], error_hint=None)
             from .notification import show_notification
             show_notification(self, "Success", "Configuration saved.")
         except Exception as e:
             from .notification import show_notification
             show_notification(self, "Error", f"Failed to save config: {e}")
+
+    def _run_privileged(self, cmd, success_message=None, error_hint="Operation failed. Check system logs."):
+        """Run privileged commands with sanitized user feedback."""
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.SubprocessError as e:
+            logger.error(f"Privileged command error: {cmd}: {e}")
+            from .notification import show_notification
+            show_notification(self, "Error", error_hint or "Operation failed.")
+            return False
+
+        if result.returncode != 0:
+            stderr_line = (result.stderr or "").strip().splitlines()
+            sanitized = stderr_line[0][:200] if stderr_line else ""
+            logger.error(f"Privileged command failed: {cmd} rc={result.returncode} stderr={sanitized}")
+            if error_hint:
+                from .notification import show_notification
+                show_notification(self, "Error", error_hint)
+            return False
+
+        if success_message:
+            from .notification import show_notification
+            show_notification(self, "Success", success_message)
+        return True
 
 def test_dialog():
     app = QApplication(sys.argv)
