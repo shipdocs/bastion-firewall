@@ -110,6 +110,35 @@ if ! iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/nul
     print_info "Note: NFQUEUE iptables rule will be managed by the Douane daemon."
 fi
 
+# Initialize backup directory for rollback script
+BACKUP_DIR="/var/backups/bastion"
+print_info "Preparing backup directory: $BACKUP_DIR"
+
+# Create backup directory with safe permissions
+if [ ! -d "$BACKUP_DIR" ]; then
+    if ! mkdir -p "$BACKUP_DIR" 2>/dev/null; then
+        print_error "Failed to create backup directory: $BACKUP_DIR"
+        # Fallback to tmp (less persistent but functional)
+        BACKUP_DIR="/tmp/bastion-backup-$(date +%s)"
+        mkdir -p "$BACKUP_DIR"
+        print_warning "Using temporary backup directory: $BACKUP_DIR"
+    fi
+fi
+
+# Secure the backup directory
+chmod 700 "$BACKUP_DIR" 2>/dev/null || print_warning "Could not set backup directory permissions"
+
+# Verify directory is writable and not a symlink (anti-symlink attack)
+if [ -L "$BACKUP_DIR" ]; then
+    print_error "Backup directory is a symlink - refusing to continue (security risk)"
+    exit 1
+fi
+
+if [ ! -w "$BACKUP_DIR" ]; then
+    print_error "Backup directory is not writable: $BACKUP_DIR"
+    exit 1
+fi
+
 # Show new status
 echo ""
 print_info "New UFW status:"
@@ -117,6 +146,7 @@ ufw status verbose
 
 # Create rollback script (Best effort)
 ROLLBACK_SCRIPT="$BACKUP_DIR/rollback.sh"
+print_info "Creating rollback script: $ROLLBACK_SCRIPT"
 cat > "$ROLLBACK_SCRIPT" << 'EOF'
 #!/bin/bash
 # Rollback script - attempts to restore outbound policy

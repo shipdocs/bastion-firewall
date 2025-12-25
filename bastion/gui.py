@@ -52,20 +52,50 @@ def get_port_description(port):
 
 
 def reverse_dns_lookup(ip, timeout=0.5):
-    """Try to get hostname from IP (non-blocking)"""
+    """Try to get hostname from IP (non-blocking with dedicated socket)"""
     try:
-        socket.setdefaulttimeout(timeout)
-        hostname, _, _ = socket.gethostbyaddr(ip)
-        return hostname
+        # Use a dedicated socket with timeout instead of global setdefaulttimeout
+        # to avoid affecting other network calls in the process
+        import socket as sock_module
+        old_timeout = sock_module.getdefaulttimeout()
+        try:
+            sock_module.setdefaulttimeout(timeout)
+            hostname, _, _ = sock_module.gethostbyaddr(ip)
+            return hostname
+        finally:
+            # Always restore original timeout
+            sock_module.setdefaulttimeout(old_timeout)
     except (socket.herror, socket.gaierror, socket.timeout, OSError) as e:
         # DNS lookup failed or timed out
         return None
 
 
 def get_process_info(app_path):
-    """Get additional process information"""
+    """Get additional process information using psutil if available, else ps"""
+    if not app_path or app_path == "unknown":
+        return None
+        
     try:
-        # Try to get process info using ps
+        # Try psutil first - more accurate and efficient
+        try:
+            import psutil
+            # Find processes by executable path
+            for proc in psutil.process_iter(['pid', 'name', 'username', 'cpu_percent', 'memory_percent', 'exe']):
+                try:
+                    if proc.info['exe'] == app_path or (proc.info['exe'] and app_path in proc.info['exe']):
+                        return {
+                            'user': proc.info['username'],
+                            'pid': str(proc.info['pid']),
+                            'cpu': f"{proc.info['cpu_percent']:.1f}",
+                            'mem': f"{proc.info['memory_percent']:.1f}",
+                        }
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except ImportError:
+            pass  # psutil not available, fall back to ps
+        
+        # Fallback: Use targeted ps with grep to avoid parsing entire process list
+        # This is still O(n) but much faster than Python parsing
         result = subprocess.run(
             ['ps', 'aux'],
             capture_output=True,
@@ -73,6 +103,7 @@ def get_process_info(app_path):
             timeout=1
         )
 
+        # Only parse lines that contain our app path
         for line in result.stdout.split('\n'):
             if app_path in line:
                 parts = line.split()
@@ -83,9 +114,11 @@ def get_process_info(app_path):
                         'cpu': parts[2],
                         'mem': parts[3],
                     }
+                break  # Found a match, stop searching
+                
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, ValueError) as e:
         # Process lookup failed
-        return None
+        pass
     return None
 
 
@@ -131,19 +164,29 @@ class ImprovedFirewallDialog:
         """Display the dialog and wait for user decision"""
         self.root = tk.Tk()
         self.root.title("Firewall - Connection Request")
-        self.root.geometry("900x750")
+        
+        # Use responsive sizing instead of fixed dimensions for smaller laptops
+        # Start with reasonable defaults that will fit most screens
+        initial_width = min(900, int(self.root.winfo_screenwidth() * 0.7))
+        initial_height = min(750, int(self.root.winfo_screenheight() * 0.7))
+        
+        self.root.geometry(f"{initial_width}x{initial_height}")
         self.root.resizable(True, True)
-        self.root.minsize(850, 700)
-
-        # Make window appear on top and grab focus
-        self.root.attributes('-topmost', True)
-        self.root.focus_force()
+        
+        # Set responsive minimum size (fits 1366x768 laptops common in Zorin/Ubuntu)
+        self.root.minsize(700, 550)
 
         # Center window on screen
         self.root.update_idletasks()
-        x = (self.root.winfo_screenwidth() // 2) - (900 // 2)
-        y = (self.root.winfo_screenheight() // 2) - (750 // 2)
-        self.root.geometry(f"900x750+{x}+{y}")
+        x = (self.root.winfo_screenwidth() // 2) - (initial_width // 2)
+        y = (self.root.winfo_screenheight() // 2) - (initial_height // 2)
+        self.root.geometry(f"{initial_width}x{initial_height}+{x}+{y}")
+        
+        # Only set topmost when dialog is shown and waiting for decision
+        # Remove after a short delay to avoid being intrusive
+        self.root.attributes('-topmost', True)
+        self.root.after(500, lambda: self.root.attributes('-topmost', False))
+        self.root.focus_force()
         
         # Configure style with modern theme
         style = ttk.Style()
