@@ -205,6 +205,18 @@ User:    ~/.config/autostart/bastion-firewall-gui.desktop (copy)
 
 ---
 
-**Generated:** December 25, 2025 11:48  
-**Package:** bastion-firewall_1.4.2_all.deb  
-**Status:** ✅ PRODUCTION READY
+## 🏰 Release v1.4.5: Security & UX Hardening (Dec 25, 2025)
+
+**Major Enhancements:**
+
+1. **Root Bypass Removal**: Eliminated `BASTION_SKIP_ROOT_CHECK` environment variable vulnerability. Added explicit `--dev-mode` CLI flag instead.
+2. **Decision Cache TTL**: Implemented thread-safe `TTLCache` (5m/24h) to prevent stale connection decisions and port-reuse vulnerabilities.
+3. **Smart GUI Auto-Start**: Daemon now detects active graphical sessions and proactively launches the GUI for all logged-in users.
+4. **Config Validation**: Added strict type and range checking for `config.json` loading to prevent runtime crashes.
+5. **UX Visibility**: Improved Learning Mode awareness with a clear visual banner on connection popups.
+
+---
+
+**Generated:** December 25, 2025 14:55  
+**Package:** bastion-firewall_1.4.5_all.deb  
+**Status:** ✅ PRODUCTION READY - HARDENED
