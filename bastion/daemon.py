@@ -207,6 +207,8 @@ class BastionDaemon:
 
     def _auto_start_gui(self):
         """Auto-start GUI as the logged-in user (not root)"""
+        import os
+        
         try:
             # Find the logged-in user (not root)
             result = subprocess.run(
@@ -245,24 +247,62 @@ class BastionDaemon:
             
             logger.info(f"Auto-starting GUI for user {logged_in_user} on display {display}")
             
+            # Clean up any stale lock file first
+            gui_lock = '/tmp/bastion-gui.lock'
+            try:
+                if os.path.exists(gui_lock):
+                    os.remove(gui_lock)
+                    logger.debug("Removed stale GUI lock file")
+            except Exception as e:
+                logger.warning(f"Could not remove GUI lock file: {e}")
+            
             # Launch GUI as the logged-in user with proper environment
-            # Use 'su' instead of 'sudo' for better X11/GUI support
-            import os
-            env = os.environ.copy()
-            env['DISPLAY'] = display
-            env['XAUTHORITY'] = f'/home/{logged_in_user}/.Xauthority'
-            env['HOME'] = f'/home/{logged_in_user}'
-            env['USER'] = logged_in_user
+            # Use 'runuser' which is designed for this purpose
             
-            subprocess.Popen(
-                ['su', '-', logged_in_user, '-c', '/usr/bin/bastion-gui'],
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True
-            )
+            # First, grant X11 access to the user
+            try:
+                # Allow local user to connect to X11
+                subprocess.run(
+                    ['runuser', '-u', logged_in_user, '--', 'xhost', f'+SI:localuser:{logged_in_user}'],
+                    env={'DISPLAY': display},
+                    capture_output=True,
+                    timeout=2
+                )
+            except Exception as e:
+                logger.debug(f"xhost command  failed (may not be needed): {e}")
             
-            logger.info("GUI launch command sent")
+            #  Build command that will work with X11
+            gui_cmd = f"DISPLAY={display} /usr/bin/bastion-gui 2>&1"
+            
+            try:
+                result = subprocess.Popen(
+                    ['runuser', '-u', logged_in_user, '--', 'sh', '-c', gui_cmd],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True
+                )
+                
+                # Give it a moment to start
+                time.sleep(1.0)
+                
+                # Check if it's still running
+                poll = result.poll()
+                if poll is not None:
+                    # Process ended, check why
+                    try:
+                        stdout, stderr = result.communicate(timeout=2)
+                        logger.error(f"GUI failed to start: exit={poll}")
+                        if stdout:
+                            logger.error(f"GUI stdout: {stdout.decode()[:300]}")
+                        if stderr:
+                            logger.error(f"GUI stderr: {stderr.decode()[:300]}")
+                    except subprocess.TimeoutExpired:
+                        logger.error("GUI output capture timed out")
+                else:
+                    logger.info(f"GUI launched successfully (PID: {result.pid})")
+                    
+            except Exception as e:
+                logger.error(f"Failed to launch GUI: {e}")
             
         except Exception as e:
             logger.warning(f"Could not auto-start GUI: {e}")
