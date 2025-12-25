@@ -1,5 +1,5 @@
 Package: bastion-firewall
-Version: 1.4.5
+Version: 1.4.7
 Section: net
 Priority: optional
 Architecture: all

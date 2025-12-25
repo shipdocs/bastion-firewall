@@ -5,6 +5,18 @@ All notable changes to Bastion Firewall will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.7] - 2025-12-26
+
+### Critical Fixes
+- **Production Readiness**: Synced mismatched version numbers across all package files.
+- **License**: Added missing GPL-3.0 LICENSE file to repository root.
+- **Bug Fix**: Fixed case-sensitivity issue in `service_whitelist.py` that caused `NetworkManager` to be blocked incorrectly.
+
+### Improvements
+- **Testing**: Added comprehensive "smart" test suite using parametrized inputs. Coverage increased significantly for core modules.
+- **CI/CD**: Updated GitHub Actions to trigger correctly on `master` branch.
+- **Cleanup**: Removed build artifacts (`.deb`) from git tracking.
+
 ## [1.4.5] - 2025-12-25
 
 ### Security Hardening

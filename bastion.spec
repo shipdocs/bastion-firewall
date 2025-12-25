@@ -1,5 +1,5 @@
 Name:           bastion-firewall
-Version:        1.0.0
+Version:        1.4.7
 Release:        1%{?dist}
 Summary:        Application Firewall for Linux with GUI - Your Last Line of Defense
 License:        GPLv3
