@@ -353,7 +353,6 @@ class IPTablesManager:
         Set up iptables rules to queue outbound packets.
         Ensures a clean slate before adding rules to prevent duplicates.
         """
-        import subprocess
 
         # 0. Clean up existing rules first (Idempotency)
         # This prevents duplicate rules from accumulating (Fixes 16x duplicates issue)
@@ -412,7 +411,6 @@ class IPTablesManager:
         Aggressively remove ALL NFQUEUE and BASTION_BYPASS rules.
         Ensures a completely clean state to prevent "connected but no internet".
         """
-        import subprocess
 
         logger.info("Cleaning up iptables NFQUEUE and BYPASS rules...")
         removed_count = 0
@@ -489,7 +487,6 @@ class IPTablesManager:
     @staticmethod
     def check_iptables_available():
         """Check if iptables is available"""
-        import subprocess
 
         try:
             result = subprocess.run(['which', 'iptables'],

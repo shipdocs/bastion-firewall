@@ -170,6 +170,8 @@ class GUIManager:
                                 break
                 except Exception as e:
                     logger.debug(f"Could not find DISPLAY from ps: {e}")
+                except Exception as e:
+                    logger.debug(f"Could not find DISPLAY from ps: {e}")
 
             # If still no DISPLAY, try common defaults
             if not display_found:

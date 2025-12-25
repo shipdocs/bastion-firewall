@@ -434,9 +434,10 @@ class BastionDaemon:
                 os.chmod(self.SOCKET_PATH, socket_mode)
                 logger.info(f"Socket created at {self.SOCKET_PATH} (mode={oct(socket_mode)})")
             else:
-                # Fallback: world-readable for single-user systems without proper groups
-                os.chmod(self.SOCKET_PATH, 0o666)
-                logger.warning(f"Socket created at {self.SOCKET_PATH} with world-writable permissions (no suitable group found)")
+                # Fallback: user-readable only (no group access)
+                # SECURITY: Never use world-writable permissions for IPC sockets
+                os.chmod(self.SOCKET_PATH, 0o600)  # rw-------
+                logger.warning(f"Socket created at {self.SOCKET_PATH} with user-only permissions (no suitable group found)")
         except Exception as e:
             logger.warning(f"Could not set socket permissions: {e}")
 

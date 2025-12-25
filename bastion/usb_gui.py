@@ -8,8 +8,7 @@ Provides:
 """
 
 import logging
-import subprocess
-from typing import Optional, Callable
+from typing import Optional
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
@@ -706,7 +705,6 @@ class USBControlWidget(QWidget):
 
     def _toggle_usb_protection(self):
         """Toggle USB protection on/off."""
-        import subprocess
 
         self.usb_enabled = not self.usb_enabled
 

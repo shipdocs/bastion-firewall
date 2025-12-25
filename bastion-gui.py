@@ -290,12 +290,14 @@ class BastionClient(QObject):
             return
 
         # Convert request to USBDeviceInfo
+        # Include interface_classes for proper risk classification (HID on composite devices)
         device = USBDeviceInfo(
             vendor_id=req.get('vendor_id', '0000'),
             product_id=req.get('product_id', '0000'),
             vendor_name=req.get('vendor_name', 'Unknown'),
             product_name=req.get('product_name', 'Unknown Device'),
             device_class=req.get('device_class', 0),
+            interface_classes=req.get('interface_classes', []),
             serial=req.get('serial'),
             bus_id=req.get('bus_id', '1-1')
         )
@@ -349,7 +351,6 @@ class BastionClient(QObject):
         self.update_status(f"{action.capitalize()}ing...", "disconnected")
 
         def do_action():
-            import subprocess
             try:
                 result = subprocess.run(['pkexec', 'systemctl', action, 'bastion-firewall'],
                                        capture_output=True, text=True, timeout=30)

@@ -141,13 +141,19 @@ def cmd_usb_default_policy_set(authorize: bool) -> int:
 def cmd_usb_rule_delete(key: str) -> int:
     """
     Delete a USB rule by key.
-    
+
     Args:
-        key: The rule key to delete (validated before calling)
-        
+        key: The rule key to delete
+
     Returns:
         0 on success, 1 on not found, 2 on error
     """
+    # Defensive validation - don't trust callers to have validated
+    if not validate_key(key):
+        logger.warning(f"Invalid key format rejected in delete: {str(key)[:50]}")
+        print("ERROR: Invalid key format", file=sys.stderr)
+        return 2
+
     # Import here to avoid import errors when bastion package not installed
     try:
         from bastion.usb_rules import USBRuleManager
@@ -160,9 +166,9 @@ def cmd_usb_rule_delete(key: str) -> int:
             from bastion.usb_rules import USBRuleManager
         except ImportError as e:
             logger.error(f"Cannot import USBRuleManager: {e}")
-            print(f"ERROR: Cannot import bastion modules", file=sys.stderr)
+            print("ERROR: Cannot import bastion modules", file=sys.stderr)
             return 2
-    
+
     try:
         manager = USBRuleManager()
         if manager.remove_rule(key):
@@ -175,7 +181,8 @@ def cmd_usb_rule_delete(key: str) -> int:
             return 1
     except Exception as e:
         logger.error(f"Error deleting rule {key}: {e}")
-        print(f"ERROR: {e}", file=sys.stderr)
+        # Don't expose internal exception details to users
+        print("ERROR: Failed to delete rule", file=sys.stderr)
         return 2
 
 
@@ -207,7 +214,8 @@ def cmd_usb_rule_clear_all() -> int:
         return 0
     except Exception as e:
         logger.error(f"Error clearing rules: {e}")
-        print(f"ERROR: {e}", file=sys.stderr)
+        # Don't expose internal exception details to users
+        print("ERROR: Failed to clear rules", file=sys.stderr)
         return 2
 
 
@@ -274,9 +282,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     # Log invocation for audit trail
+    # Sanitize args to prevent log injection (escape newlines, truncate)
     invoking_user = os.environ.get('PKEXEC_UID', os.environ.get('SUDO_UID', 'unknown'))
-    logged_args = argv if argv is not None else sys.argv[1:]
-    logger.info(f"Invoked by uid={invoking_user}, args={logged_args}")
+    raw_args = argv if argv is not None else sys.argv[1:]
+    # More comprehensive sanitization to prevent log injection
+    safe_args = []
+    for arg in raw_args:
+        if not isinstance(arg, str):
+            arg = str(arg)
+        # Remove control characters and limit length
+        sanitized = ''.join(c for c in arg if c.isprintable() and c not in ['\n', '\r', '\t'])
+        safe_args.append(sanitized[:256])
+    logger.info(f"Invoked by uid={invoking_user}, args={safe_args}")
 
     if not args.command:
         parser.print_help()

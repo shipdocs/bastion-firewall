@@ -116,9 +116,9 @@ class USBRuleManager:
 
     DEFAULT_PATH = SYSTEM_PATH
     
-    # File permissions: owner read/write, world readable (0644)
-    # USB rules contain device IDs only, not secrets - need to be readable by GUI
-    FILE_MODE = 0o644
+    # File permissions: owner read/write, group readable (0640)
+    # USB rules contain device IDs only, not secrets - but should not be world-readable
+    FILE_MODE = 0o640
     DIR_MODE = 0o755
     
     def __init__(self, db_path: Optional[Path] = None):
@@ -417,10 +417,23 @@ class USBAuthorizer:
 
     @classmethod
     def _get_auth_path(cls, bus_id: str) -> Path:
-        """Get authorization file path for device."""
+        """Get authorization file path for device.
+
+        Raises:
+            ValueError: If bus_id is invalid or empty after sanitization.
+        """
+        # Reject empty bus_id immediately
+        if not bus_id or not bus_id.strip():
+            logger.error("Invalid bus_id: empty string")
+            raise ValueError("Invalid bus_id: empty string")
+        
         # Sanitize bus_id to prevent path traversal
         # Only allow alphanumeric and dash (bus_id format: "1-2.3" becomes "1-23")
         safe_bus_id = re.sub(r'[^0-9a-zA-Z.-]', '', bus_id)
+        # Reject empty IDs after sanitization
+        if not safe_bus_id:
+            logger.error(f"Invalid bus_id format (empty after sanitization): {bus_id}")
+            raise ValueError(f"Invalid bus_id: {bus_id}")
         # Additional safety: reject if contains ".." or starts with "/"
         if '..' in safe_bus_id or safe_bus_id.startswith('/'):
             logger.error(f"Invalid bus_id format: {bus_id}")
@@ -435,7 +448,11 @@ class USBAuthorizer:
         Returns:
             True if authorized, False if not, None if cannot determine.
         """
-        auth_path = cls._get_auth_path(bus_id)
+        try:
+            auth_path = cls._get_auth_path(bus_id)
+        except ValueError as e:
+            logger.warning(f"Cannot check authorization for {bus_id}: {e}")
+            return None
         try:
             value = auth_path.read_text().strip()
             return value == '1'
@@ -451,7 +468,11 @@ class USBAuthorizer:
         Returns:
             True if successful, False otherwise.
         """
-        auth_path = cls._get_auth_path(bus_id)
+        try:
+            auth_path = cls._get_auth_path(bus_id)
+        except ValueError as e:
+            logger.error(f"Failed to authorize {bus_id}: {e}")
+            return False
         try:
             auth_path.write_text('1')
             logger.info(f"Authorized USB device: {bus_id}")
@@ -471,7 +492,11 @@ class USBAuthorizer:
         Returns:
             True if successful, False otherwise.
         """
-        auth_path = cls._get_auth_path(bus_id)
+        try:
+            auth_path = cls._get_auth_path(bus_id)
+        except ValueError as e:
+            logger.error(f"Failed to deauthorize {bus_id}: {e}")
+            return False
         try:
             auth_path.write_text('0')
             logger.info(f"Deauthorized USB device: {bus_id}")
@@ -483,7 +508,11 @@ class USBAuthorizer:
     @classmethod
     def device_exists(cls, bus_id: str) -> bool:
         """Check if device exists in sysfs."""
-        return cls._get_auth_path(bus_id).parent.exists()
+        try:
+            return cls._get_auth_path(bus_id).parent.exists()
+        except ValueError as e:
+            logger.warning(f"Invalid bus_id when checking existence for {bus_id}: {e}")
+            return False
 
     @classmethod
     def set_default_policy(cls, authorize: bool) -> bool:

@@ -6,8 +6,7 @@ Notifies callbacks when new devices are connected.
 """
 
 import logging
-import threading
-from typing import Callable, Optional
+from typing import Optional
 
 try:
     import pyudev
@@ -16,7 +15,7 @@ except ImportError:
     PYUDEV_AVAILABLE = False
     pyudev = None
 
-from bastion.usb_device import USBDeviceInfo, USBClass
+from bastion.usb_device import USBDeviceInfo
 from bastion.usb_validation import USBValidation
 
 logger = logging.getLogger(__name__)
@@ -39,10 +38,10 @@ class USBMonitor:
     def __init__(self, callback: Callable[[USBDeviceInfo, str], None]):
         """
         Initialize USB monitor.
-        
+
         Args:
             callback: Function called with (USBDeviceInfo, action) where
-                     action is 'add', 'remove', 'bind', or 'unbind'
+                     action is 'add' or 'remove'
         """
         self.callback = callback
         self._observer: Optional['pyudev.MonitorObserver'] = None
@@ -239,6 +238,11 @@ def list_usb_devices() -> list[USBDeviceInfo]:
     Returns:
         List of USBDeviceInfo for all connected devices.
     """
+    # Short-circuit if pyudev is not available
+    if not PYUDEV_AVAILABLE:
+        # Don't log as warning - this is expected on systems without udev
+        logger.debug("pyudev not available - cannot list USB devices")
+        return []
     monitor = USBMonitor(callback=lambda d, a: None)
     return monitor.get_connected_devices()
 

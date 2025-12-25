@@ -888,12 +888,12 @@ class DashboardWindow(QMainWindow):
         # 1. Outbound (Bastion)
         try:
             # Check Active
-            res = subprocess.run(['systemctl', 'is-active', 'bastion-firewall'], 
+            res = subprocess.run(['/usr/bin/systemctl', 'is-active', 'bastion-firewall'],
                                capture_output=True, text=True)
             is_active = res.stdout.strip() == 'active'
             
             # Check Enabled (Boot)
-            res_en = subprocess.run(['systemctl', 'is-enabled', 'bastion-firewall'], 
+            res_en = subprocess.run(['/usr/bin/systemctl', 'is-enabled', 'bastion-firewall'],
                                    capture_output=True, text=True)
             is_enabled = res_en.stdout.strip() == 'enabled'
             
@@ -987,11 +987,11 @@ class DashboardWindow(QMainWindow):
         try:
             if self.log_path.exists():
                 # SECURITY FIX: Use list arguments instead of shell=True to prevent command injection
-                res = subprocess.run(['wc', '-l', str(self.log_path)], capture_output=True, text=True)
+                res = subprocess.run(['/usr/bin/wc', '-l', str(self.log_path)], capture_output=True, text=True)
                 total = res.stdout.strip().split()[0] if res.returncode == 0 else "0"
                 self.stat_connections.findChild(QLabel, "").setText(total)
                 
-                res = subprocess.run(['grep', '-c', 'decision: deny', str(self.log_path)], 
+                res = subprocess.run(['/usr/bin/grep', '-c', 'decision: deny', str(self.log_path)],
                                    capture_output=True, text=True)
                 denied = res.stdout.strip() if res.returncode == 0 else "0"
                 self.stat_blocked.findChild(QLabel, "").setText(denied)
@@ -1013,7 +1013,7 @@ class DashboardWindow(QMainWindow):
             
         try:
             # 1. System Service (Daemon)
-            subprocess.run(['pkexec', 'systemctl', action, 'bastion-firewall'], check=True)
+            subprocess.run(['pkexec', '/usr/bin/systemctl', action, 'bastion-firewall'], check=True)
             
             # 2. User GUI (Tray) - Manage ~/.config/autostart
             self._manage_gui_autostart(should_enable)
@@ -1077,7 +1077,7 @@ X-GNOME-Autostart-enabled=true
             return
 
         try:
-            subprocess.run(['pkexec', 'ufw', 'disable'], check=True)
+            subprocess.run(['pkexec', '/usr/bin/ufw', 'disable'], check=True)
             from .notification import show_notification
             show_notification(self, "Success", "UFW disabled.")
         except Exception as e:
@@ -1088,9 +1088,9 @@ X-GNOME-Autostart-enabled=true
     def start_tray_icon(self):
         """Start the system tray icon (bastion-gui)"""
         try:
-            # Try to start bastion-gui via PATH (works across different installations)
+            # Use absolute path to prevent PATH hijacking
             subprocess.Popen(
-                ['bastion-gui'],
+                ['/usr/bin/bastion-gui'],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True
@@ -1140,7 +1140,7 @@ X-GNOME-Autostart-enabled=true
     def refresh_logs(self):
         try:
             # Read last 50 lines
-            cmd = ['tail', '-n', '50', str(self.log_path)]
+            cmd = ['/usr/bin/tail', '-n', '50', str(self.log_path)]
             # If plain read fails, try pkexec (but pkexec for read is annoying in loop, assume readable or valid user group)
             # The daemon log should be readable by adm group or similar, but for now we try best effort
             if not os.access(self.log_path, os.R_OK):
@@ -1210,11 +1210,11 @@ X-GNOME-Autostart-enabled=true
                 json.dump(self.data_rules, tmp, indent=2)
                 tmp_path = tmp.name
             
-            subprocess.run(['pkexec', 'mv', tmp_path, str(self.rules_path)], check=True)
-            subprocess.run(['pkexec', 'chmod', '644', str(self.rules_path)])
+            subprocess.run(['pkexec', '/usr/bin/mv', tmp_path, str(self.rules_path)], check=True)
+            subprocess.run(['pkexec', '/usr/bin/chmod', '644', str(self.rules_path)])
             
             # signal daemon
-            subprocess.run(['pkill', '-HUP', '-f', 'bastion-daemon'])
+            subprocess.run(['/usr/bin/pkill', '-HUP', '-f', 'bastion-daemon'])
         except Exception as e:
             from .notification import show_notification
             show_notification(self, "Error", f"Failed to save rules: {e}")
@@ -1226,11 +1226,11 @@ X-GNOME-Autostart-enabled=true
                 json.dump(self.data_config, tmp, indent=2)
                 tmp_path = tmp.name
                 
-            subprocess.run(['pkexec', 'mv', tmp_path, str(self.config_path)], check=True)
-            subprocess.run(['pkexec', 'chmod', '644', str(self.config_path)])
+            subprocess.run(['pkexec', '/usr/bin/mv', tmp_path, str(self.config_path)], check=True)
+            subprocess.run(['pkexec', '/usr/bin/chmod', '644', str(self.config_path)])
             
             # signal daemon
-            subprocess.run(['pkill', '-HUP', '-f', 'bastion-daemon'])
+            subprocess.run(['/usr/bin/pkill', '-HUP', '-f', 'bastion-daemon'])
             from .notification import show_notification
             show_notification(self, "Success", "Configuration saved.")
         except Exception as e:
