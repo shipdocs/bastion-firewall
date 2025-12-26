@@ -5,12 +5,23 @@ Bastion Firewall Daemon - Entry Point
 
 import sys
 import os
+
+# Support private module install (RPM/Fedora)
+if os.path.exists("/usr/share/bastion-firewall"):
+    sys.path.append("/usr/share/bastion-firewall")
 import logging
 import atexit
 import signal
 
 # Ensure we can import the package
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# ROBUST PATH FIX: Ensure /usr/local site-packages are visible
+# Ubuntu 24.04+ installs pip packages to /usr/local but systemd/wrappers might miss them
+import glob
+for path in glob.glob('/usr/local/lib/python3*/dist-packages'):
+    if path not in sys.path:
+        sys.path.append(path)
 
 # Setup basic logging before daemon starts
 log_file = '/var/log/bastion-daemon.log'

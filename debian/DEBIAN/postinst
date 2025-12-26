@@ -45,9 +45,27 @@ if [ -f /usr/share/doc/bastion-firewall/bastion-firewall.logrotate ]; then
 fi
 
 # Ensure log file has correct permissions if it exists
-if [ -f /var/log/bastion-daemon.log ]; then
-    chgrp bastion /var/log/bastion-daemon.log
-    chmod 640 /var/log/bastion-daemon.log
+# Ensure log file exists and has correct permissions
+touch /var/log/bastion-daemon.log
+chgrp bastion /var/log/bastion-daemon.log
+chmod 644 /var/log/bastion-daemon.log
+
+# Install NetfilterQueue dependency (Cross-platform robust install)
+if ! python3 -c "import netfilterqueue" 2>/dev/null; then
+    echo "Installing required NetfilterQueue module..."
+    if apt-get install -y python3-netfilterqueue >/dev/null 2>&1; then
+        echo "✓ Installed python3-netfilterqueue via apt"
+    else
+        echo "System package not found. Trying pip..."
+        # Try with break-system-packages (newer OS) first as it's the likely failure point
+        if pip3 install NetfilterQueue --break-system-packages >/dev/null 2>&1; then
+            echo "✓ Installed NetfilterQueue via pip (break-system-packages)"
+        elif pip3 install NetfilterQueue >/dev/null 2>&1; then
+            echo "✓ Installed NetfilterQueue via pip"
+        else
+            echo "⚠ WARNING: Failed to install NetfilterQueue. Service may fail."
+        fi
+    fi
 fi
 
 # Reload systemd

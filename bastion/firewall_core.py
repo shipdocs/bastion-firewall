@@ -305,13 +305,25 @@ class PacketProcessor:
                     logger.warning(f"Could not identify application for packet: {pkt_info}")
 
             # Get decision from callback
-            allow = self.decision_callback(pkt_info)
+            # We pass nfpacket to allow the callback to handle it asynchronously if needed
+            # Valid return values:
+            #   True: Accept immediately
+            #   False: Drop immediately
+            #   None: Handled asynchronously (callback must ensure accept/drop is called later)
+            result = self.decision_callback(pkt_info, nfpacket)
 
-            if allow:
+            if result is True:
                 logger.debug(f"Accepting packet: {pkt_info}")
                 nfpacket.accept()
-            else:
+            elif result is False:
                 logger.debug(f"Dropping packet: {pkt_info}")
+                # SECURITY: Verify we want to drop silent or reject?
+                # Drop is safer/stealthier.
+                nfpacket.drop()
+            elif result is None:
+                logger.debug(f"Packet queued for async decision: {pkt_info}")
+            else:
+                logger.error(f"Invalid decision result: {result}")
                 nfpacket.drop()
 
         except Exception as e:
