@@ -11,6 +11,7 @@ import stat
 from pathlib import Path
 from typing import Dict, Optional
 from collections import deque
+import queue
 import threading
 
 from .config import ConfigManager
@@ -98,6 +99,7 @@ class BastionDaemon:
         self.server_socket: Optional[socket.socket] = None
         self.gui_socket: Optional[socket.socket] = None
         self.running = False
+        self.gui_io_thread = None
 
         self.systemd = SystemdNotifier()
         self.monitor_thread = None
@@ -107,13 +109,20 @@ class BastionDaemon:
         self.request_lock = threading.Lock()
         self.socket_lock = threading.Lock()
         self.rate_limiter = RateLimiter(max_requests_per_second=10, window_seconds=1)
+        self.request_queue: "queue.Queue[Dict]" = queue.Queue()
+        self.temp_decisions: Dict[str, Dict[str, float]] = {}
+        self.temp_decision_ttl = 300
+        self.gui_response_timeout = 3.0
 
         # Statistics
         self.stats = {
             'total_connections': 0,
             'allowed_connections': 0,
             'blocked_connections': 0,
-            'rate_limited': 0  # Track rate-limited requests
+            'rate_limited': 0,  # Track rate-limited requests
+            'queued_prompts': 0,
+            'timed_out_prompts': 0,
+            'delivered_prompts': 0
         }
 
     def start(self):
@@ -148,6 +157,11 @@ class BastionDaemon:
         gui_thread = threading.Thread(target=self._accept_gui_connections, daemon=True)
         gui_thread.start()
         logger.info("Waiting for GUI to connect...")
+
+        # Start GUI I/O worker to handle prompts without blocking NFQUEUE thread
+        self.gui_io_thread = threading.Thread(target=self._gui_io_loop, daemon=True)
+        self.gui_io_thread.start()
+        logger.info("GUI I/O worker started")
 
         # Smart GUI launch: attempt to start gui for all active graphical sessions
         logger.info("Triggering smart GUI auto-start for active sessions...")
@@ -429,19 +443,16 @@ class BastionDaemon:
         display_name = app_name or "Unknown Application"
         display_path = app_path or "unknown"
 
+        cache_key = f"{display_path}:{pkt_info.dest_port}"
+        self._cleanup_temp_decisions()
+        self._expire_pending_requests()
+
         # CACHE CHECK - use actual path (can be None)
         cached_decision = self.rule_manager.get_decision(display_path, pkt_info.dest_port)
         if cached_decision is not None:
-            # If we have a decision (Allow or Deny), we obey it.
-            # In learning mode, we obey Allow, but what about Deny?
-            # Usually learning mode shouldn't block even if rule says deny?
-            # But the user might want to test "what happens if I block".
-            # Standard logic: Learning mode = Log/Prompt but always ALLOW traffic in the end?
-            # Or just "Don't create Deny rules automatically?"
-            # Let's stick to: Learning Mode = Always Allow in the end, but maybe prompt.
             if learning_mode:
-                 self.stats['allowed_connections'] += 1
-                 return True
+                self.stats['allowed_connections'] += 1
+                return True
             
             if cached_decision:
                 self.stats['allowed_connections'] += 1
@@ -449,31 +460,20 @@ class BastionDaemon:
                 self.stats['blocked_connections'] += 1
             return cached_decision
 
+        # Temporary decision cache
+        temp_decision = self._get_temp_decision(cache_key, learning_mode)
+        if temp_decision is not None:
+            return temp_decision
+
         # RATE LIMITING / PENDING
-        cache_key = f"{display_path}:{pkt_info.dest_port}"
         now = time.time()
 
         with self.request_lock:
-            # Check if there is already a PENDING request for this flow
-            # We want to BLOCK/WAIT for the verdict, not just auto-allow,
-            # otherwise we leak packets while the user is deciding.
-            # But we can't block the logic loop here too long.
-            
-            # Better approach: 
-            # If a request is pending, we should probably DROP this packet 
-            # (or queue it, but NFQUEUE has limits).
-            # Dropping is safer than leaking. The app will retry.
             if cache_key in self.pending_requests:
                 return False 
 
-            # Check rate limiting for recently treated flows
-            if cache_key in self.last_request_time:
-                # If we asked recently (5s), check if we have a standard rule now?
-                # No, standard rules are checked above.
-                # So this means user ignored it or we are in a "grace period"?
-                # Let's simple ignore/drop to avoid spamming the GUI logic.
-                if now - self.last_request_time[cache_key] < 2.0:
-                     return False
+            if cache_key in self.last_request_time and now - self.last_request_time[cache_key] < 2.0:
+                return False
 
         # WL CHECK - Pass actual values (can be None) for security validation
         auto_allow, reason = should_auto_allow(app_name, app_path, pkt_info.dest_port, pkt_info.dest_ip)
@@ -487,11 +487,6 @@ class BastionDaemon:
         # So we proceed to _ask_gui.
 
         # ASK GUI - Pass display values for UI
-        return self._ask_gui(pkt_info, display_name, display_path, cache_key, learning_mode)
-
-    def _ask_gui(self, pkt_info, app_name, app_path, cache_key, learning_mode) -> bool:
-        """Communicate with GUI"""
-
         if not self.gui_socket:
             logger.warning(f"No GUI connected for {app_name or 'unknown'} -> {pkt_info.dest_ip}:{pkt_info.dest_port}")
 
@@ -536,61 +531,15 @@ class BastionDaemon:
             'app_category': app_category,
             'dest_ip': pkt_info.dest_ip,
             'dest_port': pkt_info.dest_port,
-            'protocol': pkt_info.protocol
+            'protocol': pkt_info.protocol,
+            'cache_key': cache_key,
+            'learning_mode': learning_mode
         }
 
-        with self.request_lock:
-            self.pending_requests[cache_key] = time.time()
-            self.last_request_time[cache_key] = time.time()
+        self._enqueue_gui_request(request)
 
-        try:
-            with self.socket_lock:
-                self.gui_socket.sendall(json.dumps(request).encode() + b'\n')
-            
-            if learning_mode:
-                # In learning mode, we wait for response but allow timeout logic to handle defaults
-                pass 
-
-            # Wait for response
-            # Set a timeout on recv?
-            self.gui_socket.settimeout(60.0) # 1 min timeout for user response
-            try:
-                response = self.gui_socket.recv(4096).decode().strip()
-            except socket.timeout:
-                logger.warning("GUI socket timeout waiting for user decision")
-                self.stats['blocked_connections'] += 1
-                return False
-            finally:
-                self.gui_socket.settimeout(None)
-
-            if not response:
-                return False
-                
-            data = json.loads(response)
-            allow = data.get('allow', False)
-            permanent = data.get('permanent', False)
-            
-            if allow:
-                self.stats['allowed_connections'] += 1
-            else:
-                self.stats['blocked_connections'] += 1
-            
-            with self.request_lock:
-                self.pending_requests.pop(cache_key, None)
-
-            if permanent:
-                self.rule_manager.add_rule(app_path, pkt_info.dest_port, allow)
-            
-            return allow
-
-        except Exception as e:
-            logger.error(f"GUI communication error: {e}")
-            with self.request_lock:
-                self.pending_requests.pop(cache_key, None)
-            
-            # Default action on error
-            self.stats['blocked_connections'] += 1
-            return False
+        # Temporary verdict: drop/requeue to avoid leaking traffic while waiting
+        return False
 
     def _notify_gui_rate_limit(self, app_name):
         """Send rate limit notification to GUI"""
@@ -656,3 +605,141 @@ class BastionDaemon:
             except (OSError, PermissionError) as e:
                 logger.debug(f"Error removing socket file: {e}")
         logger.info("Daemon stopped")
+
+    def _enqueue_gui_request(self, request: Dict) -> None:
+        """Queue GUI prompt without blocking packet handler"""
+        cache_key = request['cache_key']
+        now = time.time()
+        with self.request_lock:
+            self.pending_requests[cache_key] = now
+            self.last_request_time[cache_key] = now
+        self.stats['queued_prompts'] += 1
+        logger.debug(f"Queued GUI request for {cache_key}")
+        self.request_queue.put(request)
+
+    def _gui_io_loop(self):
+        """Dedicated loop for sending prompts to the GUI and handling responses"""
+        logger.info("GUI I/O loop running")
+        while self.running:
+            try:
+                request = self.request_queue.get(timeout=1)
+            except queue.Empty:
+                continue
+
+            cache_key = request['cache_key']
+            try:
+                # Skip if request expired while waiting in queue
+                with self.request_lock:
+                    if cache_key not in self.pending_requests:
+                        continue
+
+                if not self.gui_socket:
+                    logger.warning("GUI not connected; dropping queued prompt")
+                    self._finalize_request(cache_key, timed_out=True)
+                    continue
+
+                payload = {
+                    'type': 'connection_request',
+                    'app_name': request['app_name'],
+                    'app_path': request['app_path'],
+                    'app_category': request['app_category'],
+                    'dest_ip': request['dest_ip'],
+                    'dest_port': request['dest_port'],
+                    'protocol': request['protocol']
+                }
+
+                with self.socket_lock:
+                    self.gui_socket.settimeout(self.gui_response_timeout)
+                    try:
+                        self.gui_socket.sendall(json.dumps(payload).encode() + b'\n')
+                        self.stats['delivered_prompts'] += 1
+                        response_raw = self.gui_socket.recv(4096)
+                    finally:
+                        self.gui_socket.settimeout(None)
+
+                if not response_raw:
+                    self._finalize_request(cache_key, timed_out=True)
+                    continue
+
+                data = json.loads(response_raw.decode().strip())
+                allow = data.get('allow', False)
+                permanent = data.get('permanent', False)
+
+                if allow:
+                    self.stats['allowed_connections'] += 1
+                else:
+                    self.stats['blocked_connections'] += 1
+
+                if permanent:
+                    self.rule_manager.add_rule(request['app_path'], request['dest_port'], allow)
+                else:
+                    self._record_temp_decision(cache_key, allow)
+
+                self._finalize_request(cache_key, timed_out=False)
+            except socket.timeout:
+                logger.warning(f"GUI response timeout for {request.get('app_name') or 'unknown'}")
+                self._finalize_request(cache_key, timed_out=True)
+            except (BrokenPipeError, ConnectionResetError, OSError) as e:
+                logger.warning(f"GUI socket error during prompt delivery: {e}")
+                self.gui_socket = None
+                self._finalize_request(cache_key, timed_out=True)
+            except Exception as e:
+                logger.error(f"Error in GUI I/O loop: {e}")
+                self._finalize_request(cache_key, timed_out=True)
+            finally:
+                self.request_queue.task_done()
+
+    def _finalize_request(self, cache_key: str, timed_out: bool) -> None:
+        """Clear pending request state and apply timeout policy"""
+        with self.request_lock:
+            self.pending_requests.pop(cache_key, None)
+            self.last_request_time[cache_key] = time.time()
+
+        if timed_out:
+            self.stats['timed_out_prompts'] += 1
+            self.stats['blocked_connections'] += 1
+            logger.debug(f"Request {cache_key} timed out; enforcing drop/requeue policy")
+
+    def _record_temp_decision(self, cache_key: str, allow: bool) -> None:
+        """Cache non-permanent decisions temporarily"""
+        with self.request_lock:
+            self.temp_decisions[cache_key] = {
+                'allow': allow,
+                'timestamp': time.time()
+            }
+
+    def _get_temp_decision(self, cache_key: str, learning_mode: bool) -> Optional[bool]:
+        """Retrieve temporary decision if available"""
+        with self.request_lock:
+            record = self.temp_decisions.get(cache_key)
+        if not record:
+            return None
+        allow = record['allow']
+        if learning_mode:
+            self.stats['allowed_connections'] += 1
+            return True
+        if allow:
+            self.stats['allowed_connections'] += 1
+        else:
+            self.stats['blocked_connections'] += 1
+        return allow
+
+    def _cleanup_temp_decisions(self):
+        """Remove expired temporary decisions"""
+        now = time.time()
+        with self.request_lock:
+            expired = [k for k, v in self.temp_decisions.items() if now - v['timestamp'] > self.temp_decision_ttl]
+            for key in expired:
+                self.temp_decisions.pop(key, None)
+
+    def _expire_pending_requests(self):
+        """Enforce timeout policy for stuck pending requests"""
+        now = time.time()
+        with self.request_lock:
+            expired = [k for k, ts in self.pending_requests.items() if now - ts > self.gui_response_timeout]
+            for cache_key in expired:
+                self.pending_requests.pop(cache_key, None)
+                self.last_request_time[cache_key] = now
+                self.stats['timed_out_prompts'] += 1
+                self.stats['blocked_connections'] += 1
+                logger.debug(f"Expired pending request {cache_key} due to timeout")
