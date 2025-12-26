@@ -158,7 +158,6 @@ def should_auto_allow(app_name: str, app_path: str, dest_port: int, dest_ip: str
     # ============================================================================
     # PHASE 3: APPLICATION IDENTIFICATION
     # ============================================================================
-    # If app cannot be identified, block it (security-first approach)
     if not app_name or not app_path:
         logger.warning(f"Could not identify application for {dest_ip}:{dest_port}")
         return (False, "")
@@ -205,22 +204,30 @@ def should_auto_allow(app_name: str, app_path: str, dest_port: int, dest_ip: str
     return (False, "")
 
 
+
 def is_system_service(app_path: str) -> bool:
     """
     Check if an application is a system service.
     
     System services are typically in /usr/bin, /usr/sbin, /bin, /sbin
+    Trusted system apps can also be in /usr/share or /opt
     """
     if not app_path:
         return False
     
     path = Path(app_path)
-    system_dirs = ['/usr/bin', '/usr/sbin', '/bin', '/sbin', '/usr/lib', '/lib']
+    system_dirs = [
+        '/usr/bin', '/usr/sbin', '/bin', '/sbin', 
+        '/usr/lib', '/lib', 
+        '/usr/share', # Common for apps like Antigravity/VSCode
+        '/opt',       # Common for third-party apps
+        '/snap'       # Snap packages
+    ]
     
     for sys_dir in system_dirs:
         if str(path).startswith(sys_dir):
             return True
-    
+            
     return False
 
 
