@@ -6,6 +6,10 @@ Runs as user, connects to daemon, handles tray icon and popups.
 
 import sys
 import os
+
+# Support private module install (RPM/Fedora)
+if os.path.exists("/usr/share/bastion-firewall"):
+    sys.path.append("/usr/share/bastion-firewall")
 import json
 import socket
 import signal
@@ -17,7 +21,7 @@ from bastion.gui_qt import FirewallDialog
 from bastion.icon_manager import IconManager
 
 # Lock file to prevent multiple instances
-LOCK_FILE = '/tmp/bastion-gui.lock'
+LOCK_FILE = f'/tmp/bastion-gui-{os.getuid()}.lock'
 
 def acquire_lock():
     """Try to acquire a lock file. Returns file handle if successful, None if already running."""
