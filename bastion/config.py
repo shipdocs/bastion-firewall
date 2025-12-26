@@ -16,7 +16,9 @@ class ConfigManager:
         'timeout_seconds': 30,
         'allow_localhost': True,
         'allow_lan': False,
-        'log_decisions': True
+        'log_decisions': True,
+        'learning_headless_policy': 'deny',
+        'health_port': 8676
     }
     
     CONFIG_PATH = Path('/etc/bastion/config.json')
@@ -46,6 +48,24 @@ class ConfigManager:
             logger.warning(f"Invalid timeout value, using default 30s")
             timeout = 30
         validated['timeout_seconds'] = timeout
+
+        # Validate learning_headless_policy
+        headless_policy = config.get('learning_headless_policy', cls.DEFAULT_CONFIG['learning_headless_policy'])
+        if headless_policy not in ['allow', 'deny', 'enforce_timeout']:
+            logger.warning(f"Invalid learning_headless_policy '{headless_policy}', defaulting to 'deny'")
+            headless_policy = 'deny'
+        validated['learning_headless_policy'] = headless_policy
+
+        # Validate health_port
+        health_port = config.get('health_port', cls.DEFAULT_CONFIG['health_port'])
+        try:
+            health_port = int(health_port)
+            if not (1 <= health_port <= 65535):
+                raise ValueError("Port out of range")
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid health_port '{health_port}', using default {cls.DEFAULT_CONFIG['health_port']}")
+            health_port = cls.DEFAULT_CONFIG['health_port']
+        validated['health_port'] = health_port
         
         # Validate boolean flags
         for key in ['cache_decisions', 'allow_localhost', 'allow_lan', 'log_decisions']:

@@ -3,6 +3,7 @@
 Bastion Firewall Daemon - Entry Point
 """
 
+import argparse
 import sys
 import os
 import logging
@@ -68,6 +69,24 @@ except ImportError as e:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Bastion Firewall daemon")
+    parser.add_argument('--health-check', action='store_true', help="Report daemon GUI connectivity and headless policy")
+    parser.add_argument('--health-port', type=int, help="Override health endpoint port when querying")
+    args = parser.parse_args()
+
+    if args.health_check:
+        daemon = BastionDaemon()
+        port = args.health_port or daemon.config.get('health_port', 8676)
+        try:
+            import urllib.request
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=5) as resp:
+                print(resp.read().decode())
+                return
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            print(f"Health check failed: {e}")
+            sys.exit(1)
+
     require_root()
 
     daemon = BastionDaemon()
@@ -93,4 +112,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
