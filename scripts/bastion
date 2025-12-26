@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""
+Bastion Firewall CLI entrypoint.
+
+Currently supports a dependency self-check to help operators verify
+their environment before enabling enforcement.
+"""
+
+import argparse
+import os
+import sys
+
+# Ensure local package import works even when running from source tree
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from bastion.startup_validator import run_self_check
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Bastion Firewall command-line interface")
+    parser.add_argument(
+        "--self-check",
+        action="store_true",
+        help="Validate runtime dependencies (netfilterqueue, scapy, psutil, tkinter) before starting the firewall.",
+    )
+    parser.add_argument(
+        "--skip-gui-check",
+        action="store_true",
+        help="Skip GUI-specific checks (e.g., tkinter) when running on headless hosts.",
+    )
+    args = parser.parse_args()
+
+    if args.self_check:
+        success = run_self_check(include_gui=not args.skip_gui_check)
+        sys.exit(0 if success else 1)
+
+    parser.print_help()
+    return 0
+
+
+if __name__ == "__main__":
+    main()

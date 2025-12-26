@@ -19,7 +19,8 @@ setup(
     scripts=[
         "bastion-daemon.py",
         "bastion-gui.py",
-        "bastion_control_panel.py"
+        "bastion_control_panel.py",
+        "scripts/bastion"
     ],
     # Note: entry_points removed because script files use hyphens (bastion-daemon.py)
     # which cannot be imported as Python modules. Use scripts[] instead.

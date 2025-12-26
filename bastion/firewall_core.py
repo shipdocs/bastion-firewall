@@ -8,18 +8,16 @@ import socket
 import struct
 from pathlib import Path
 from typing import Optional, Dict, Tuple
-import psutil
 import time
+import psutil
 
 logger = logging.getLogger(__name__)
 
-try:
-    from netfilterqueue import NetfilterQueue
-    from scapy.all import IP, TCP, UDP
-    NETFILTER_AVAILABLE = True
-except ImportError:
-    NETFILTER_AVAILABLE = False
-    logger.warning("NetfilterQueue or scapy not available - running in limited mode")
+from .startup_validator import (
+    BrokenDependencyError,
+    MissingDependencyError,
+    require_dependency,
+)
 
 
 class PacketInfo:
@@ -198,9 +196,18 @@ class PacketProcessor:
         
         self.cache = ConnectionCache(ttl=120) # 2 minute cache
         self.nfqueue = None
-        
-        if not NETFILTER_AVAILABLE:
-            raise RuntimeError("NetfilterQueue not available - cannot process packets")
+
+        try:
+            nfqueue_module = require_dependency("netfilterqueue")
+            scapy_module = require_dependency("scapy")
+        except (MissingDependencyError, BrokenDependencyError):
+            # Propagate clearer messaging up to the daemon so startup aborts cleanly.
+            raise
+
+        self.NetfilterQueue = nfqueue_module.NetfilterQueue
+        self.IP = scapy_module.IP
+        self.TCP = scapy_module.TCP
+        self.UDP = scapy_module.UDP
     
     def process_packet(self, nfpacket):
         """
@@ -210,21 +217,21 @@ class PacketProcessor:
         """
         try:
             # Parse the packet
-            packet = IP(nfpacket.get_payload())
+            packet = self.IP(nfpacket.get_payload())
             
             # Extract connection info
             protocol = None
             src_port = None
             dest_port = None
             
-            if packet.haslayer(TCP):
+            if packet.haslayer(self.TCP):
                 protocol = 'tcp'
-                src_port = packet[TCP].sport
-                dest_port = packet[TCP].dport
-            elif packet.haslayer(UDP):
+                src_port = packet[self.TCP].sport
+                dest_port = packet[self.TCP].dport
+            elif packet.haslayer(self.UDP):
                 protocol = 'udp'
-                src_port = packet[UDP].sport
-                dest_port = packet[UDP].dport
+                src_port = packet[self.UDP].sport
+                dest_port = packet[self.UDP].dport
             else:
                 # Not TCP or UDP, accept by default
                 nfpacket.accept()
@@ -323,10 +330,7 @@ class PacketProcessor:
 
     def start(self, queue_num=1):
         """Start processing packets from netfilter queue"""
-        if not NETFILTER_AVAILABLE:
-            raise RuntimeError("NetfilterQueue not available")
-
-        self.nfqueue = NetfilterQueue()
+        self.nfqueue = self.NetfilterQueue()
         self.nfqueue.bind(queue_num, self.process_packet)
 
         logger.info(f"Packet processor started on queue {queue_num}")
