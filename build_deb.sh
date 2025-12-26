@@ -23,7 +23,7 @@ echo "============================================================"
 echo ""
 
 # Check if running in project directory
-if [ ! -f "bastion_firewall.py" ]; then
+if [ ! -f "bastion-daemon.py" ]; then
     print_error "Must run from project root directory"
     exit 1
 fi
@@ -56,13 +56,11 @@ mkdir -p debian/DEBIAN
 
 # Copy executables
 print_step "Copying executables..."
-cp bastion_firewall.py debian/usr/bin/bastion-firewall
 cp setup_firewall.sh debian/usr/bin/bastion-setup-firewall
 cp bastion-daemon.py debian/usr/bin/bastion-daemon
 cp bastion-gui.py debian/usr/bin/bastion-gui
 cp bastion_control_panel.py debian/usr/bin/bastion-control-panel
 cp launch_bastion.sh debian/usr/bin/bastion-launch
-chmod +x debian/usr/bin/bastion-firewall
 chmod +x debian/usr/bin/bastion-setup-firewall
 chmod +x debian/usr/bin/bastion-daemon
 chmod +x debian/usr/bin/bastion-gui
@@ -105,7 +103,7 @@ EOF
 print_step "Copying systemd service..."
 cp bastion-firewall.service debian/lib/systemd/system/
 
-# Note: config.json is NOT copied to /etc/bastion/ in the package
+# Note: config.json is NOT copied to /etc/bastion/ in package
 # It will be created by postinst script during installation with user prompts
 
 # Copy desktop entries
@@ -116,7 +114,7 @@ chmod 644 debian/usr/share/applications/com.bastion.firewall.desktop
 cp bastion-control-panel.desktop debian/usr/share/applications/bastion-control-panel.desktop
 chmod 644 debian/usr/share/applications/bastion-control-panel.desktop
 # Tray icon autostart entry (ONLY in autostart, NOT in applications menu)
-# This prevents Software Center from picking it up as the main app
+# This prevents Software Center from picking it up as main app
 mkdir -p debian/etc/xdg/autostart
 cp bastion-tray.desktop debian/etc/xdg/autostart/bastion-tray.desktop
 chmod 644 debian/etc/xdg/autostart/bastion-tray.desktop
@@ -213,6 +211,9 @@ cp CONTRIBUTING.md debian/usr/share/doc/bastion-firewall/
 cp SECURITY.md debian/usr/share/doc/bastion-firewall/
 cp config.json debian/usr/share/doc/bastion-firewall/config.json.example
 
+# Copy logrotate configuration
+cp debian/bastion-firewall.logrotate debian/usr/share/doc/bastion-firewall/
+
 # Create copyright file
 cat > debian/usr/share/doc/bastion-firewall/copyright << 'EOF'
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
@@ -292,10 +293,21 @@ mkdir -p /var/log/bastion
 chown -R bastion:bastion /var/log/bastion
 chmod 750 /var/log/bastion
 
+# Install logrotate configuration
+if [ -f /usr/share/doc/bastion-firewall/bastion-firewall.logrotate ]; then
+    cp /usr/share/doc/bastion-firewall/bastion-firewall.logrotate /etc/logrotate.d/bastion-firewall
+fi
+
+# Ensure log file has correct permissions if it exists
+if [ -f /var/log/bastion-daemon.log ]; then
+    chgrp bastion /var/log/bastion-daemon.log
+    chmod 640 /var/log/bastion-daemon.log
+fi
+
 # Reload systemd
 # Reload systemd
 systemctl daemon-reload
-# Always enable and start/restart the firewall
+# Always enable and start/restart firewall
 systemctl enable bastion-firewall
 systemctl restart bastion-firewall
 
@@ -375,4 +387,3 @@ print_info "To test:"
 echo "  dpkg-deb --contents bastion-firewall_${VERSION}_all.deb"
 echo "  dpkg-deb --info bastion-firewall_${VERSION}_all.deb"
 echo ""
-

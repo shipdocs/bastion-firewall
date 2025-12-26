@@ -872,15 +872,28 @@ class DashboardWindow(QMainWindow):
         
         try:
             if self.log_path.exists():
-                # SECURITY FIX: Use list arguments instead of shell=True to prevent command injection
-                res = subprocess.run(['wc', '-l', str(self.log_path)], capture_output=True, text=True)
-                total = res.stdout.strip().split()[0] if res.returncode == 0 else "0"
-                self.stat_connections_label.setText(total)
-                
-                res = subprocess.run(['grep', '-c', 'decision: deny', str(self.log_path)], 
-                                   capture_output=True, text=True)
-                denied = res.stdout.strip() if res.returncode == 0 else "0"
-                self.stat_blocked_label.setText(denied)
+                if os.access(self.log_path, os.R_OK):
+                    # We can read it directly
+                    # SECURITY FIX: Use list arguments instead of shell=True to prevent command injection
+                    res = subprocess.run(['wc', '-l', str(self.log_path)], capture_output=True, text=True)
+                    total = res.stdout.strip().split()[0] if res.returncode == 0 else "0"
+                    self.stat_connections_label.setText(total)
+                    
+                    res = subprocess.run(['grep', '-c', 'decision: deny', str(self.log_path)],
+                                       capture_output=True, text=True)
+                    denied = res.stdout.strip() if res.returncode == 0 else "0"
+                    self.stat_blocked_label.setText(denied)
+                else:
+                    # Need elevated privileges
+                    cmd = ['pkexec', 'sh', '-c', f'wc -l "{self.log_path}" | cut -d" " -f1']
+                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    total = res.stdout.strip() if res.returncode == 0 else "0"
+                    self.stat_connections_label.setText(total)
+                    
+                    cmd = ['pkexec', 'sh', '-c', f'grep -c "decision: deny" "{self.log_path}"']
+                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    denied = res.stdout.strip() if res.returncode == 0 else "0"
+                    self.stat_blocked_label.setText(denied)
         except Exception as e:
             # Log the error but don't crash the GUI
             import logging
@@ -1000,29 +1013,53 @@ X-GNOME-Autostart-enabled=true
     def refresh_logs(self):
         def load_logs():
             try:
-                cmd = ['tail', '-n', '50', str(self.log_path)]
-                if not os.access(self.log_path, os.R_OK):
-                    cmd = ['pkexec'] + cmd
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-                lines = res.stdout.strip().split('\n') if res.stdout else []
+                # Check if we can read the log file directly
+                if os.access(self.log_path, os.R_OK):
+                    # We can read it directly
+                    cmd = ['tail', '-n', '50', str(self.log_path)]
+                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                    lines = res.stdout.strip().split('\n') if res.stdout else []
+                    logger.info(f"Successfully read {len(lines)} log lines directly")
+                else:
+                    # Need elevated privileges to read the log
+                    # Use pkexec with a shell command to properly handle the path
+                    cmd = ['pkexec', 'sh', '-c', f'tail -n 50 "{self.log_path}"']
+                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                    lines = res.stdout.strip().split('\n') if res.stdout else []
+                    logger.info(f"Successfully read {len(lines)} log lines with pkexec")
             except Exception as e:
                 lines = [f"Error reading logs: {e}"]
+                logger.error(f"Failed to read logs: {e}")
 
+            # Use QTimer.singleShot to ensure _populate_logs runs in main thread
             QTimer.singleShot(0, lambda: self._populate_logs(lines))
 
+        logger.info(f"Starting log refresh thread")
         threading.Thread(target=load_logs, daemon=True).start()
 
     def _populate_logs(self, lines):
+        logger.info(f"Populating logs table with {len(lines)} lines")
         self.table_logs.setRowCount(0)
         for line in reversed(lines):  # Newest first
             if not line.strip():
                 continue
             row = self.table_logs.rowCount()
             self.table_logs.insertRow(row)
-            self.table_logs.setItem(row, 0, QTableWidgetItem(line))
+            item = QTableWidgetItem(line)
+            item.setForeground(QColor(COLORS['text_primary']))
+            self.table_logs.setItem(row, 0, item)
+            
         if self.table_logs.rowCount() == 0:
+            logger.warning("No log entries to display")
             self.table_logs.insertRow(0)
-            self.table_logs.setItem(0, 0, QTableWidgetItem("No log entries available."))
+            item = QTableWidgetItem("No log entries available.")
+            item.setForeground(QColor(COLORS['text_secondary']))
+            self.table_logs.setItem(0, 0, item)
+        else:
+            logger.info(f"Successfully populated {self.table_logs.rowCount()} log entries")
+        # Force UI update
+        self.table_logs.viewport().update()
+        self.table_logs.update()
 
     def toggle_firewall(self):
         is_active = "Stop" in self.btn_toggle.text()

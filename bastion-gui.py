@@ -45,7 +45,7 @@ class BastionClient(QObject):
     def __init__(self, app):
         super().__init__()
         self.app = app
-        self.socket_path = '/tmp/bastion-daemon.sock'
+        self.socket_path = '/var/run/bastion/bastion-daemon.sock'
         self.sock = None
         self.notifier = None
         self.buffer = ""
