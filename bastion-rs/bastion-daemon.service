@@ -1,6 +1,7 @@
 [Unit]
-Description=Bastion Application Firewall Daemon (Rust)
+Description=Bastion Application Firewall Daemon
 After=network.target
+Documentation=https://github.com/shipdocs/bastion-firewall
 
 [Service]
 Type=simple
@@ -9,13 +10,15 @@ ExecStart=/usr/bin/bastion-daemon
 ExecStopPost=/usr/sbin/iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
 Restart=on-failure
 RestartSec=5
+Environment=RUST_LOG=info
+
+# Directories
+RuntimeDirectory=bastion
+ConfigurationDirectory=bastion
 
 # Security hardening
-NoNewPrivileges=false
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=/etc/bastion /var/run/bastion /var/log
-PrivateTmp=true
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_PTRACE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_PTRACE
 
 [Install]
 WantedBy=multi-user.target
