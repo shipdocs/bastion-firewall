@@ -1,4 +1,3 @@
-
 import os
 import sys
 import json
@@ -93,6 +92,12 @@ class BastionDaemon:
     STATE_PATH = Path('/var/lib/bastion/auto_enforce_state.json')
 
     def __init__(self, auto_enforce_after_seconds: Optional[int] = None):
+        """
+        Initialize the BastionDaemon instance and prepare core runtime state, managers, sockets, threads, and auto-enforcement scheduling.
+        
+        Parameters:
+            auto_enforce_after_seconds (Optional[int]): Optional override for the learning-mode grace period in seconds. If provided, it is validated (must be a positive integer; a minimum may be enforced) and used to schedule an automatic transition from learning to enforcement mode. If omitted, configuration or environment values are consulted.
+        """
         self.config = ConfigManager.load_config()
         self.rule_manager = RuleManager()
         self.gui_manager = GUIManager()
@@ -178,7 +183,15 @@ class BastionDaemon:
         self.stop()
 
     def _monitor_loop(self):
-        """Background thread for systemd watchdog and health checks"""
+        """
+        Run the background health monitor that notifies systemd and performs periodic health checks.
+        
+        Performs these visible actions:
+        - Pings the systemd watchdog each loop to keep the service marked alive.
+        - Every ~60 seconds inspects iptables OUTPUT rules and logs warnings when expected NFQUEUE or bypass rules are missing or out of range.
+        - Every ~5 seconds invokes the auto-enforce check to evaluate learning-mode grace-period transitions.
+        - Sleeps between iterations and logs unexpected errors encountered in the loop.
+        """
         logger.info("Health monitor thread started")
         self.systemd.ready()
 
@@ -407,7 +420,11 @@ class BastionDaemon:
         logger.info(f"Secure socket established at {self.SOCKET_PATH}")
 
     def reload_config(self):
-        """Reload configuration and rules"""
+        """
+        Reload the daemon configuration and rule set.
+        
+        Replaces the in-memory configuration with the latest persisted config, instructs the RuleManager to reload rules, logs the active mode, and triggers learning-mode warnings and any auto-enforcement scheduling. Errors encountered during reload are logged and do not propagate.
+        """
         logger.info("Reloading configuration and rules...")
         try:
             self.config = ConfigManager.load_config()
@@ -419,7 +436,11 @@ class BastionDaemon:
             logger.error(f"Error reloading config: {e}")
 
     def _handle_learning_mode_warning(self):
-        """Warn loudly when running in learning mode (traffic allowed)."""
+        """
+        Emit a prominent warning when the daemon is in learning mode and notify the GUI once per session.
+        
+        Logs a loud warning indicating that traffic is allowed during onboarding and, the first time per session, sends a throttled GUI notification. If the configured mode is not `learning`, clears the internal sent flag so the notice can be shown again if learning mode is re-enabled.
+        """
         if self.config.get('mode', 'learning') != 'learning':
             # Reset so we warn again if the user switches back.
             self.learning_mode_warning_sent = False
@@ -442,7 +463,17 @@ class BastionDaemon:
             )
 
     def _validate_auto_enforce(self, override_seconds: Optional[int]) -> Optional[int]:
-        """Parse CLI/env override for auto-enforcing after a grace period."""
+        """
+        Validate and determine the auto-enforce grace period (in seconds) from an override or environment variable.
+        
+        Reads BASTION_AUTO_ENFORCE_AFTER when no override is provided, ensures the resulting value is a positive integer, and enforces a minimum of 60 seconds. Logs warnings for missing, invalid, or out-of-range values.
+        
+        Parameters:
+            override_seconds (Optional[int]): CLI-provided override in seconds; when None the environment variable is used.
+        
+        Returns:
+            seconds (Optional[int]): Validated grace period in seconds, or `None` if no valid value is provided.
+        """
         env_value = os.environ.get("BASTION_AUTO_ENFORCE_AFTER")
         candidate = override_seconds if override_seconds is not None else env_value
         if candidate is None:
@@ -462,6 +493,14 @@ class BastionDaemon:
             return None
 
     def _load_auto_enforce_state(self) -> Dict[str, Any]:
+        """
+        Load persisted auto-enforcement state from the daemon's STATE_PATH.
+        
+        Reads and parses the JSON state file at STATE_PATH and returns its contents as a dict. If the file does not exist, cannot be read, or contains invalid JSON, returns an empty dict (and does not raise).
+         
+        Returns:
+            dict: The parsed auto-enforce state, or an empty dict if missing or invalid.
+        """
         if not self.STATE_PATH.exists():
             return {}
         try:
@@ -474,6 +513,16 @@ class BastionDaemon:
         return {}
 
     def _save_auto_enforce_state(self, state: Dict[str, Any]) -> None:
+        """
+        Persist the auto-enforce state to disk atomically and set secure file permissions.
+        
+        Parameters:
+            state (Dict[str, Any]): JSON-serializable mapping representing the auto-enforce state to persist.
+        
+        Notes:
+            - Writes are performed atomically (temporary file replaced into the final path) and the file mode is set to 0640.
+            - Failures are caught and logged; this method does not raise on write errors.
+        """
         try:
             self.STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
@@ -485,7 +534,14 @@ class BastionDaemon:
             logger.debug(f"Unable to persist auto-enforce state: {e}")
 
     def _maybe_auto_enforce(self, initial: bool = False):
-        """Automatically flip to enforcement after a grace period, once."""
+        """
+        Schedule or trigger a one-time switch from learning to enforcement mode after a configured grace period.
+        
+        If an auto-enforce interval is configured and the current config mode is 'learning', this function loads persistent state to determine whether a switch has been scheduled or already triggered. If no schedule exists it writes a scheduled switch time (now + grace period); if the scheduled time has passed it invokes the enforcement switch. The function is a no-op when auto-enforcement is disabled, the mode is not 'learning', or enforcement has already been triggered.
+        
+        Parameters:
+            initial (bool): When True and a grace period is active, log the remaining seconds once.
+        """
         if not self.auto_enforce_after_seconds:
             return
 
@@ -514,7 +570,16 @@ class BastionDaemon:
         self._switch_to_enforcement(state)
 
     def _switch_to_enforcement(self, state: Dict[str, Any]):
-        """Persist enforcement mode and record the transition."""
+        """
+        Switch the daemon from learning to enforcement mode and persist that transition.
+        
+        Update the in-memory configuration to 'enforcement', persist the configuration to disk, update and save the provided auto-enforce state with trigger metadata, and send a GUI notification about the mode change.
+        
+        Parameters:
+            state (dict): Mutable auto-enforce state that will be updated with:
+                - "auto_enforce_triggered" (bool): set to True when enforcement is activated.
+                - "enforced_at" (float): epoch timestamp when enforcement was enabled.
+        """
         logger.warning("Grace period elapsed; switching to enforcement mode automatically.")
         self.config['mode'] = 'enforcement'
         try:
@@ -544,7 +609,24 @@ class BastionDaemon:
 
     def _send_gui_notification(self, title: str, message: str, level: str = "info",
                                throttle_key: Optional[str] = None, min_interval: int = 5):
-        """Best-effort GUI notification helper with throttling."""
+        """
+                               Send a best-effort notification to the connected GUI, with optional throttling.
+                               
+                               If no GUI is connected the call is a no-op. When `throttle_key` is provided,
+                               notifications with the same key are suppressed if sent again within
+                               `min_interval` seconds. Failures to deliver (broken pipe, connection reset,
+                               OS errors) clear the stored GUI socket; other exceptions are logged at debug
+                               level.
+                               
+                               Parameters:
+                                   title (str): Notification title shown in the GUI.
+                                   message (str): Notification body text.
+                                   level (str): Notification severity level (e.g., "info", "warning", "error").
+                                   throttle_key (Optional[str]): Key used to throttle repeated notifications.
+                                       If omitted, no throttling is applied.
+                                   min_interval (int): Minimum seconds between notifications sharing the same
+                                       `throttle_key`.
+                               """
         if not self.gui_socket:
             return
 
@@ -570,6 +652,11 @@ class BastionDaemon:
             logger.debug(f"Error sending notification to GUI: {e}")
 
     def _setup_signals(self):
+        """
+        Register UNIX signal handlers for daemon lifecycle control.
+        
+        Sets SIGHUP to trigger configuration reload, and SIGTERM/SIGINT to trigger a clean shutdown. This must be called from the main thread (signal handlers are only delivered to the main thread on most platforms).
+        """
         signal.signal(signal.SIGHUP, lambda s, f: self.reload_config())
         signal.signal(signal.SIGTERM, lambda s, f: self.stop())
         signal.signal(signal.SIGINT, lambda s, f: self.stop())
