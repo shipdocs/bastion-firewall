@@ -316,8 +316,10 @@ class PacketProcessor:
 
         except Exception as e:
             logger.error(f"Error processing packet: {e}", exc_info=True)
-            # On error, accept the packet to avoid breaking connectivity
-            nfpacket.accept()
+            logger.error(f"Error processing packet: {e}", exc_info=True)
+            # SECURITY: Fail-closed on error to prevent leakage
+            logger.warning("Failing closed (dropping packet) due to processing error")
+            nfpacket.drop()
 
     def start(self, queue_num=1):
         """Start processing packets from netfilter queue"""
@@ -347,7 +349,7 @@ class IPTablesManager:
     """Manages iptables rules for packet queuing"""
 
     @staticmethod
-    def setup_nfqueue(queue_num=1):
+    def setup_nfqueue(queue_num=1, allow_root=True, allow_systemd=True):
         """
         Set up iptables rules to queue outbound packets.
         Ensures a clean slate before adding rules to prevent duplicates.
@@ -370,19 +372,24 @@ class IPTablesManager:
             logger.info(f"Added iptables NFQUEUE rule: {' '.join(rule)}")
 
             # Bypass NFQUEUE for root and systemd services for performance gain
-            bypass_rules = [
-                # Allow root (UID 0) - manages system updates, cron, etc.
-                ['iptables', '-I', 'OUTPUT', '1', 
-                 '-m', 'owner', '--uid-owner', '0', 
-                 '-m', 'comment', '--comment', 'BASTION_BYPASS',
-                 '-j', 'ACCEPT'],
-                
-                # Allow systemd-network (GID) - handles DHCP, etc.
-                ['iptables', '-I', 'OUTPUT', '1', 
-                 '-m', 'owner', '--gid-owner', 'systemd-network',
-                 '-m', 'comment', '--comment', 'BASTION_BYPASS',
-                 '-j', 'ACCEPT']
-            ]
+            # Only if explicitly allowed (default: True)
+            bypass_rules = []
+            
+            if allow_root:
+                bypass_rules.append(
+                    ['iptables', '-I', 'OUTPUT', '1', 
+                     '-m', 'owner', '--uid-owner', '0', 
+                     '-m', 'comment', '--comment', 'BASTION_BYPASS',
+                     '-j', 'ACCEPT']
+                )
+            
+            if allow_systemd:
+                bypass_rules.append(
+                    ['iptables', '-I', 'OUTPUT', '1', 
+                     '-m', 'owner', '--gid-owner', 'systemd-network',
+                     '-m', 'comment', '--comment', 'BASTION_BYPASS',
+                     '-j', 'ACCEPT']
+                )
 
             for bypass in bypass_rules:
                 try:

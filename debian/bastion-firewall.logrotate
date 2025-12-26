@@ -1,0 +1,13 @@
+/var/log/bastion-daemon.log {
+    daily
+    missingok
+    rotate 7
+    compress
+    delaycompress
+    notifempty
+    create 0640 root bastion
+    postrotate
+        # Send SIGHUP to daemon to reopen log file
+        systemctl reload bastion-firewall >/dev/null 2>&1 || true
+    endscript
+}
