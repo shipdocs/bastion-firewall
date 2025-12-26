@@ -9,13 +9,11 @@ BuildArch:      noarch
 
 Requires:       python3 >= 3.6
 Requires:       python3-pip
-Requires:       python3-tkinter
-Requires:       python3-gobject
-Requires:       libappindicator-gtk3
+Requires:       python3-pyqt6
+Requires:       python3-psutil
 Requires:       iptables
 Requires:       libnetfilter_queue
 Requires:       polkit
-Requires:       python3-psutil
 Requires:       python3-scapy
 Requires:       python3-pillow
 
@@ -48,22 +46,22 @@ Features:
 
 %install
 rm -rf $RPM_BUILD_ROOT
-mkdir -p $RPM_BUILD_ROOT/usr/local/bin
-mkdir -p $RPM_BUILD_ROOT/usr/lib/python3/site-packages/bastion
+mkdir -p $RPM_BUILD_ROOT/usr/bin
+mkdir -p $RPM_BUILD_ROOT/usr/share/bastion-firewall/bastion
 mkdir -p $RPM_BUILD_ROOT/etc/bastion
 mkdir -p $RPM_BUILD_ROOT/usr/share/applications
 mkdir -p $RPM_BUILD_ROOT/usr/share/doc/bastion-firewall
 mkdir -p $RPM_BUILD_ROOT/lib/systemd/system
 
 # Install executables
-install -m 755 bastion-daemon $RPM_BUILD_ROOT/usr/local/bin/
-install -m 755 bastion-gui $RPM_BUILD_ROOT/usr/local/bin/
-install -m 755 bastion-control-panel $RPM_BUILD_ROOT/usr/local/bin/
-install -m 755 bastion-setup-firewall $RPM_BUILD_ROOT/usr/local/bin/
-install -m 755 bastion-launch $RPM_BUILD_ROOT/usr/local/bin/
+install -m 755 bastion-daemon $RPM_BUILD_ROOT/usr/bin/
+install -m 755 bastion-gui $RPM_BUILD_ROOT/usr/bin/
+install -m 755 bastion-control-panel $RPM_BUILD_ROOT/usr/bin/
+install -m 755 bastion-setup-firewall $RPM_BUILD_ROOT/usr/bin/
+install -m 755 bastion-launch $RPM_BUILD_ROOT/usr/bin/
 
 # Install Python modules
-cp -r bastion/* $RPM_BUILD_ROOT/usr/lib/python3/site-packages/bastion/
+cp -r bastion/* $RPM_BUILD_ROOT/usr/share/bastion-firewall/bastion/
 
 # Install config
 install -m 644 config.json $RPM_BUILD_ROOT/etc/bastion/config.json
@@ -85,12 +83,12 @@ mkdir -p $RPM_BUILD_ROOT/usr/share/metainfo
 install -m 644 com.bastion.firewall.metainfo.xml $RPM_BUILD_ROOT/usr/share/metainfo/
 
 %files
-/usr/local/bin/bastion-daemon
-/usr/local/bin/bastion-gui
-/usr/local/bin/bastion-control-panel
-/usr/local/bin/bastion-setup-firewall
-/usr/local/bin/bastion-launch
-/usr/lib/python3/site-packages/bastion/
+/usr/bin/bastion-daemon
+/usr/bin/bastion-gui
+/usr/bin/bastion-control-panel
+/usr/bin/bastion-setup-firewall
+/usr/bin/bastion-launch
+/usr/share/bastion-firewall/bastion/
 %config(noreplace) /etc/bastion/config.json
 /lib/systemd/system/bastion-firewall.service
 /usr/share/applications/com.bastion.firewall.desktop
