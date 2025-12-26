@@ -9,15 +9,18 @@ import time
 import subprocess
 import stat
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, TYPE_CHECKING
 from collections import deque
 import threading
 
 from .config import ConfigManager
 from .rules import RuleManager
-from .firewall_core import PacketProcessor, PacketInfo, IPTablesManager
 from .service_whitelist import should_auto_allow, get_app_category
 from .gui_manager import GUIManager
+from .startup_validator import DependencyValidationError, ensure_runtime_dependencies
+
+if TYPE_CHECKING:
+    from .firewall_core import PacketProcessor, PacketInfo, IPTablesManager
 
 logger = logging.getLogger(__name__)
 
@@ -94,10 +97,11 @@ class BastionDaemon:
         self.config = ConfigManager.load_config()
         self.rule_manager = RuleManager()
         self.gui_manager = GUIManager()
-        self.packet_processor: Optional[PacketProcessor] = None
+        self.packet_processor: Optional["PacketProcessor"] = None
         self.server_socket: Optional[socket.socket] = None
         self.gui_socket: Optional[socket.socket] = None
         self.running = False
+        self.iptables_manager = None
 
         self.systemd = SystemdNotifier()
         self.monitor_thread = None
@@ -120,6 +124,18 @@ class BastionDaemon:
         """Start the daemon"""
         logger.info("Starting Bastion Daemon...")
 
+        # Validate dependencies before mutating system state
+        try:
+            ensure_runtime_dependencies(include_gui=True)
+        except DependencyValidationError as exc:
+            logger.critical(exc.user_message)
+            print(exc.user_message, file=sys.stderr)
+            return
+
+        # Defer heavy imports until dependencies are verified
+        from .firewall_core import PacketProcessor, IPTablesManager
+        self.iptables_manager = IPTablesManager
+
         # Setup signals
         self._setup_signals()
 
@@ -131,12 +147,24 @@ class BastionDaemon:
         allow_systemd = self.config.get('allow_systemd_bypass', True)
         logger.info(f"Configuring iptables (Root Bypass: {allow_root}, Systemd Bypass: {allow_systemd})")
         
-        if not IPTablesManager.setup_nfqueue(queue_num=1, allow_root=allow_root, allow_systemd=allow_systemd):
+        queue_num = 1
+        if not self.iptables_manager.setup_nfqueue(queue_num=queue_num, allow_root=allow_root, allow_systemd=allow_systemd):
             logger.error("Failed to setup iptables")
             return
 
         # Start Packet Processor IMMEDIATELY
-        self.packet_processor = PacketProcessor(self._handle_packet)
+        try:
+            self.packet_processor = PacketProcessor(self._handle_packet)
+        except DependencyValidationError as exc:
+            logger.critical(exc.user_message)
+            self.iptables_manager.cleanup_nfqueue(queue_num=queue_num)
+            self.stop()
+            return
+        except Exception as exc:
+            logger.exception("Failed to initialize packet processor: %s", exc)
+            self.iptables_manager.cleanup_nfqueue(queue_num=queue_num)
+            self.stop()
+            return
         self.running = True
 
         # Start processor in background thread
@@ -412,9 +440,12 @@ class BastionDaemon:
             logger.warning("NFQUEUE rule missing! Re-adding...")
             allow_root = self.config.get('allow_root_bypass', True)
             allow_systemd = self.config.get('allow_systemd_bypass', True)
-            IPTablesManager.setup_nfqueue(queue_num=1, allow_root=allow_root, allow_systemd=allow_systemd)
+            if not self.iptables_manager:
+                from .firewall_core import IPTablesManager as ImportedIPTablesManager
+                self.iptables_manager = ImportedIPTablesManager
+            self.iptables_manager.setup_nfqueue(queue_num=1, allow_root=allow_root, allow_systemd=allow_systemd)
 
-    def _handle_packet(self, pkt_info: PacketInfo) -> bool:
+    def _handle_packet(self, pkt_info: "PacketInfo") -> bool:
         """Handle a packet decision"""
         self.stats['total_connections'] += 1
 
@@ -647,8 +678,11 @@ class BastionDaemon:
             
         if self.packet_processor:
             self.packet_processor.stop()
-            
-        IPTablesManager.cleanup_nfqueue(queue_num=1)
+
+        if not self.iptables_manager:
+            from .firewall_core import IPTablesManager as ImportedIPTablesManager
+            self.iptables_manager = ImportedIPTablesManager
+        self.iptables_manager.cleanup_nfqueue(queue_num=1)
         
         if os.path.exists(self.SOCKET_PATH):
             try:
