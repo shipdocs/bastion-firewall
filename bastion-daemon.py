@@ -8,6 +8,7 @@ import os
 import logging
 import atexit
 import signal
+import argparse
 
 # Ensure we can import the package
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -68,9 +69,14 @@ except ImportError as e:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Bastion Firewall Daemon")
+    parser.add_argument("--auto-enforce-after", type=int, default=None,
+                        help="Automatically switch to enforcement mode after N seconds (can also set BASTION_AUTO_ENFORCE_AFTER env var).")
+    args = parser.parse_args()
+
     require_root()
 
-    daemon = BastionDaemon()
+    daemon = BastionDaemon(auto_enforce_after_seconds=args.auto_enforce_after)
 
     # Register cleanup - prefix unused params with _ to indicate intentional
     def cleanup(_signum=None, _frame=None):
@@ -93,4 +99,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
