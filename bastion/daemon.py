@@ -1,4 +1,3 @@
-
 import os
 import sys
 import json
@@ -8,8 +7,9 @@ import signal
 import time
 import subprocess
 import stat
+import tempfile
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from collections import deque
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -90,8 +90,15 @@ class BastionDaemon:
     
     # Use secure runtime directory instead of /tmp to prevent TOCTOU attacks
     SOCKET_PATH = '/var/run/bastion/bastion-daemon.sock'
-    
-    def __init__(self):
+    STATE_PATH = Path('/var/lib/bastion/auto_enforce_state.json')
+
+    def __init__(self, auto_enforce_after_seconds: Optional[int] = None):
+        """
+        Initialize the BastionDaemon instance and prepare core runtime state, managers, sockets, threads, and auto-enforcement scheduling.
+        
+        Parameters:
+            auto_enforce_after_seconds (Optional[int]): Optional override for the learning-mode grace period in seconds. If provided, it is validated (must be a positive integer; a minimum may be enforced) and used to schedule an automatic transition from learning to enforcement mode. If omitted, configuration or environment values are consulted.
+        """
         self.config = ConfigManager.load_config()
         self.rule_manager = RuleManager()
         self.gui_manager = GUIManager()
@@ -108,6 +115,15 @@ class BastionDaemon:
         self.request_lock = threading.Lock()
         self.socket_lock = threading.Lock()
         self.rate_limiter = RateLimiter(max_requests_per_second=10, window_seconds=1)
+        self.learning_mode_warning_sent = False
+
+        self.auto_enforce_after_seconds = self._validate_auto_enforce(auto_enforce_after_seconds)
+        try:
+            self.STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.debug(f"Unable to create state directory {self.STATE_PATH.parent}: {e}")
+        self._handle_learning_mode_warning()
+        self._maybe_auto_enforce(initial=True)
 
         # Statistics
         self.stats = {
@@ -177,12 +193,21 @@ class BastionDaemon:
         self.stop()
 
     def _monitor_loop(self):
-        """Background thread for systemd watchdog and health checks"""
+        """
+        Run the background health monitor that notifies systemd and performs periodic health checks.
+        
+        Performs these visible actions:
+        - Pings the systemd watchdog each loop to keep the service marked alive.
+        - Every ~60 seconds inspects iptables OUTPUT rules and logs warnings when expected NFQUEUE or bypass rules are missing or out of range.
+        - Every ~5 seconds invokes the auto-enforce check to evaluate learning-mode grace-period transitions.
+        - Sleeps between iterations and logs unexpected errors encountered in the loop.
+        """
         logger.info("Health monitor thread started")
         self.systemd.ready()
 
         last_rule_check = 0
         rule_check_interval = 60 # Check every minute
+        last_auto_enforce_check = 0
 
         while self.running:
             try:
@@ -216,6 +241,11 @@ class BastionDaemon:
                         logger.error(f"Health check failed: {e}")
                     
                     last_rule_check = now
+
+                # 3. Auto-enforce learning mode after grace period
+                if now - last_auto_enforce_check > 5:
+                    self._maybe_auto_enforce()
+                    last_auto_enforce_check = now
                 
                 time.sleep(5)
                 
@@ -442,16 +472,243 @@ class BastionDaemon:
         logger.info(f"Secure socket established at {self.SOCKET_PATH}")
 
     def reload_config(self):
-        """Reload configuration and rules"""
+        """
+        Reload the daemon configuration and rule set.
+        
+        Replaces the in-memory configuration with the latest persisted config, instructs the RuleManager to reload rules, logs the active mode, and triggers learning-mode warnings and any auto-enforcement scheduling. Errors encountered during reload are logged and do not propagate.
+        """
         logger.info("Reloading configuration and rules...")
         try:
             self.config = ConfigManager.load_config()
             self.rule_manager.reload_rules()
             logger.info(f"Config reloaded. Mode: {self.config.get('mode', 'learning')}")
+            self._handle_learning_mode_warning()
+            self._maybe_auto_enforce()
         except Exception as e:
             logger.error(f"Error reloading config: {e}")
 
+    def _handle_learning_mode_warning(self):
+        """
+        Emit a prominent warning when the daemon is in learning mode and notify the GUI once per session.
+        
+        Logs a loud warning indicating that traffic is allowed during onboarding and, the first time per session, sends a throttled GUI notification. If the configured mode is not `learning`, clears the internal sent flag so the notice can be shown again if learning mode is re-enabled.
+        """
+        if self.config.get('mode', 'learning') != 'learning':
+            # Reset so we warn again if the user switches back.
+            self.learning_mode_warning_sent = False
+            return
+
+        warning_msg = (
+            "LEARNING MODE ENABLED: traffic is allowed during onboarding. "
+            "Use enforcement mode to start blocking new connections."
+        )
+        logger.warning(warning_msg)
+
+        if not self.learning_mode_warning_sent:
+            self.learning_mode_warning_sent = True
+            self._send_gui_notification(
+                title="Learning mode active",
+                message="Bastion is in learning mode — traffic will be allowed during onboarding.",
+                level="warning",
+                throttle_key="learning_mode_notice",
+                min_interval=30,
+            )
+
+    def _validate_auto_enforce(self, override_seconds: Optional[int]) -> Optional[int]:
+        """
+        Validate and determine the auto-enforce grace period (in seconds) from an override or environment variable.
+        
+        Reads BASTION_AUTO_ENFORCE_AFTER when no override is provided, ensures the resulting value is a positive integer, and enforces a minimum of 60 seconds. Logs warnings for missing, invalid, or out-of-range values.
+        
+        Parameters:
+            override_seconds (Optional[int]): CLI-provided override in seconds; when None the environment variable is used.
+        
+        Returns:
+            seconds (Optional[int]): Validated grace period in seconds, or `None` if no valid value is provided.
+        """
+        env_value = os.environ.get("BASTION_AUTO_ENFORCE_AFTER")
+        candidate = override_seconds if override_seconds is not None else env_value
+        if candidate is None:
+            return None
+
+        try:
+            seconds = int(candidate)
+            if seconds <= 0:
+                logger.warning("BASTION_AUTO_ENFORCE_AFTER must be positive; ignoring.")
+                return None
+            if seconds < 60:
+                logger.warning("Auto-enforce period too short (<60s); using minimum of 60s.")
+                seconds = 60
+            return seconds
+        except (TypeError, ValueError):
+            logger.warning("Invalid auto-enforce value; ignoring grace period override.")
+            return None
+
+    def _load_auto_enforce_state(self) -> Dict[str, Any]:
+        """
+        Load persisted auto-enforcement state from the daemon's STATE_PATH.
+        
+        Reads and parses the JSON state file at STATE_PATH and returns its contents as a dict. If the file does not exist, cannot be read, or contains invalid JSON, returns an empty dict (and does not raise).
+         
+        Returns:
+            dict: The parsed auto-enforce state, or an empty dict if missing or invalid.
+        """
+        if not self.STATE_PATH.exists():
+            return {}
+        try:
+            with open(self.STATE_PATH) as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            logger.warning("Auto-enforce state file is corrupt; resetting.")
+        except Exception as e:
+            logger.debug(f"Unable to read auto-enforce state: {e}")
+        return {}
+
+    def _save_auto_enforce_state(self, state: Dict[str, Any]) -> None:
+        """
+        Persist the auto-enforce state to disk atomically and set secure file permissions.
+        
+        Parameters:
+            state (Dict[str, Any]): JSON-serializable mapping representing the auto-enforce state to persist.
+        
+        Notes:
+            - Writes are performed atomically (temporary file replaced into the final path) and the file mode is set to 0640.
+            - Failures are caught and logged; this method does not raise on write errors.
+        """
+        try:
+            self.STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
+                json.dump(state, tmp, indent=2)
+                tmp_path = tmp.name
+            os.replace(tmp_path, self.STATE_PATH)
+            os.chmod(self.STATE_PATH, 0o640)
+        except Exception as e:
+            logger.debug(f"Unable to persist auto-enforce state: {e}")
+
+    def _maybe_auto_enforce(self, initial: bool = False):
+        """
+        Schedule or trigger a one-time switch from learning to enforcement mode after a configured grace period.
+        
+        If an auto-enforce interval is configured and the current config mode is 'learning', this function loads persistent state to determine whether a switch has been scheduled or already triggered. If no schedule exists it writes a scheduled switch time (now + grace period); if the scheduled time has passed it invokes the enforcement switch. The function is a no-op when auto-enforcement is disabled, the mode is not 'learning', or enforcement has already been triggered.
+        
+        Parameters:
+            initial (bool): When True and a grace period is active, log the remaining seconds once.
+        """
+        if not self.auto_enforce_after_seconds:
+            return
+
+        if self.config.get('mode', 'learning') != 'learning':
+            return
+
+        state = self._load_auto_enforce_state()
+        if state.get("auto_enforce_triggered"):
+            return
+
+        scheduled_at = state.get("scheduled_switch_at")
+        now = time.time()
+        if not scheduled_at:
+            scheduled_at = now + self.auto_enforce_after_seconds
+            state["scheduled_switch_at"] = scheduled_at
+            self._save_auto_enforce_state(state)
+            logger.info(f"Learning mode grace period started; enforcement will activate at {time.ctime(scheduled_at)}")
+            return
+
+        if now < scheduled_at:
+            if initial:
+                remaining = int(scheduled_at - now)
+                logger.info(f"Learning mode grace period active ({remaining}s remaining)")
+            return
+
+        self._switch_to_enforcement(state)
+
+    def _switch_to_enforcement(self, state: Dict[str, Any]):
+        """
+        Switch the daemon from learning to enforcement mode and persist that transition.
+        
+        Update the in-memory configuration to 'enforcement', persist the configuration to disk, update and save the provided auto-enforce state with trigger metadata, and send a GUI notification about the mode change.
+        
+        Parameters:
+            state (dict): Mutable auto-enforce state that will be updated with:
+                - "auto_enforce_triggered" (bool): set to True when enforcement is activated.
+                - "enforced_at" (float): epoch timestamp when enforcement was enabled.
+        """
+        logger.warning("Grace period elapsed; switching to enforcement mode automatically.")
+        self.config['mode'] = 'enforcement'
+        try:
+            cfg_path = ConfigManager.CONFIG_PATH
+            cfg_path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
+                json.dump(self.config, tmp, indent=2)
+                tmp_path = tmp.name
+            os.replace(tmp_path, cfg_path)
+            os.chmod(cfg_path, 0o644)
+        except Exception as e:
+            logger.error(f"Failed to persist enforcement mode: {e}")
+            return
+
+        state.update({
+            "auto_enforce_triggered": True,
+            "enforced_at": time.time(),
+        })
+        self._save_auto_enforce_state(state)
+        self._send_gui_notification(
+            title="Enforcement mode enabled",
+            message="Grace period ended. Bastion now enforces new outbound connections.",
+            level="info",
+            throttle_key="auto_enforce_notice",
+            min_interval=5,
+        )
+
+    def _send_gui_notification(self, title: str, message: str, level: str = "info",
+                               throttle_key: Optional[str] = None, min_interval: int = 5):
+        """
+                               Send a best-effort notification to the connected GUI, with optional throttling.
+                               
+                               If no GUI is connected the call is a no-op. When `throttle_key` is provided,
+                               notifications with the same key are suppressed if sent again within
+                               `min_interval` seconds. Failures to deliver (broken pipe, connection reset,
+                               OS errors) clear the stored GUI socket; other exceptions are logged at debug
+                               level.
+                               
+                               Parameters:
+                                   title (str): Notification title shown in the GUI.
+                                   message (str): Notification body text.
+                                   level (str): Notification severity level (e.g., "info", "warning", "error").
+                                   throttle_key (Optional[str]): Key used to throttle repeated notifications.
+                                       If omitted, no throttling is applied.
+                                   min_interval (int): Minimum seconds between notifications sharing the same
+                                       `throttle_key`.
+                               """
+        if not self.gui_socket:
+            return
+
+        now = time.time()
+        if throttle_key:
+            last_time = self.last_request_time.get(throttle_key, 0)
+            if now - last_time < min_interval:
+                return
+            self.last_request_time[throttle_key] = now
+
+        msg = {
+            'type': 'notification',
+            'title': title,
+            'message': message,
+            'level': level
+        }
+        try:
+            with self.socket_lock:
+                self.gui_socket.sendall(json.dumps(msg).encode() + b'\n')
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            self.gui_socket = None
+        except Exception as e:
+            logger.debug(f"Error sending notification to GUI: {e}")
+
     def _setup_signals(self):
+        """
+        Register UNIX signal handlers for daemon lifecycle control.
+        
+        Sets SIGHUP to trigger configuration reload, and SIGTERM/SIGINT to trigger a clean shutdown. This must be called from the main thread (signal handlers are only delivered to the main thread on most platforms).
+        """
         signal.signal(signal.SIGHUP, lambda s, f: self.reload_config())
         signal.signal(signal.SIGTERM, lambda s, f: self.stop())
         signal.signal(signal.SIGINT, lambda s, f: self.stop())

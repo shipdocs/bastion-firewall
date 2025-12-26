@@ -12,6 +12,7 @@ if os.path.exists("/usr/share/bastion-firewall"):
 import logging
 import atexit
 import signal
+import argparse
 
 # Ensure we can import the package
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -79,12 +80,29 @@ except ImportError as e:
 
 
 def main():
+    """
+    Start the Bastion firewall daemon with CLI-configured enforcement timing and process lifecycle handling.
+    
+    Parses the --auto-enforce-after option (or BASTION_AUTO_ENFORCE_AFTER env var), enforces root privileges, constructs a BastionDaemon with the parsed enforcement timeout, registers signal handlers and an atexit handler to stop the daemon on shutdown, and starts the daemon. On unhandled exceptions the daemon is stopped, the error is logged with a traceback, and the process exits with status 1; the registered cleanup stops the daemon and exits with status 0 for normal termination.
+    """
+    parser = argparse.ArgumentParser(description="Bastion Firewall Daemon")
+    parser.add_argument("--auto-enforce-after", type=int, default=None,
+                        help="Automatically switch to enforcement mode after N seconds (can also set BASTION_AUTO_ENFORCE_AFTER env var).")
+    args = parser.parse_args()
+
     require_root()
 
-    daemon = BastionDaemon()
+    daemon = BastionDaemon(auto_enforce_after_seconds=args.auto_enforce_after)
 
     # Register cleanup - prefix unused params with _ to indicate intentional
     def cleanup(_signum=None, _frame=None):
+        """
+        Stop the daemon, log a shutdown message, and exit the process.
+        
+        Parameters:
+            _signum (int | None): Signal number supplied by the signal handler; ignored.
+            _frame (types.FrameType | None): Current stack frame supplied by the signal handler; ignored.
+        """
         logger.info("Stopping...")
         daemon.stop()
         sys.exit(0)
@@ -104,4 +122,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

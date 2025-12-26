@@ -98,6 +98,17 @@ Configuration is stored in `/etc/bastion/config.json`:
 }
 ```
 
+### Onboarding flow
+
+- **Learning mode** (default) allows outbound traffic while you review prompts and build rules. The daemon logs a warning and the GUI may show a banner/notification reminding you that traffic is permitted.
+- To automatically switch to enforcement after a grace period, start the daemon with `--auto-enforce-after <seconds>` or set the environment variable:
+
+  ```bash
+  BASTION_AUTO_ENFORCE_AFTER=3600 bastion-daemon
+  ```
+
+  The daemon records the scheduled switch time to avoid repeated toggles and updates `/etc/bastion/config.json` when it transitions to enforcement.
+
 ## Architecture
 
 ```
