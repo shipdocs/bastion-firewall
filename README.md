@@ -94,9 +94,13 @@ Configuration is stored in `/etc/bastion/config.json`:
 {
   "mode": "learning",
   "timeout_seconds": 30,
-  "allow_localhost": true
+  "allow_localhost": true,
+  "allow_root_bypass": false,
+  "allow_systemd_bypass": false
 }
 ```
+
+> **Security note:** Bypassing NFQUEUE for privileged accounts trades security for performance and convenience. Leaving `allow_root_bypass` and `allow_systemd_bypass` set to `false` ensures even root-owned/system daemons are subject to Bastion's policy checks. If you need to trust a specific service, prefer running it under a dedicated, least-privilege service account and allow that account explicitly instead of enabling global bypasses.
 
 ## Architecture
 

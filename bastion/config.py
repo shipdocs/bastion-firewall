@@ -16,7 +16,9 @@ class ConfigManager:
         'timeout_seconds': 30,
         'allow_localhost': True,
         'allow_lan': False,
-        'log_decisions': True
+        'log_decisions': True,
+        'allow_root_bypass': False,
+        'allow_systemd_bypass': False
     }
     
     CONFIG_PATH = Path('/etc/bastion/config.json')
@@ -48,7 +50,8 @@ class ConfigManager:
         validated['timeout_seconds'] = timeout
         
         # Validate boolean flags
-        for key in ['cache_decisions', 'allow_localhost', 'allow_lan', 'log_decisions']:
+        for key in ['cache_decisions', 'allow_localhost', 'allow_lan', 'log_decisions',
+                    'allow_root_bypass', 'allow_systemd_bypass']:
             value = config.get(key, cls.DEFAULT_CONFIG.get(key, False))
             validated[key] = bool(value)
         
