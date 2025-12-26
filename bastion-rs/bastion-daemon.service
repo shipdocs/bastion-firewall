@@ -1,0 +1,21 @@
+[Unit]
+Description=Bastion Application Firewall Daemon (Rust)
+After=network.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/sbin/iptables -I OUTPUT 1 -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
+ExecStart=/usr/bin/bastion-daemon
+ExecStopPost=/usr/sbin/iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/etc/bastion /var/run/bastion /var/log
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

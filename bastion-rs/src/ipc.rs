@@ -1,16 +1,26 @@
 //! IPC module for GUI communication via Unix socket
+//! 
+//! Protocol: JSON messages separated by newlines
+//! 
+//! Daemon -> GUI:
+//!   {"type": "connection_request", "app_name": "...", "app_path": "...", "dest_ip": "...", "dest_port": N, "protocol": "tcp"}
+//!   {"type": "stats_update", "stats": {...}}
+//! 
+//! GUI -> Daemon:
+//!   {"allow": true/false, "permanent": true/false}
 
 use serde::{Deserialize, Serialize};
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 use log::{info, warn, error, debug};
 use parking_lot::Mutex;
 
 use crate::rules::RuleManager;
 
-const SOCKET_PATH: &str = "/var/run/bastion/bastion-daemon.sock";
+pub const SOCKET_PATH: &str = "/var/run/bastion/bastion-daemon.sock";
 
 /// Request from daemon to GUI
 #[derive(Debug, Clone, Serialize)]
@@ -19,6 +29,7 @@ pub struct ConnectionRequest {
     pub msg_type: String,
     pub app_name: String,
     pub app_path: String,
+    pub app_category: String,
     pub dest_ip: String,
     pub dest_port: u16,
     pub protocol: String,
@@ -48,134 +59,186 @@ pub struct Stats {
     pub pending_gui: u64,
 }
 
-/// Pending request waiting for GUI response
-pub struct PendingRequest {
+/// Request to ask GUI for a decision
+pub struct DecisionRequest {
+    pub app_name: String,
     pub app_path: String,
+    pub app_category: String,
+    pub dest_ip: String,
     pub dest_port: u16,
-    pub response_tx: tokio::sync::oneshot::Sender<bool>,
+    pub protocol: String,
+    pub response_tx: std::sync::mpsc::Sender<Option<GuiResponse>>,
 }
 
+/// Synchronous IPC Server (runs in separate thread)
 pub struct IpcServer {
     pub stats: Arc<Mutex<Stats>>,
-    pub pending_tx: mpsc::Sender<PendingRequest>,
-    pending_rx: Mutex<Option<mpsc::Receiver<PendingRequest>>>,
     rules: Arc<RuleManager>,
+    request_rx: std::sync::mpsc::Receiver<DecisionRequest>,
+    gui_stream: Mutex<Option<UnixStream>>,
 }
 
 impl IpcServer {
-    pub fn new(rules: Arc<RuleManager>) -> Self {
-        let (tx, rx) = mpsc::channel(100);
+    pub fn new(
+        rules: Arc<RuleManager>,
+        stats: Arc<Mutex<Stats>>,
+        request_rx: std::sync::mpsc::Receiver<DecisionRequest>,
+    ) -> Self {
         Self {
-            stats: Arc::new(Mutex::new(Stats::default())),
-            pending_tx: tx,
-            pending_rx: Mutex::new(Some(rx)),
+            stats,
             rules,
+            request_rx,
+            gui_stream: Mutex::new(None),
         }
     }
     
-    pub async fn run(&self) -> anyhow::Result<()> {
+    /// Run the IPC server (blocking)
+    pub fn run(&self) {
         // Ensure socket directory exists
         let socket_dir = std::path::Path::new(SOCKET_PATH).parent().unwrap();
-        std::fs::create_dir_all(socket_dir)?;
+        if let Err(e) = std::fs::create_dir_all(socket_dir) {
+            error!("Failed to create socket directory: {}", e);
+            return;
+        }
         
         // Remove existing socket
         let _ = std::fs::remove_file(SOCKET_PATH);
         
-        let listener = UnixListener::bind(SOCKET_PATH)?;
-        info!("IPC server listening on {}", SOCKET_PATH);
+        let listener = match UnixListener::bind(SOCKET_PATH) {
+            Ok(l) => l,
+            Err(e) => {
+                error!("Failed to bind socket: {}", e);
+                return;
+            }
+        };
         
         // Set socket permissions
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(0o660);
-            std::fs::set_permissions(SOCKET_PATH, perms)?;
+            if let Err(e) = std::fs::set_permissions(SOCKET_PATH, perms) {
+                warn!("Failed to set socket permissions: {}", e);
+            }
         }
         
-        // Take the receiver (can only do this once)
-        let pending_rx = self.pending_rx.lock().take()
-            .expect("IPC server can only be run once");
+        info!("IPC server listening on {}", SOCKET_PATH);
         
-        let stats = self.stats.clone();
-        let rules = self.rules.clone();
-        
-        // Handle connections
-        loop {
-            match listener.accept().await {
-                Ok((stream, _addr)) => {
+        // Accept connections in a loop
+        for stream_result in listener.incoming() {
+            match stream_result {
+                Ok(stream) => {
                     info!("GUI connected");
+                    stream.set_read_timeout(Some(Duration::from_secs(120))).ok();
+                    stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
+                    
+                    *self.gui_stream.lock() = Some(stream.try_clone().unwrap());
+                    
                     // Handle this connection
-                    // For simplicity, we handle one GUI at a time
-                    if let Err(e) = Self::handle_gui(stream, pending_rx, stats.clone(), rules.clone()).await {
-                        warn!("GUI connection ended: {}", e);
-                    }
-                    break; // Exit after first GUI disconnects for now
+                    self.handle_connection(stream);
+                    
+                    *self.gui_stream.lock() = None;
+                    info!("GUI disconnected, waiting for new connection...");
                 }
                 Err(e) => {
                     error!("Accept error: {}", e);
                 }
             }
         }
-        
-        Ok(())
     }
     
-    async fn handle_gui(
-        stream: UnixStream,
-        mut pending_rx: mpsc::Receiver<PendingRequest>,
-        stats: Arc<Mutex<Stats>>,
-        rules: Arc<RuleManager>,
-    ) -> anyhow::Result<()> {
-        let (reader, mut writer) = stream.into_split();
-        let mut reader = BufReader::new(reader);
+    fn handle_connection(&self, mut stream: UnixStream) {
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
         
         loop {
-            tokio::select! {
-                // Handle pending requests to send to GUI
-                Some(req) = pending_rx.recv() => {
+            // Check for pending decision requests
+            match self.request_rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(request) => {
+                    // Send request to GUI
                     let msg = ConnectionRequest {
                         msg_type: "connection_request".to_string(),
-                        app_name: req.app_path.split('/').last().unwrap_or("unknown").to_string(),
-                        app_path: req.app_path.clone(),
-                        dest_ip: "".to_string(), // TODO: pass this through
-                        dest_port: req.dest_port,
-                        protocol: "tcp".to_string(),
+                        app_name: request.app_name.clone(),
+                        app_path: request.app_path.clone(),
+                        app_category: request.app_category,
+                        dest_ip: request.dest_ip,
+                        dest_port: request.dest_port,
+                        protocol: request.protocol,
                     };
                     
-                    let json = serde_json::to_string(&msg)? + "\n";
-                    writer.write_all(json.as_bytes()).await?;
+                    let json = match serde_json::to_string(&msg) {
+                        Ok(j) => j + "\n",
+                        Err(e) => {
+                            error!("Failed to serialize request: {}", e);
+                            let _ = request.response_tx.send(None);
+                            continue;
+                        }
+                    };
+                    
+                    if let Err(e) = stream.write_all(json.as_bytes()) {
+                        error!("Failed to send to GUI: {}", e);
+                        let _ = request.response_tx.send(None);
+                        return; // Connection broken
+                    }
                     
                     // Wait for response
                     let mut line = String::new();
-                    reader.read_line(&mut line).await?;
-                    
-                    if let Ok(response) = serde_json::from_str::<GuiResponse>(&line) {
-                        // Save permanent rules
-                        if response.permanent {
-                            rules.add_rule(&req.app_path, Some(req.dest_port), response.allow);
+                    match reader.read_line(&mut line) {
+                        Ok(0) => {
+                            // EOF
+                            let _ = request.response_tx.send(None);
+                            return;
                         }
-                        
-                        // Send response back to packet handler
-                        let _ = req.response_tx.send(response.allow);
-                    } else {
-                        let _ = req.response_tx.send(false);
+                        Ok(_) => {
+                            match serde_json::from_str::<GuiResponse>(&line) {
+                                Ok(response) => {
+                                    // Save permanent rules
+                                    if response.permanent {
+                                        self.rules.add_rule(
+                                            &request.app_path,
+                                            Some(request.dest_port),
+                                            response.allow
+                                        );
+                                    }
+                                    let _ = request.response_tx.send(Some(response));
+                                }
+                                Err(e) => {
+                                    warn!("Failed to parse GUI response: {}", e);
+                                    let _ = request.response_tx.send(None);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to read from GUI: {}", e);
+                            let _ = request.response_tx.send(None);
+                            return;
+                        }
                     }
                 }
-                
-                // Could add stats broadcast here
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(2)) => {
-                    let stats_msg = StatsUpdate {
-                        msg_type: "stats_update".to_string(),
-                        stats: stats.lock().clone(),
-                    };
-                    let json = serde_json::to_string(&stats_msg)? + "\n";
-                    if writer.write_all(json.as_bytes()).await.is_err() {
-                        break;
-                    }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // No requests, send stats update periodically
+                    // (handled by separate thread to avoid blocking)
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    info!("Request channel closed, shutting down IPC");
+                    return;
                 }
             }
         }
-        
-        Ok(())
+    }
+    
+    /// Send stats update (called from stats thread)
+    pub fn send_stats(&self) {
+        let guard = self.gui_stream.lock();
+        if let Some(ref stream) = *guard {
+            let stats_msg = StatsUpdate {
+                msg_type: "stats_update".to_string(),
+                stats: self.stats.lock().clone(),
+            };
+            
+            if let Ok(json) = serde_json::to_string(&stats_msg) {
+                let mut s = stream.try_clone().unwrap();
+                let _ = s.write_all((json + "\n").as_bytes());
+            }
+        }
     }
 }

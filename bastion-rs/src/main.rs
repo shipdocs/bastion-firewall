@@ -6,27 +6,33 @@ mod process;
 mod rules;
 mod config;
 mod ipc;
+mod whitelist;
 
 use nfqueue::{Queue, Verdict, CopyMode, Message};
 use etherparse::{Ipv4HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};
 use std::sync::Arc;
+use std::sync::mpsc;
+use std::time::Duration;
 use log::{info, warn, error, debug};
 use parking_lot::Mutex;
+use std::thread;
 
 use process::ProcessCache;
 use rules::RuleManager;
 use config::ConfigManager;
-use ipc::{IpcServer, Stats};
+use whitelist::{should_auto_allow, get_app_category};
+use ipc::{IpcServer, Stats, DecisionRequest, GuiResponse};
 
 // Global state (needed because nfqueue uses function pointers)
 static mut DAEMON_STATE: Option<Arc<DaemonState>> = None;
 
 struct DaemonState {
-    config: ConfigManager,
     rules: Arc<RuleManager>,
     process_cache: Mutex<ProcessCache>,
     stats: Arc<Mutex<Stats>>,
     learning_mode: bool,
+    // Channel to send requests to IPC thread
+    ipc_tx: mpsc::Sender<DecisionRequest>,
 }
 
 fn main() {
@@ -35,7 +41,9 @@ fn main() {
         env_logger::Env::default().default_filter_or("info")
     ).init();
     
-    info!("Bastion Daemon (Rust) starting...");
+    info!("╔════════════════════════════════════════╗");
+    info!("║  Bastion Firewall Daemon (Rust) v0.1  ║");
+    info!("╚════════════════════════════════════════╝");
     
     // Initialize components
     let config = ConfigManager::new();
@@ -43,20 +51,31 @@ fn main() {
     let rules = Arc::new(RuleManager::new());
     let stats = Arc::new(Mutex::new(Stats::default()));
     
+    info!("Mode: {}", if learning_mode { "🎓 Learning (allow unknown)" } else { "🛡️ Enforcement (block unknown)" });
+    
+    // Create IPC channel
+    let (ipc_tx, ipc_rx) = mpsc::channel::<DecisionRequest>();
+    
+    // Start IPC server in background thread
+    let ipc_rules = rules.clone();
+    let ipc_stats = stats.clone();
+    thread::spawn(move || {
+        let server = IpcServer::new(ipc_rules, ipc_stats, ipc_rx);
+        server.run();
+    });
+    
     let state = Arc::new(DaemonState {
-        config,
         rules: rules.clone(),
         process_cache: Mutex::new(ProcessCache::new(120)),
         stats: stats.clone(),
         learning_mode,
+        ipc_tx,
     });
     
     // Set global state
     unsafe {
         DAEMON_STATE = Some(state.clone());
     }
-    
-    info!("Mode: {}", if learning_mode { "Learning" } else { "Enforcement" });
     
     // Setup nfqueue
     let mut queue = Queue::new(());
@@ -66,7 +85,7 @@ fn main() {
         debug!("Unbind returned non-zero (first run?)");
     }
     if queue.bind(libc::AF_INET) != 0 {
-        error!("Failed to bind AF_INET");
+        error!("Failed to bind AF_INET - is another instance running?");
         return;
     }
     
@@ -74,7 +93,19 @@ fn main() {
     queue.set_mode(CopyMode::CopyPacket, 0xFFFF);
     
     info!("Listening on NFQUEUE 1");
+    info!("Waiting for GUI connection at {}", ipc::SOCKET_PATH);
     info!("Ready to process packets!");
+    
+    // Print stats periodically
+    let stats_clone = stats.clone();
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(30));
+            let s = stats_clone.lock();
+            info!("📊 Stats: {} total, {} allowed, {} blocked", 
+                s.total_connections, s.allowed_connections, s.blocked_connections);
+        }
+    });
     
     // Run the queue loop (blocking)
     queue.run_loop();
@@ -112,8 +143,8 @@ fn process_packet(payload: &[u8], state: &DaemonState) -> Verdict {
         }
     };
     
-    let src_ip = ip_header.source_addr();
     let dst_ip = ip_header.destination_addr();
+    let dst_ip_str = format!("{}", dst_ip);
     let proto = ip_header.protocol();
     
     let ip_len = ip_header.slice().len();
@@ -145,7 +176,6 @@ fn process_packet(payload: &[u8], state: &DaemonState) -> Verdict {
             }
         }
         _ => {
-            // Not TCP/UDP, accept
             state.stats.lock().allowed_connections += 1;
             return Verdict::Accept;
         }
@@ -159,32 +189,80 @@ fn process_packet(payload: &[u8], state: &DaemonState) -> Verdict {
         None => ("unknown".to_string(), "unknown".to_string()),
     };
     
+    // Check whitelist first (essential system services)
+    let (auto_allow, reason) = should_auto_allow(&app_path, dst_port, &dst_ip_str);
+    if auto_allow {
+        debug!("[AUTO] {} - {}", app_name, reason);
+        state.stats.lock().allowed_connections += 1;
+        return Verdict::Accept;
+    }
+    
     // Check existing rules
     if app_path != "unknown" {
         if let Some(allow) = state.rules.get_decision(&app_path, dst_port) {
             if allow {
-                debug!("[ALLOW] {} -> {}:{}", app_name, dst_ip, dst_port);
+                debug!("[RULE:ALLOW] {} -> {}:{}", app_name, dst_ip, dst_port);
                 state.stats.lock().allowed_connections += 1;
                 return Verdict::Accept;
             } else {
-                debug!("[BLOCK] {} -> {}:{}", app_name, dst_ip, dst_port);
+                info!("[RULE:BLOCK] {} -> {}:{}", app_name, dst_ip, dst_port);
                 state.stats.lock().blocked_connections += 1;
                 return Verdict::Drop;
             }
         }
     }
     
-    // No rule found
+    // No rule found - ask GUI or use mode default
+    let category = get_app_category(&app_path);
+    let category_str = format!("{:?}", category);
+    
+    // Try to ask GUI (with short timeout)
+    let (response_tx, response_rx) = mpsc::channel();
+    let request = DecisionRequest {
+        app_name: app_name.clone(),
+        app_path: app_path.clone(),
+        app_category: category_str,
+        dest_ip: dst_ip_str.clone(),
+        dest_port: dst_port,
+        protocol: protocol_str.to_string(),
+        response_tx,
+    };
+    
+    // Send request to IPC thread
+    if state.ipc_tx.send(request).is_ok() {
+        // Wait for response with timeout
+        match response_rx.recv_timeout(Duration::from_secs(60)) {
+            Ok(Some(response)) => {
+                if response.allow {
+                    info!("[GUI:ALLOW] {} -> {}:{}", app_name, dst_ip, dst_port);
+                    state.stats.lock().allowed_connections += 1;
+                    return Verdict::Accept;
+                } else {
+                    info!("[GUI:BLOCK] {} -> {}:{}", app_name, dst_ip, dst_port);
+                    state.stats.lock().blocked_connections += 1;
+                    return Verdict::Drop;
+                }
+            }
+            Ok(None) | Err(_) => {
+                // GUI not connected or timeout - fall through to mode default
+            }
+        }
+    }
+    
+    // No GUI response - use mode default
     if state.learning_mode {
-        // Learning mode: allow and log
-        info!("[LEARN] {} ({}) -> {}:{} {}", 
-            app_name, app_path, dst_ip, dst_port, protocol_str.to_uppercase());
+        info!("[LEARN] {} ({}) -> {}:{}", app_name, app_path, dst_ip, dst_port);
         state.stats.lock().allowed_connections += 1;
         Verdict::Accept
     } else {
-        // Enforcement mode: block unknown
-        warn!("[BLOCK] Unknown app {} -> {}:{}", app_name, dst_ip, dst_port);
-        state.stats.lock().blocked_connections += 1;
-        Verdict::Drop
+        if app_path == "unknown" {
+            warn!("[UNKNOWN] -> {}:{} (allowing unidentified)", dst_ip, dst_port);
+            state.stats.lock().allowed_connections += 1;
+            Verdict::Accept
+        } else {
+            warn!("[BLOCK] {} -> {}:{} (no rule, enforcement mode)", app_name, dst_ip, dst_port);
+            state.stats.lock().blocked_connections += 1;
+            Verdict::Drop
+        }
     }
 }
