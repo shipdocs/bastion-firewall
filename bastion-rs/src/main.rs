@@ -45,7 +45,7 @@ fn main() {
     ).init();
     
     info!("╔════════════════════════════════════════╗");
-    info!("║  Bastion Firewall Daemon (Rust) v0.2  ║");
+    info!("║  Bastion Firewall Daemon (Rust) v0.3  ║");
     info!("╚════════════════════════════════════════╝");
     
     // Initialize components
@@ -55,6 +55,9 @@ fn main() {
     let stats = Arc::new(Mutex::new(Stats::default()));
     
     info!("Mode: {}", if learning_mode { "🎓 Learning (allow unknown)" } else { "🛡️ Enforcement (block unknown)" });
+    
+    // Start IPC server in background (for GUI connection)
+    ipc::start_ipc_server(stats.clone());
     
     let state = Arc::new(DaemonState {
         rules: rules.clone(),
@@ -202,13 +205,12 @@ fn process_packet(payload: &[u8], state: &DaemonState) -> Verdict {
         }
     }
     
-    // No rule found - use mode default (NO GUI blocking here!)
+    // No rule found - use mode default
     if state.learning_mode {
         info!("[LEARN] {} ({}) -> {}:{}", app_name, app_path, dst_ip, dst_port);
         state.stats.lock().allowed_connections += 1;
         Verdict::Accept
     } else {
-        // Enforcement mode: block unknown apps (but allow unidentified to prevent breaking system)
         if app_path == "unknown" {
             debug!("[PASS] Unknown process -> {}:{}", dst_ip, dst_port);
             state.stats.lock().allowed_connections += 1;
