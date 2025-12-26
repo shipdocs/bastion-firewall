@@ -39,10 +39,21 @@ mkdir -p /var/log/bastion
 chown -R bastion:bastion /var/log/bastion
 chmod 750 /var/log/bastion
 
+# Install logrotate configuration
+if [ -f /usr/share/doc/bastion-firewall/bastion-firewall.logrotate ]; then
+    cp /usr/share/doc/bastion-firewall/bastion-firewall.logrotate /etc/logrotate.d/bastion-firewall
+fi
+
+# Ensure log file has correct permissions if it exists
+if [ -f /var/log/bastion-daemon.log ]; then
+    chgrp bastion /var/log/bastion-daemon.log
+    chmod 640 /var/log/bastion-daemon.log
+fi
+
 # Reload systemd
 # Reload systemd
 systemctl daemon-reload
-# Always enable and start/restart the firewall
+# Always enable and start/restart firewall
 systemctl enable bastion-firewall
 systemctl restart bastion-firewall
 

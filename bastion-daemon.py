@@ -13,11 +13,39 @@ import signal
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Setup basic logging before daemon starts
+log_file = '/var/log/bastion-daemon.log'
+
+# Ensure log directory exists with proper permissions
+os.makedirs(os.path.dirname(log_file), mode=0o755, exist_ok=True)
+
+# Create a custom FileHandler to set proper permissions
+class PermissionFileHandler(logging.FileHandler):
+    def __init__(self, filename, mode='a', encoding=None, delay=False):
+        super().__init__(filename, mode, encoding, delay)
+    
+    def _open(self):
+        # Call parent's _open to create the file
+        super()._open()
+        # Set proper permissions (640 = rw-r-----)
+        try:
+            import grp
+            os.chmod(self.baseFilename, 0o640)
+            # Try to set group to bastion if the group exists
+            try:
+                bastion_gid = grp.getgrnam('bastion').gr_gid
+                os.chown(self.baseFilename, 0, bastion_gid)  # root:bastion
+            except KeyError:
+                # Group doesn't exist, just keep default
+                pass
+        except (OSError, ImportError):
+            # Fail silently if we can't set permissions
+            pass
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/var/log/bastion-daemon.log'),
+        PermissionFileHandler(log_file),
         logging.StreamHandler()
     ]
 )

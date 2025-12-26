@@ -22,7 +22,6 @@ cp -r bastion "$TEMP_DIR/"
 
 # Copy Executables/Scripts (Renaming them to match target if needed, or just copying)
 # Note: RPM spec usually handles installation, so we just need to provide the files in the tarball
-cp bastion_firewall.py "$TEMP_DIR/bastion-firewall"
 cp bastion-daemon.py "$TEMP_DIR/bastion-daemon"
 cp bastion-gui.py "$TEMP_DIR/bastion-gui"
 cp bastion_control_panel.py "$TEMP_DIR/bastion-control-panel"
