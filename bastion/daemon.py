@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, Optional
 from collections import deque
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from .config import ConfigManager
 from .rules import RuleManager
@@ -113,8 +114,17 @@ class BastionDaemon:
             'total_connections': 0,
             'allowed_connections': 0,
             'blocked_connections': 0,
-            'rate_limited': 0  # Track rate-limited requests
+            'rate_limited': 0,  # Track rate-limited requests
+            'pending_gui': 0
         }
+        
+        # Async handling pool
+        self.async_pool = ThreadPoolExecutor(max_workers=10, thread_name_prefix='AsyncVerifier')
+        
+        # Startup buffer: Queue packets while waiting for GUI to connect (max 100 items)
+        # format: (time, nfpacket, pkt_info, app_name, app_path, cache_key, learning_mode)
+        self.startup_queue = deque(maxlen=100)
+        self.startup_mode = True # True until first GUI connection or timeout
 
     def start(self):
         """Start the daemon"""
@@ -227,10 +237,52 @@ class BastionDaemon:
 
         if self.gui_socket:
             logger.info("GUI connected successfully")
+            self.startup_mode = False
+            self._process_startup_queue()
             return True
 
-        logger.warning(f"GUI did not connect within {timeout}s - continuing anyway")
+        logger.warning(f"GUI did not connect within {timeout}s - disabling startup buffer")
+        self.startup_mode = False
+        # Flush queue (fail open/closed based on mode)
+        self._flush_startup_queue()
         return False
+
+    def _process_startup_queue(self):
+        """Process queued packets now that GUI is connected"""
+        while self.startup_queue:
+            try:
+                # (time, nfpacket, pkt_info, ...)
+                item = self.startup_queue.popleft()
+                # If packet is too old (>30s), drop/allow based on policy?
+                # For now, just resubmit to async handler
+                _, nfpacket, pkt_info, app_name, app_path, cache_key, learning_mode = item
+                self.async_pool.submit(
+                    self._handle_async_decision,
+                    nfpacket, pkt_info, app_name, app_path, cache_key, learning_mode
+                )
+            except Exception as e:
+                logger.error(f"Error processing startup queue item: {e}")
+
+    def _flush_startup_queue(self):
+        """Flush queue if GUI never connected"""
+        # In learning mode, we should probably allow these to avoid breaking boot
+        # In strict mode, drop.
+        learning_mode = self.config.get('mode', 'learning') == 'learning'
+        while self.startup_queue:
+            try:
+                item = self.startup_queue.popleft()
+                nfpacket = item[1]
+                pkt_info = item[2]
+                app_name = item[3]
+                
+                if learning_mode:
+                    logger.info(f"Startup timeout: Auto-allowing {app_name} (Learning Mode)")
+                    nfpacket.accept()
+                else:
+                    logger.warning(f"Startup timeout: Blocking {app_name} (Strict Mode)")
+                    nfpacket.drop()
+            except:
+                pass
 
     def _accept_gui_connections(self):
         """Accept GUI connections in background with credential verification"""
@@ -414,8 +466,19 @@ class BastionDaemon:
             allow_systemd = self.config.get('allow_systemd_bypass', True)
             IPTablesManager.setup_nfqueue(queue_num=1, allow_root=allow_root, allow_systemd=allow_systemd)
 
-    def _handle_packet(self, pkt_info: PacketInfo) -> bool:
-        """Handle a packet decision"""
+    def _handle_packet(self, pkt_info: PacketInfo, nfpacket=None) -> Optional[bool]:
+        """
+        Handle a packet decision.
+        
+        Args:
+            pkt_info: Extracted packet information
+            nfpacket: The raw NetfilterQueue packet object (needed for async verdict)
+            
+        Returns:
+            True: Accept
+            False: Drop
+            None: Async (handled later)
+        """
         self.stats['total_connections'] += 1
 
         # Always use current config (defaults to learning mode for safety)
@@ -487,7 +550,52 @@ class BastionDaemon:
         # So we proceed to _ask_gui.
 
         # ASK GUI - Pass display values for UI
-        return self._ask_gui(pkt_info, display_name, display_path, cache_key, learning_mode)
+        # ASK GUI - Pass display values for UI
+        # This is SLOW (can take seconds). We must NOT block here if we have `nfpacket`.
+        if nfpacket:
+            # CHECK STARTUP QUEUE
+            if self.startup_mode and not self.gui_socket:
+                if learning_mode:
+                    # Fail-Open in Learning Mode during startup
+                    # Don't queue/block network while waiting for GUI
+                    logger.info(f"Startup: Auto-allowing {display_name} (Learning Mode)")
+                    self.stats['allowed_connections'] += 1
+                    nfpacket.accept() # Immediate accept
+                    pkt_info.accepted = True # Mark for logging if needed
+                    return None # Handled explicitly
+                else:
+                    # Strict Mode: Queue (Hold) until GUI connects
+                    logger.debug(f"Queuing packet for GUI (startup): {display_name}")
+                    self.startup_queue.append(
+                        (time.time(), nfpacket, pkt_info, display_name, display_path, cache_key, learning_mode)
+                    )
+                    return None
+
+            # Offload to thread pool
+            self.async_pool.submit(
+                self._handle_async_decision, 
+                nfpacket, pkt_info, display_name, display_path, cache_key, learning_mode
+            )
+            return None # Signal PacketProcessor that we are handling this async
+        else:
+            # Fallback for sync calls (e.g. testing)
+            return self._ask_gui(pkt_info, display_name, display_path, cache_key, learning_mode)
+
+    def _handle_async_decision(self, nfpacket, pkt_info, app_name, app_path, cache_key, learning_mode):
+        """Background worker to ask GUI and issue verdict"""
+        try:
+            allow = self._ask_gui(pkt_info, app_name, app_path, cache_key, learning_mode)
+            if allow:
+                nfpacket.accept()
+            else:
+                nfpacket.drop()
+        except Exception as e:
+            logger.error(f"Async decision failed: {e}")
+            try:
+                # Default fail-closed
+                nfpacket.drop()
+            except:
+                pass
 
     def _ask_gui(self, pkt_info, app_name, app_path, cache_key, learning_mode) -> bool:
         """Communicate with GUI"""
@@ -510,10 +618,14 @@ class BastionDaemon:
                 self.stats['blocked_connections'] += 1
                 return False
 
-            # Learning mode - prefer fail-closed without GUI to avoid silent leaks
-            logger.warning(f"Learning mode: blocking {app_name or 'unknown'} because GUI is unavailable")
-            self.stats['blocked_connections'] += 1
-            return False
+            # Learning mode - FAIL OPEN if GUI is missing!
+            # The user expects "Learning" to mean "Don't break my stuff, just tell me".
+            # If we block because the GUI crashed or isn't there, we are breaking the system.
+            logger.warning(f"Learning mode: Auto-allowing {app_name or 'unknown'} because GUI is unavailable (Fail-Open)")
+            logger.info("Please start the Bastion GUI to see these requests.")
+            self.stats['allowed_connections'] += 1
+            return True
+
 
         # Rate limiting to prevent DoS
         if not self.rate_limiter.allow_request():
@@ -629,10 +741,9 @@ class BastionDaemon:
         self.running = False
         logger.info("Stopping daemon...")
 
-        # Close GUI socket first to unblock any pending recv
         if self.gui_socket:
             try:
-                self.gui_socket.shutdown(socket.SHUT_RDWR)
+                # self.gui_socket.shutdown(socket.SHUT_RDWR) # Can cause issues if other end is gone
                 self.gui_socket.close()
             except (OSError, socket.error) as e:
                 logger.debug(f"Error closing GUI socket: {e}")
@@ -647,6 +758,8 @@ class BastionDaemon:
             
         if self.packet_processor:
             self.packet_processor.stop()
+            
+        self.async_pool.shutdown(wait=False)
             
         IPTablesManager.cleanup_nfqueue(queue_num=1)
         
