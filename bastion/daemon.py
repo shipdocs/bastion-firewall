@@ -127,8 +127,8 @@ class BastionDaemon:
         self._setup_socket()
 
         # Setup iptables
-        allow_root = self.config.get('allow_root_bypass', True)
-        allow_systemd = self.config.get('allow_systemd_bypass', True)
+        allow_root = self.config.get('allow_root_bypass', False)
+        allow_systemd = self.config.get('allow_systemd_bypass', False)
         logger.info(f"Configuring iptables (Root Bypass: {allow_root}, Systemd Bypass: {allow_systemd})")
         
         if not IPTablesManager.setup_nfqueue(queue_num=1, allow_root=allow_root, allow_systemd=allow_systemd):
@@ -410,8 +410,8 @@ class BastionDaemon:
         res = subprocess.run(['iptables', '-S', 'OUTPUT'], capture_output=True, text=True)
         if 'NFQUEUE' not in res.stdout:
             logger.warning("NFQUEUE rule missing! Re-adding...")
-            allow_root = self.config.get('allow_root_bypass', True)
-            allow_systemd = self.config.get('allow_systemd_bypass', True)
+            allow_root = self.config.get('allow_root_bypass', False)
+            allow_systemd = self.config.get('allow_systemd_bypass', False)
             IPTablesManager.setup_nfqueue(queue_num=1, allow_root=allow_root, allow_systemd=allow_systemd)
 
     def _handle_packet(self, pkt_info: PacketInfo) -> bool:

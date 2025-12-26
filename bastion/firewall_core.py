@@ -349,7 +349,7 @@ class IPTablesManager:
     """Manages iptables rules for packet queuing"""
 
     @staticmethod
-    def setup_nfqueue(queue_num=1, allow_root=True, allow_systemd=True):
+    def setup_nfqueue(queue_num=1, allow_root=False, allow_systemd=False):
         """
         Set up iptables rules to queue outbound packets.
         Ensures a clean slate before adding rules to prevent duplicates.
@@ -372,10 +372,11 @@ class IPTablesManager:
             logger.info(f"Added iptables NFQUEUE rule: {' '.join(rule)}")
 
             # Bypass NFQUEUE for root and systemd services for performance gain
-            # Only if explicitly allowed (default: True)
+            # Only if explicitly allowed (default: False)
             bypass_rules = []
             
             if allow_root:
+                logger.warning("Root bypass enabled - root traffic will skip firewall enforcement")
                 bypass_rules.append(
                     ['iptables', '-I', 'OUTPUT', '1', 
                      '-m', 'owner', '--uid-owner', '0', 
@@ -384,6 +385,7 @@ class IPTablesManager:
                 )
             
             if allow_systemd:
+                logger.warning("Systemd-network bypass enabled - systemd-networkd traffic will skip firewall enforcement")
                 bypass_rules.append(
                     ['iptables', '-I', 'OUTPUT', '1', 
                      '-m', 'owner', '--gid-owner', 'systemd-network',
