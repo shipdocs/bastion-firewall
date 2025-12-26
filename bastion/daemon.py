@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Dict, Optional
 from collections import deque
 import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from contextlib import closing
 
 from .config import ConfigManager
 from .rules import RuleManager
@@ -107,6 +109,8 @@ class BastionDaemon:
         self.request_lock = threading.Lock()
         self.socket_lock = threading.Lock()
         self.rate_limiter = RateLimiter(max_requests_per_second=10, window_seconds=1)
+        self.health_server: Optional[ThreadingHTTPServer] = None
+        self.health_thread: Optional[threading.Thread] = None
 
         # Statistics
         self.stats = {
@@ -119,6 +123,7 @@ class BastionDaemon:
     def start(self):
         """Start the daemon"""
         logger.info("Starting Bastion Daemon...")
+        logger.info(f"Learning headless policy: {self.config.get('learning_headless_policy', 'deny')}")
 
         # Setup signals
         self._setup_signals()
@@ -159,6 +164,9 @@ class BastionDaemon:
         # Start health monitor
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.monitor_thread.start()
+
+        # Start health endpoint
+        self._start_health_endpoint()
 
         # Watchdog loop (legacy main loop, now just fallback/keepalive)
         self._run_watchdog()
@@ -494,6 +502,15 @@ class BastionDaemon:
 
         if not self.gui_socket:
             logger.warning(f"No GUI connected for {app_name or 'unknown'} -> {pkt_info.dest_ip}:{pkt_info.dest_port}")
+            headless_policy = self.config.get('learning_headless_policy', 'deny')
+            headless_context = {
+                'event': 'headless',
+                'mode': 'learning' if learning_mode else 'enforcement',
+                'policy': headless_policy,
+                'app': app_name or 'unknown',
+                'destination': f"{pkt_info.dest_ip}:{pkt_info.dest_port}"
+            }
+            logger.warning(f"Headless prompt handling: {headless_context}")
 
             # SMART FALLBACK: In enforcement mode without GUI, allow essential system services
             # This prevents breaking the system when GUI is not running
@@ -510,8 +527,24 @@ class BastionDaemon:
                 self.stats['blocked_connections'] += 1
                 return False
 
-            # Learning mode - prefer fail-closed without GUI to avoid silent leaks
-            logger.warning(f"Learning mode: blocking {app_name or 'unknown'} because GUI is unavailable")
+            policy_payload = {
+                'event': 'headless_prompt_suppressed',
+                'app': app_name or 'unknown',
+                'dest': f"{pkt_info.dest_ip}:{pkt_info.dest_port}",
+                'policy': headless_policy,
+                'mode': 'learning'
+            }
+            logger.warning(f"GUI unavailable - learning headless policy in effect: {policy_payload}")
+
+            if headless_policy == 'allow':
+                self.stats['allowed_connections'] += 1
+                return True
+            if headless_policy == 'enforce_timeout':
+                logger.warning("Learning headless policy enforce_timeout: dropping connection as if prompt timed out")
+                self.stats['blocked_connections'] += 1
+                return False
+
+            # Default deny
             self.stats['blocked_connections'] += 1
             return False
 
@@ -647,6 +680,12 @@ class BastionDaemon:
             
         if self.packet_processor:
             self.packet_processor.stop()
+        if self.health_server:
+            try:
+                self.health_server.shutdown()
+            except Exception as e:
+                logger.debug(f"Error shutting down health server: {e}")
+            self.health_server = None
             
         IPTablesManager.cleanup_nfqueue(queue_num=1)
         
@@ -656,3 +695,48 @@ class BastionDaemon:
             except (OSError, PermissionError) as e:
                 logger.debug(f"Error removing socket file: {e}")
         logger.info("Daemon stopped")
+
+    def _start_health_endpoint(self):
+        """Start lightweight HTTP health endpoint"""
+        port = int(self.config.get('health_port', 8676))
+
+        class HealthHandler(BaseHTTPRequestHandler):
+            def _write_json(self, code, payload):
+                body = json.dumps(payload).encode()
+                self.send_response(code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, format, *args):
+                # Suppress default stdout logging; keep debug record instead
+                logger.debug("Health endpoint: " + format % args)
+
+            def do_GET(self_inner):
+                if self_inner.path not in ['/health', '/healthz']:
+                    self_inner._write_json(404, {'status': 'not_found'})
+                    return
+
+                payload = {
+                    'status': 'ok' if self.running else 'stopped',
+                    'gui_connected': self.gui_socket is not None,
+                    'learning_headless_policy': self.config.get('learning_headless_policy', 'deny'),
+                    'mode': self.config.get('mode', 'learning')
+                }
+                self_inner._write_json(200, payload)
+
+        try:
+            # Ensure port is available before binding
+            with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+                if sock.connect_ex(('127.0.0.1', port)) == 0:
+                    logger.warning(f"Health port {port} already in use; skipping health endpoint startup")
+                    return
+
+            self.health_server = ThreadingHTTPServer(('127.0.0.1', port), HealthHandler)
+            self.health_server.daemon_threads = True
+            self.health_thread = threading.Thread(target=self.health_server.serve_forever, daemon=True)
+            self.health_thread.start()
+            logger.info(f"Health endpoint started on 127.0.0.1:{port}")
+        except Exception as e:
+            logger.warning(f"Failed to start health endpoint on port {port}: {e}")
