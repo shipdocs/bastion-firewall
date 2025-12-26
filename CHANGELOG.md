@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.4.7] - 2025-12-26
 
 ### Critical Fixes
+- **Robust Installation (Zorin 18 / Ubuntu 24.04)**: Installer now automatically handles missing `python3-netfilterqueue` by compiling it via pip, including all necessary build dependencies.
+- **Service Stability**: Fixed Daemon startup failure caused by `sys.path` not including `/usr/local` packages on modern Ubuntu versions.
+- **UX Fix**: Fixed annoying "Authentication Required" popup spam by ensuring log file permissions are correct (644) on fresh installs.
 - **Production Readiness**: Synced mismatched version numbers across all package files.
 - **License**: Added missing GPL-3.0 LICENSE file to repository root.
 - **Bug Fix**: Fixed case-sensitivity issue in `service_whitelist.py` that caused `NetworkManager` to be blocked incorrectly.
