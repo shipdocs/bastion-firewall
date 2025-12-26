@@ -1,75 +1,190 @@
+//! Bastion Firewall Daemon - Rust Edition
+//! 
+//! A high-performance application firewall using Netfilter Queue
+
+mod process;
+mod rules;
+mod config;
+mod ipc;
+
 use nfqueue::{Queue, Verdict, CopyMode, Message};
 use etherparse::{Ipv4HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};
+use std::sync::Arc;
+use log::{info, warn, error, debug};
+use parking_lot::Mutex;
+
+use process::ProcessCache;
+use rules::RuleManager;
+use config::ConfigManager;
+use ipc::{IpcServer, Stats};
+
+// Global state (needed because nfqueue uses function pointers)
+static mut DAEMON_STATE: Option<Arc<DaemonState>> = None;
+
+struct DaemonState {
+    config: ConfigManager,
+    rules: Arc<RuleManager>,
+    process_cache: Mutex<ProcessCache>,
+    stats: Arc<Mutex<Stats>>,
+    learning_mode: bool,
+}
 
 fn main() {
     // Initialize logging
-    env_logger::init();
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info")
+    ).init();
     
-    println!("Bastion (Rust) initializing...");
-
+    info!("Bastion Daemon (Rust) starting...");
+    
+    // Initialize components
+    let config = ConfigManager::new();
+    let learning_mode = config.is_learning_mode();
+    let rules = Arc::new(RuleManager::new());
+    let stats = Arc::new(Mutex::new(Stats::default()));
+    
+    let state = Arc::new(DaemonState {
+        config,
+        rules: rules.clone(),
+        process_cache: Mutex::new(ProcessCache::new(120)),
+        stats: stats.clone(),
+        learning_mode,
+    });
+    
+    // Set global state
+    unsafe {
+        DAEMON_STATE = Some(state.clone());
+    }
+    
+    info!("Mode: {}", if learning_mode { "Learning" } else { "Enforcement" });
+    
+    // Setup nfqueue
     let mut queue = Queue::new(());
-
     queue.open();
     
-    // Unbind/Bind to AF_INET
     if queue.unbind(libc::AF_INET) != 0 {
-        println!("Warning: Unbind returned non-zero (first run?)");
+        debug!("Unbind returned non-zero (first run?)");
     }
     if queue.bind(libc::AF_INET) != 0 {
-        panic!("Failed to bind AF_INET");
+        error!("Failed to bind AF_INET");
+        return;
     }
-
-    // Register callback function
+    
     queue.create_queue(1, packet_handler);
-
-    // Set copy mode to Packet (full packet)
     queue.set_mode(CopyMode::CopyPacket, 0xFFFF);
-
-    println!("Listening on NFQUEUE 1. Triggers valid if traffic is outbound.");
-
+    
+    info!("Listening on NFQUEUE 1");
+    info!("Ready to process packets!");
+    
+    // Run the queue loop (blocking)
     queue.run_loop();
     
     queue.close();
+    info!("Daemon stopped");
 }
 
-// Callback must be specific signature: fn(&Message, &mut T)
 fn packet_handler(msg: &Message, _: &mut ()) {
+    let state = unsafe {
+        match &DAEMON_STATE {
+            Some(s) => s.clone(),
+            None => {
+                msg.set_verdict(Verdict::Accept);
+                return;
+            }
+        }
+    };
+    
     let payload = msg.get_payload();
-    let verdict = inspect_packet(payload);
+    let verdict = process_packet(payload, &state);
     msg.set_verdict(verdict);
 }
 
-fn inspect_packet(payload: &[u8]) -> Verdict {
-    // Attempt to parse IPv4
-    if let Ok(ip_header) = Ipv4HeaderSlice::from_slice(payload) {
-        let src = ip_header.source_addr();
-        let dst = ip_header.destination_addr();
-        let proto = ip_header.protocol();
-        
-        // Calculate header length to jump to transport
-        let ip_len = ip_header.slice().len();
-        
-        if payload.len() > ip_len {
-            let transport_slice = &payload[ip_len..];
-            
-            let info = match proto {
-                6 => { // TCP
-                   if let Ok(tcp) = TcpHeaderSlice::from_slice(transport_slice) {
-                       format!("TCP {} -> {}", tcp.source_port(), tcp.destination_port())
-                   } else { "TCP (Unknown)".to_string() }
-                },
-                17 => { // UDP
-                   if let Ok(udp) = UdpHeaderSlice::from_slice(transport_slice) {
-                       format!("UDP {} -> {}", udp.source_port(), udp.destination_port())
-                   } else { "UDP (Unknown)".to_string() }
-                },
-                _ => format!("Proto {}", proto)
-            };
-            
-            println!("[RUST] Packet: {} -> {} | {} | {} bytes", src, dst, info, payload.len());
+fn process_packet(payload: &[u8], state: &DaemonState) -> Verdict {
+    // Update stats
+    state.stats.lock().total_connections += 1;
+    
+    // Parse IP header
+    let ip_header = match Ipv4HeaderSlice::from_slice(payload) {
+        Ok(h) => h,
+        Err(_) => {
+            state.stats.lock().allowed_connections += 1;
+            return Verdict::Accept;
+        }
+    };
+    
+    let src_ip = ip_header.source_addr();
+    let dst_ip = ip_header.destination_addr();
+    let proto = ip_header.protocol();
+    
+    let ip_len = ip_header.slice().len();
+    if payload.len() <= ip_len {
+        state.stats.lock().allowed_connections += 1;
+        return Verdict::Accept;
+    }
+    
+    let transport_slice = &payload[ip_len..];
+    
+    // Parse transport layer
+    let (src_port, dst_port, protocol_str) = match proto {
+        6 => { // TCP
+            match TcpHeaderSlice::from_slice(transport_slice) {
+                Ok(tcp) => (tcp.source_port(), tcp.destination_port(), "tcp"),
+                Err(_) => {
+                    state.stats.lock().allowed_connections += 1;
+                    return Verdict::Accept;
+                }
+            }
+        }
+        17 => { // UDP
+            match UdpHeaderSlice::from_slice(transport_slice) {
+                Ok(udp) => (udp.source_port(), udp.destination_port(), "udp"),
+                Err(_) => {
+                    state.stats.lock().allowed_connections += 1;
+                    return Verdict::Accept;
+                }
+            }
+        }
+        _ => {
+            // Not TCP/UDP, accept
+            state.stats.lock().allowed_connections += 1;
+            return Verdict::Accept;
+        }
+    };
+    
+    // Identify the process
+    let process_info = state.process_cache.lock().get(src_port, protocol_str);
+    
+    let (app_name, app_path) = match &process_info {
+        Some(info) => (info.name.clone(), info.exe_path.clone()),
+        None => ("unknown".to_string(), "unknown".to_string()),
+    };
+    
+    // Check existing rules
+    if app_path != "unknown" {
+        if let Some(allow) = state.rules.get_decision(&app_path, dst_port) {
+            if allow {
+                debug!("[ALLOW] {} -> {}:{}", app_name, dst_ip, dst_port);
+                state.stats.lock().allowed_connections += 1;
+                return Verdict::Accept;
+            } else {
+                debug!("[BLOCK] {} -> {}:{}", app_name, dst_ip, dst_port);
+                state.stats.lock().blocked_connections += 1;
+                return Verdict::Drop;
+            }
         }
     }
     
-    // Default Policy: ACCEPT
-    Verdict::Accept
+    // No rule found
+    if state.learning_mode {
+        // Learning mode: allow and log
+        info!("[LEARN] {} ({}) -> {}:{} {}", 
+            app_name, app_path, dst_ip, dst_port, protocol_str.to_uppercase());
+        state.stats.lock().allowed_connections += 1;
+        Verdict::Accept
+    } else {
+        // Enforcement mode: block unknown
+        warn!("[BLOCK] Unknown app {} -> {}:{}", app_name, dst_ip, dst_port);
+        state.stats.lock().blocked_connections += 1;
+        Verdict::Drop
+    }
 }
