@@ -236,10 +236,15 @@ class BastionClient(QObject):
         
         decision = (dialog.decision == 'allow')
         permanent = dialog.permanent
+        decision_id = req.get('decision_id', 0)  # Get decision ID from request
         
-        # Send response
+        # Send response with decision_id
         if self.connected and self.sock:
-            resp = json.dumps({'allow': decision, 'permanent': permanent}) + '\n'
+            resp = json.dumps({
+                'allow': decision, 
+                'permanent': permanent,
+                'decision_id': decision_id
+            }) + '\n'
             try:
                 self.sock.sendall(resp.encode())
             except:
