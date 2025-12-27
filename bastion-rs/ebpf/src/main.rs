@@ -1,10 +1,9 @@
 #![no_std]
 #![no_main]
 
-use aya_bpf::{
-    bindings::xdp_action,
+use aya_ebpf::{
     macros::{kprobe, map},
-    programs::KProbe,
+    programs::ProbeContext as KProbe,
     maps::HashMap,
 };
 use aya_log_ebpf::{info, warn};
@@ -58,7 +57,7 @@ fn port_from_sockaddr(addr: *const core::ffi::c_void) -> u16 {
     }
 }
 
-#[kprobe(name = "tcp_v4_connect")]
+#[kprobe]
 fn tcp_v4_connect(ctx: KProbe) -> u32 {
     match try_tcp_v4_connect(ctx) {
         Ok(_) => 0,
@@ -70,13 +69,13 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
     // tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
     // Arguments: RDI = sock, RSI = uaddr, RDX = addr_len
     
-    let pid = match aya_bpf::helpers::bpf_get_current_pid_tgid() as u32 {
+    let pid = match aya_ebpf::helpers::bpf_get_current_pid_tgid() as u32 {
         pid => pid,
     };
     
     // Get the userspace address from RSI (second argument)
     let uaddr = unsafe {
-        let regs = ctx.regs();
+        let regs = ctx.regs;
         if regs.is_null() {
             return Err(1);
         }
@@ -84,10 +83,12 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
     };
     
     // Read the sockaddr structure from userspace
-    let mut sockaddr = [0u8; 16];  // sizeof(struct sockaddr_in)
-    if unsafe { aya_bpf::helpers::bpf_probe_read_user(&mut sockaddr, uaddr) } != 0 {
-        return Err(2);
-    }
+    let sockaddr: [u8; 16] = unsafe {
+        match aya_ebpf::helpers::bpf_probe_read_user(uaddr as *const [u8; 16]) {
+            Ok(val) => val,
+            Err(_) => return Err(2),
+        }
+    };
     
     // Extract destination IP and port
     let dst_ip = ipv4_from_sockaddr(sockaddr.as_ptr() as *const core::ffi::c_void);
@@ -103,11 +104,11 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
     
     let info = SocketInfo {
         pid,
-        timestamp: unsafe { aya_bpf::helpers::bpf_ktime_get_ns() },
+        timestamp: unsafe { aya_ebpf::helpers::bpf_ktime_get_ns() },
     };
     
     unsafe {
-        if let Err(_) = SOCKET_MAP.insert(&ctx, &key, &info, 0) {
+        if let Err(_) = SOCKET_MAP.insert(&key, &info, 0) {
             warn!(&ctx, "Failed to insert TCP connection info");
         }
     }
@@ -117,7 +118,7 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
     Ok(())
 }
 
-#[kprobe(name = "udp_sendmsg")]
+#[kprobe]
 fn udp_sendmsg(ctx: KProbe) -> u32 {
     match try_udp_sendmsg(ctx) {
         Ok(_) => 0,
@@ -129,13 +130,13 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
     // udp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
     // Arguments: RDI = sock, RSI = msg, RDX = len
     
-    let pid = match aya_bpf::helpers::bpf_get_current_pid_tgid() as u32 {
+    let pid = match aya_ebpf::helpers::bpf_get_current_pid_tgid() as u32 {
         pid => pid,
     };
     
     // Get the msghdr from RSI (second argument)
     let msg = unsafe {
-        let regs = ctx.regs();
+        let regs = ctx.regs;
         if regs.is_null() {
             return Err(1);
         }
@@ -143,10 +144,12 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
     };
     
     // msg->msg_name contains the destination address
-    let mut msg_name_ptr = [0u8; 8];  // Pointer size
-    if unsafe { aya_bpf::helpers::bpf_probe_read(&mut msg_name_ptr, msg as *const u8) } != 0 {
-        return Err(2);
-    }
+    let msg_name_ptr: [u8; 8] = unsafe {
+        match aya_ebpf::helpers::bpf_probe_read(msg as *const [u8; 8]) {
+            Ok(val) => val,
+            Err(_) => return Err(2),
+        }
+    };
     
     let msg_name = u64::from_le_bytes(msg_name_ptr);
     if msg_name == 0 {
@@ -155,10 +158,12 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
     }
     
     // Read the sockaddr structure
-    let mut sockaddr = [0u8; 16];
-    if unsafe { aya_bpf::helpers::bpf_probe_read_user(&mut sockaddr, msg_name) } != 0 {
-        return Err(3);
-    }
+    let sockaddr: [u8; 16] = unsafe {
+        match aya_ebpf::helpers::bpf_probe_read_user(msg_name as *const [u8; 16]) {
+            Ok(val) => val,
+            Err(_) => return Err(3),
+        }
+    };
     
     // Extract destination IP and port
     let dst_ip = ipv4_from_sockaddr(sockaddr.as_ptr() as *const core::ffi::c_void);
@@ -173,11 +178,11 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
     
     let info = SocketInfo {
         pid,
-        timestamp: unsafe { aya_bpf::helpers::bpf_ktime_get_ns() },
+        timestamp: unsafe { aya_ebpf::helpers::bpf_ktime_get_ns() },
     };
     
     unsafe {
-        if let Err(_) = SOCKET_MAP.insert(&ctx, &key, &info, 0) {
+        if let Err(_) = SOCKET_MAP.insert(&key, &info, 0) {
             warn!(&ctx, "Failed to insert UDP connection info");
         }
     }

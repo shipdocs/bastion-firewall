@@ -1,6 +1,30 @@
 #!/bin/bash
 set -e
-systemctl stop bastion-firewall || true
-systemctl disable bastion-firewall || true
-pkill -f bastion-gui || true
-pkill -f bastion-control-panel || true
+
+# Stop the daemon before removal
+systemctl stop bastion-daemon 2>/dev/null || systemctl stop bastion-firewall 2>/dev/null || true
+systemctl disable bastion-daemon 2>/dev/null || systemctl disable bastion-firewall 2>/dev/null || true
+
+# Kill any GUI processes
+pkill -f bastion-gui 2>/dev/null || true
+
+# Clean up iptables rules
+iptables -F OUTPUT 2>/dev/null || true
+
+# Remove NFQUEUE rules
+for i in {1..20}; do
+    iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || break
+done
+
+# Remove BASTION_BYPASS rules
+for i in {1..20}; do
+    RULE=$(iptables -S OUTPUT 2>/dev/null | grep "BASTION_BYPASS" | head -n1)
+    if [ -z "$RULE" ]; then
+        break
+    fi
+    iptables -D OUTPUT $(echo $RULE | cut -d' ' -f3-) 2>/dev/null || break
+done
+
+echo "Bastion Firewall services stopped"
+
+exit 0

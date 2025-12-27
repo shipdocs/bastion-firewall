@@ -6,6 +6,7 @@ mod process;
 mod rules;
 mod config;
 mod whitelist;
+mod ebpf_loader;
 
 use nfq::{Queue, Verdict};
 use etherparse::{Ipv4HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};

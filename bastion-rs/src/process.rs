@@ -6,7 +6,8 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, Instant};
-use log::{debug, info};
+use log::{debug, info, warn};
+use crate::ebpf_loader::EbpfManager;
 
 /// Information about an identified process  
 #[derive(Debug, Clone)]
@@ -30,16 +31,32 @@ pub struct ProcessCache {
     // Map inode -> (pid, name, exe_path), built from /proc/[pid]/fd
     inode_to_process: HashMap<u64, ProcessInfo>,
     last_scan: Instant,
+    // eBPF manager for kernel-level tracking
+    ebpf: Option<EbpfManager>,
 }
 
 impl ProcessCache {
     pub fn new(_ttl_secs: u64) -> Self {
+        // Try to initialize eBPF
+        let mut ebpf = EbpfManager::new();
+        let ebpf_loaded = match ebpf.load_from_file("ebpf/target/bpfel-unknown-none/release/bastion-ebpf.o") {
+            Ok(_) => {
+                info!("✅ eBPF process tracking loaded successfully");
+                true
+            }
+            Err(e) => {
+                warn!("eBPF load failed: {}", e);
+                false
+            }
+        };
+        
         let mut cache = Self {
             inode_to_process: HashMap::new(),
             last_scan: Instant::now(),
+            ebpf: if ebpf_loaded { Some(ebpf) } else { None },
         };
         cache.scan_processes();
-        info!("Process identifier initialized (direct /proc like psutil)");
+        info!("Process identifier initialized (eBPF enabled: {})", ebpf_loaded);
         cache
     }
     
@@ -193,7 +210,19 @@ impl ProcessCache {
         dest_port: u16,
         protocol: &str,
     ) -> Option<ProcessInfo> {
-        // Refresh inode->process map if stale (> 100ms)
+        // FIRST: Try eBPF lookup (kernel-level tracking, most accurate)
+        if let Some(ref mut ebpf) = self.ebpf {
+            if let Some(pid) = ebpf.lookup_pid(src_port, dest_ip, dest_port) {
+                // Got PID from eBPF, now resolve to process info
+                if let Some(info) = self.get_process_info_by_pid(pid) {
+                    debug!("eBPF match: {} ({}) PID={}", info.name, info.exe_path, pid);
+                    return Some(info);
+                }
+            }
+        }
+        
+        // FALLBACK: /proc scanning (for established connections or if eBPF unavailable)
+        // Refresh inode->process map if stale (>100ms)
         if self.last_scan.elapsed() > Duration::from_millis(100) {
             self.scan_processes();
         }
@@ -234,6 +263,30 @@ impl ProcessCache {
         
         debug!("No process found for {}:{} -> {}:{}", src_ip, src_port, dest_ip, dest_port);
         None
+    }
+    
+    /// Helper: Get process info by PID (used after eBPF lookup)
+    fn get_process_info_by_pid(&self, pid: u32) -> Option<ProcessInfo> {
+        let proc_path = format!("/proc/{}", pid);
+        
+        // Get process name and exe
+        let (proc_name, exe_path) = match (
+            fs::read_to_string(format!("{}/comm", proc_path)),
+            fs::read_link(format!("{}/exe", proc_path))
+        ) {
+            (Ok(name), Ok(exe)) => (
+                name.trim().to_string(),
+                exe.to_string_lossy().into_owned()
+            ),
+            (Ok(name), Err(_)) => (name.trim().to_string(), String::new()),
+            _ => return None,
+        };
+        
+        Some(ProcessInfo {
+            pid,
+            name: proc_name,
+            exe_path,
+        })
     }
     
     /// Compatibility interface

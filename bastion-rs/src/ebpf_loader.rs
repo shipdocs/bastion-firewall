@@ -5,7 +5,7 @@
 
 use aya::{
     programs::{KProbe, ProgramError},
-    Bpf,
+    Bpf, Pod,
     maps::HashMap,
 };
 use log::{info, warn, error, debug};
@@ -15,20 +15,26 @@ use std::time::{Duration, Instant};
 
 // Mirror the eBPF structures
 #[derive(Debug, Clone, Copy)]
+#[repr(C)]
 pub struct SocketKey {
     pub src_port: u16,
     pub dst_ip: u32,  // IPv4 in network byte order
     pub dst_port: u16,
 }
 
+unsafe impl Pod for SocketKey {}
+
 #[derive(Debug, Clone, Copy)]
+#[repr(C)]
 pub struct SocketInfo {
     pub pid: u32,
     pub timestamp: u64,
 }
 
+unsafe impl Pod for SocketInfo {}
+
 pub struct EbpfManager {
-    bpf: Option<Bpf>,
+    bpf: Option<aya::Ebpf>,
     // Local cache of eBPF map entries with TTL
     local_cache: StdHashMap<(u16, u32, u16), (u32, Instant)>, // (src_port, dst_ip, dst_port) -> (pid, timestamp)
     last_cleanup: Instant,
@@ -56,16 +62,22 @@ impl EbpfManager {
     /// Alternative: Load from pre-compiled eBPF object
     pub fn load_from_file(&mut self, path: &str) -> Result<(), anyhow::Error> {
         // Load the compiled eBPF program
-        let mut bpf = Bpf::load(include_bytes_aligned!("../ebpf/target/bpfel-unknown-none/release/bastion-ebpf.o"))?;
+        let mut bpf = aya::Ebpf::load(include_bytes!("../ebpf/target/bpfel-unknown-none/release/bastion-ebpf.o"))?;
         
         // Attach kprobes
-        let program: &mut KProbe = bpf.program_mut("tcp_v4_connect")?.try_into()?;
+        let program: &mut KProbe = bpf.program_mut("tcp_v4_connect")
+            .ok_or(anyhow::anyhow!("tcp_v4_connect program not found"))?
+            .try_into()?;
         program.load()?;
-        program.attach("tcp_v4_connect", 0)?;
+        program.attach("tcp_v4_connect", 0)
+            .map_err(|e| anyhow::anyhow!("Failed to attach tcp_v4_connect: {}", e))?;
         
-        let program: &mut KProbe = bpf.program_mut("udp_sendmsg")?.try_into()?;
+        let program: &mut KProbe = bpf.program_mut("udp_sendmsg")
+            .ok_or(anyhow::anyhow!("udp_sendmsg program not found"))?
+            .try_into()?;
         program.load()?;
-        program.attach("udp_sendmsg", 0)?;
+        program.attach("udp_sendmsg", 0)
+            .map_err(|e| anyhow::anyhow!("Failed to attach udp_sendmsg: {}", e))?;
         
         self.bpf = Some(bpf);
         info!("eBPF program loaded and kprobes attached successfully");
@@ -97,9 +109,9 @@ impl EbpfManager {
         
         // Query eBPF map
         let bpf = self.bpf.as_ref().unwrap();
-        let mut socket_map: HashMap<_, SocketKey, SocketInfo> = match bpf.map("SOCKET_MAP") {
-            Ok(map) => map,
-            Err(_) => return None,
+        let socket_map: HashMap<_, SocketKey, SocketInfo> = match bpf.map("SOCKET_MAP") {
+            Some(map) => HashMap::try_from(map).ok()?,
+            None => return None,
         };
         
         let key = SocketKey {
@@ -125,15 +137,7 @@ impl EbpfManager {
                 
                 match socket_map.get(&key_zero_src, 0) {
                     Ok(info) => {
-                        // Update the entry with the actual source port
-                        let updated_info = SocketInfo {
-                            pid: info.pid,
-                            timestamp: info.timestamp,
-                        };
-                        if let Err(e) = socket_map.insert(&key, &updated_info, 0) {
-                            debug!("Failed to update eBPF map entry: {:?}", e);
-                        }
-                        
+                        // Cache for future lookups
                         self.local_cache.insert(cache_key, (info.pid, Instant::now()));
                         debug!("Found PID {} in eBPF map (zero src) for {}:{}", info.pid, dst_ip, dst_port);
                         Some(info.pid)

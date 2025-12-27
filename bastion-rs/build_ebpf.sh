@@ -1,33 +1,36 @@
 #!/bin/bash
 set -e
 
-echo ">>> Building eBPF program..."
+echo ">>> Building eBPF program with Aya..."
 
 # Check if we have the required toolchain
-if ! rustup component list --installed | grep -q "rust-src"; then
-    echo "Installing rust-src component..."
-    rustup component add rust-src
+if ! rustup toolchain list | grep -q "nightly"; then
+    echo "Installing nightly toolchain..."
+    rustup toolchain install nightly
 fi
 
-# Install cargo-bpf if not present
-if ! command -v cargo-bpf &> /dev/null; then
-    echo "Installing cargo-bpf..."
-    cargo install cargo-bpf
-fi
-
-# Check for BTF support
-if ! ls /sys/kernel/btf/vmlinux 2>/dev/null; then
-    echo "Warning: No BTF support detected, eBPF may not work"
+if ! rustup component list --toolchain nightly | grep -q "rust-src"; then
+    echo "Installing rust-src for nightly..."
+    rustup component add rust-src --toolchain nightly
 fi
 
 # Build eBPF program
 cd ebpf
-cargo bpf build --release --target-dir=target
 
-# Check if the binary was created
-if [ -f "target/bpfel-unknown-none/release/bastion-ebpf.o" ]; then
+# Ensure bpf-linker is in PATH
+export PATH="$HOME/.cargo/bin:$PATH"
+
+echo "Running cargo build..."
+cargo +nightly build --release --target bpfel-unknown-none -Z build-std=core
+
+# Check and prepare the binary
+SRC_BIN="target/bpfel-unknown-none/release/bastion-ebpf"
+DST_BIN="target/bpfel-unknown-none/release/bastion-ebpf.o"
+
+if [ -f "$SRC_BIN" ]; then
+    cp "$SRC_BIN" "$DST_BIN"
     echo "✅ eBPF program built successfully"
-    ls -la target/bpfel-unknown-none/release/bastion-ebpf.o
+    ls -la "$DST_BIN"
 else
     echo "❌ Failed to build eBPF program"
     exit 1

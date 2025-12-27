@@ -1,0 +1,29 @@
+[Unit]
+Description=Bastion Firewall Daemon (Rust with eBPF)
+Documentation=https://github.com/shipdocs/bastion-firewall
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/bastion-daemon
+Restart=on-failure
+RestartSec=5s
+
+# Security settings
+NoNewPrivileges=false
+PrivateTmp=true
+
+# Capabilities
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bastion-daemon
+
+# Environment
+Environment="RUST_LOG=info"
+
+[Install]
+WantedBy=multi-user.target

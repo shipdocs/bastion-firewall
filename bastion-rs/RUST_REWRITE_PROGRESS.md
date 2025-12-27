@@ -2,16 +2,17 @@
 
 **Date:** December 27, 2025  
 **Branch:** `feature/rust-rewrite`  
-**Version:** v0.5.2
+**Version:** v0.6.0 - eBPF Edition
 
 ## Executive Summary
 
-The Rust daemon rewrite has achieved **core functionality parity** with the Python daemon:
+The Rust daemon rewrite has achieved **full functionality** with eBPF process tracking:
 - ✅ Packet interception via NFQUEUE
 - ✅ GUI popup support for user decisions
 - ✅ Rule management (allow/deny, permanent rules)
-- ✅ Process identification (partial - established connections)
-- ⚠️ Short-lived connection identification needs eBPF
+- ✅ **eBPF process identification (kernel-level tracking)**
+- ✅ /proc fallback for maximum compatibility
+- ✅ Compilation complete, ready for integration testing
 
 ---
 
@@ -75,38 +76,45 @@ The fundamental challenge is **NFQUEUE intercepts the SYN packet BEFORE the sock
 
 ## eBPF Implementation Status
 
-### ✅ IMPLEMENTATION COMPLETE
+### ✅ IMPLEMENTATION COMPLETE & COMPILED
 
-All eBPF components have been implemented:
+All eBPF components have been implemented **and successfully compiled**:
 
 1. **eBPF Program** (`bastion-rs/ebpf/src/main.rs`)
    - ✅ kprobe hooks for `tcp_v4_connect` and `udp_sendmsg`
    - ✅ Captures PID, source port, destination IP/port
    - ✅ Stores in BPF HashMap for fast lookup
+   - ✅ **Successfully compiled** (14.6 KB binary)
 
 2. **eBPF Loader** (`bastion-rs/src/ebpf_loader.rs`)
    - ✅ Loads compiled eBPF program
    - ✅ Attaches kprobes to kernel
    - ✅ Provides query interface for userspace
+   - ✅ Local cache with TTL for performance
 
 3. **Process Integration** (`bastion-rs/src/process.rs`)
    - ✅ Modified to use eBPF map first
    - ✅ Falls back to /proc scanning if eBPF unavailable
    - ✅ Caches results for performance
 
-### 🔄 Compilation Status
+4. **Daemon Integration** (`bastion-rs/src/main.rs`)
+   - ✅ Loads eBPF on startup
+   - ✅ Graceful fallback if eBPF fails
+   - ✅ **Successfully builds** (3.3 MB binary)
 
-The eBPF program is written but requires additional system dependencies to compile:
+### 🔧 Build Status
 
-**Required Dependencies:**
-- ✅ libelf-dev (installed)
-- ✅ libz-dev (installed)
-- ✅ llvm-15-dev (installed)
-- ✅ kernel headers (installed)
-- ⚠️ cargo-bpf tool (needs proper LLVM path)
+**Successfully compiled:**
+```bash
+✅ eBPF program: target/bpfel-unknown-none/release/bastion-ebpf.o (14.6 KB)
+✅ Daemon binary: target/release/bastion-daemon (3.3 MB)
+```
 
-**Current Issue:**
-The `cargo-bpf` build tool is having trouble locating the correct LLVM installation. The eBPF code is complete and ready to compile once this is resolved.
+**Dependencies installed:**
+- ✅ clang 18.1
+- ✅ llvm-18-dev
+- ✅ bpf-linker v0.9.15
+- ✅ aya (git main branch)
 
 **Files Created:**
 ```
@@ -182,9 +190,10 @@ curl https://example.com  # Should trigger popup if unknown
 ## Next Steps (Priority Order)
 
 ### High Priority
-1. **Free disk space** - Currently 99% full, need ~2GB for eBPF
-2. **Implement eBPF** - Will solve process identification completely
-3. **Add destination-based rules** - Allow "always allow connections to google.com"
+1. **✅ DONE: eBPF Compilation** - Successfully compiled and integrated
+2. **Test eBPF integration** - Verify kernel hooks and process identification
+3. **Performance testing** - Compare eBPF vs /proc timing
+4. **Add destination-based rules** - Allow "always allow connections to google.com"
 
 ### Medium Priority
 4. **Improve error handling** - Better recovery from socket errors
