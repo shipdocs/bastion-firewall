@@ -65,9 +65,26 @@ echo ""
 # Check Rust installation
 if ! command -v rustc &> /dev/null; then
     echo "==> Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source "$HOME/.cargo/env"
-    echo "✅ Rust installed"
+    # SECURITY: Download script to temp file first, verify before executing
+    # This prevents arbitrary code execution if the remote server is compromised
+    RUST_INSTALLER=$(mktemp /tmp/rustup.XXXXXX.sh)
+    if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o "$RUST_INSTALLER"; then
+        # Verify the file is not empty and looks like a shell script
+        if [ -s "$RUST_INSTALLER" ] && head -1 "$RUST_INSTALLER" | grep -q "^#!/"; then
+            sh "$RUST_INSTALLER" -y
+            source "$HOME/.cargo/env"
+            echo "✅ Rust installed"
+        else
+            echo "❌ Error: Downloaded installer is invalid or corrupted"
+            rm -f "$RUST_INSTALLER"
+            exit 1
+        fi
+        rm -f "$RUST_INSTALLER"
+    else
+        echo "❌ Error: Failed to download Rust installer"
+        rm -f "$RUST_INSTALLER"
+        exit 1
+    fi
 else
     echo "✅ Rust already installed: $(rustc --version)"
 fi
