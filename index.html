@@ -47,9 +47,14 @@
                     🏰 <span class="gradient-text">Your Last Line of Defense</span>
                 </h1>
                 <p class="hero-subtitle">
-                    Production-ready application firewall built for Zorin OS 18. Like a medieval bastion protecting a
+                    Production-ready application firewall built for Zorin OS 18. Now featuring a <strong>high-performance Rust daemon with eBPF</strong> for <1µs process identification. Like a medieval bastion protecting a
                     fortress, Bastion stands guard over your network connections, giving you the control you had on Windows.
                 </p>
+
+                <div style="background: linear-gradient(135deg, #1a3a5f 0%, #2d5a8a 100%); padding: 15px 25px; border-radius: 8px; margin: 20px auto; max-width: 700px; border-left: 4px solid #4a9eff;">
+                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 5px;">🚀 NEW in v2.0</div>
+                    <div style="font-size: 13px; opacity: 0.95;">Rust daemon with kernel-level eBPF hooks solves the timing issue for short-lived connections (curl, wget, etc). Process identification now works at connection creation time with microsecond latency!</div>
+                </div>
 
                 <!-- Dynamic Release Cards -->
                 <div class="release-cards" style="display: flex; gap: 20px; justify-content: center; margin: 30px 0; flex-wrap: wrap;">
@@ -128,13 +133,13 @@
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🔍</div>
-                    <h3>Application Identification</h3>
-                    <p>Matches packets to processes via /proc filesystem for accurate app detection</p>
+                    <h3>eBPF Process Tracking</h3>
+                    <p>Kernel-level hooks capture process info at connection creation with ~1µs latency - solves timing issues with short-lived connections</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">⚡</div>
-                    <h3>Fast Decision Engine</h3>
-                    <p>Cached rules provide instant decisions for known connections</p>
+                    <h3>Rust Daemon</h3>
+                    <p>High-performance memory-safe daemon with eBPF + /proc fallback for maximum compatibility</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🎨</div>

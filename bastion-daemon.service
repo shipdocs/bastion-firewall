@@ -1,0 +1,23 @@
+[Unit]
+Description=Bastion Firewall Daemon (Rust with eBPF)
+Documentation=https://github.com/shipdocs/bastion-firewall
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/bastion-daemon
+Restart=on-failure
+RestartSec=5s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bastion-daemon
+
+# Environment
+Environment="RUST_LOG=info"
+
+[Install]
+WantedBy=multi-user.target
