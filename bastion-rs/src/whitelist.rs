@@ -52,15 +52,27 @@ pub enum AppCategory {
 
 /// Check if this connection should be auto-allowed
 pub fn should_auto_allow(app_path: &str, dest_port: u16, dest_ip: &str) -> (bool, &'static str) {
-    // 1. Essential ports (DNS, DHCP, NTP)
+    // 1. Essential ports (DNS, DHCP, NTP) - only for trusted binaries
     if ESSENTIAL_PORTS.contains(&dest_port) {
-        return (true, "Essential port");
+        // SECURITY: Only allow essential ports for trusted system binaries
+        // This prevents malicious processes from bypassing the firewall via DNS/DHCP/NTP
+        if SYSTEM_PATHS.contains(app_path) || app_path.starts_with("/usr/lib/systemd/") {
+            return (true, "Essential port (trusted)");
+        }
+        // Don't auto-allow unknown processes on essential ports
+        return (false, "");
     }
     
-    // 2. Localhost connections
+    // 2. Localhost connections - only for trusted binaries
     if let Ok(ip) = dest_ip.parse::<std::net::IpAddr>() {
         if ip.is_loopback() {
-            return (true, "Localhost");
+            // SECURITY: Only auto-allow localhost for trusted system binaries
+            // This prevents malicious processes from bypassing firewall via loopback tunnels
+            if SYSTEM_PATHS.contains(app_path) || app_path.starts_with("/usr/lib/systemd/") {
+                return (true, "Localhost (trusted)");
+            }
+            // Don't auto-allow unknown processes on localhost
+            return (false, "");
         }
     }
     
