@@ -41,7 +41,19 @@ fn run_server(stats: Arc<Mutex<Stats>>) {
         error!("Failed to create socket dir: {}", e);
         return;
     }
-    let _ = std::fs::remove_file(SOCKET_PATH);
+    
+    // SECURITY: Check for symlink before removing socket
+    // Prevents symlink attacks that could delete arbitrary files
+    let socket_path = std::path::Path::new(SOCKET_PATH);
+    if socket_path.exists() {
+        if let Ok(metadata) = std::fs::symlink_metadata(socket_path) {
+            if metadata.file_type().is_symlink() {
+                error!("Socket path {} is a symlink, refusing to remove for security", SOCKET_PATH);
+                return;
+            }
+        }
+        let _ = std::fs::remove_file(SOCKET_PATH);
+    }
     
     let listener = match UnixListener::bind(SOCKET_PATH) {
         Ok(l) => l,
