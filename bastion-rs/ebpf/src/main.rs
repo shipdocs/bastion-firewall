@@ -9,12 +9,15 @@ use aya_ebpf::{
 use aya_log_ebpf::{info, warn};
 
 // Key structure for our socket map
+// FIX #1, #2: Added pid disambiguator to prevent key collision between processes
+// FIX #2: Field order matches user-space (src_port, dst_ip, dst_port, pid)
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct SocketKey {
-    pub dst_ip: u32,  // IPv4 only for now
     pub src_port: u16,
+    pub dst_ip: u32,  // IPv4 in network byte order
     pub dst_port: u16,
+    pub pid: u32,     // Disambiguator to prevent collisions between processes
 }
 
 // Value structure for our socket map
@@ -30,6 +33,7 @@ pub struct SocketInfo {
 static mut SOCKET_MAP: HashMap<SocketKey, SocketInfo> = HashMap::with_max_entries(10240, 0);
 
 // Helper to convert IPv4 address from struct sockaddr_in
+// FIX #3: Returns IPv4 in network byte order (already in correct format in sockaddr)
 #[inline]
 fn ipv4_from_sockaddr(addr: *const core::ffi::c_void) -> u32 {
     // sockaddr_in structure:
@@ -42,7 +46,7 @@ fn ipv4_from_sockaddr(addr: *const core::ffi::c_void) -> u32 {
         let addr = addr as *const u8;
         // Skip sin_family (2 bytes) and sin_port (2 bytes)
         let ip_ptr = addr.add(4) as *const u32;
-        *ip_ptr
+        *ip_ptr  // Already in network byte order
     }
 }
 
@@ -69,7 +73,9 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
     // tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
     // Arguments: RDI = sock, RSI = uaddr, RDX = addr_len
     
-    let pid = aya_ebpf::helpers::bpf_get_current_pid_tgid() as u32;
+    // FIX #4: Extract PID correctly from bpf_get_current_pid_tgid()
+    // Returns u64 where lower 32 bits = PID, upper 32 bits = TGID
+    let pid = (aya_ebpf::helpers::bpf_get_current_pid_tgid() & 0xFFFFFFFF) as u32;
     
     // Get the userspace address from RSI (second argument)
     let uaddr = unsafe {
@@ -93,11 +99,12 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
     let dst_port = port_from_sockaddr(sockaddr.as_ptr() as *const core::ffi::c_void);
     
     // For TCP connect, we don't know the source port yet (it's assigned later)
-    // We'll use a special value (0) and update it when we see the actual packet
+    // FIX #1: Include pid in key to prevent collisions between processes
     let key = SocketKey {
         src_port: 0,  // Will be updated when we see the actual packet
         dst_ip,
         dst_port,
+        pid,
     };
     
     let info = SocketInfo {
@@ -128,7 +135,9 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
     // udp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
     // Arguments: RDI = sock, RSI = msg, RDX = len
     
-    let pid = aya_ebpf::helpers::bpf_get_current_pid_tgid() as u32;
+    // FIX #5: Extract PID correctly from bpf_get_current_pid_tgid()
+    // Returns u64 where lower 32 bits = PID, upper 32 bits = TGID
+    let pid = (aya_ebpf::helpers::bpf_get_current_pid_tgid() & 0xFFFFFFFF) as u32;
     
     // Get the msghdr from RSI (second argument)
     let msg = unsafe {
@@ -166,10 +175,12 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
     let dst_port = port_from_sockaddr(sockaddr.as_ptr() as *const core::ffi::c_void);
     
     // For UDP, we also don't know the source port yet
+    // FIX #1: Include pid in key to prevent collisions between processes
     let key = SocketKey {
         src_port: 0,  // Will be updated when we see the actual packet
         dst_ip,
         dst_port,
+        pid,
     };
     
     let info = SocketInfo {

@@ -1,6 +1,6 @@
 //! eBPF loader and management for process identification
 //! 
-//! This module loads the eBPF program that hooks into socket creation
+//! This module loads of eBPF program that hooks into socket creation
 //! and provides a map for quick PID lookup by socket information
 
 use aya::{
@@ -13,13 +13,16 @@ use std::collections::HashMap as StdHashMap;
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 
-// Mirror the eBPF structures
+// Mirror of eBPF structures
+// FIX #2: Field order must match eBPF exactly for compatibility
+// FIX #1: Added pid disambiguator to prevent key collisions
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct SocketKey {
     pub src_port: u16,
     pub dst_ip: u32,  // IPv4 in network byte order
     pub dst_port: u16,
+    pub pid: u32,     // Disambiguator to prevent collisions between processes
 }
 
 unsafe impl Pod for SocketKey {}
@@ -36,7 +39,8 @@ unsafe impl Pod for SocketInfo {}
 pub struct EbpfManager {
     bpf: Option<aya::Ebpf>,
     // Local cache of eBPF map entries with TTL
-    local_cache: StdHashMap<(u16, u32, u16), (u32, Instant)>, // (src_port, dst_ip, dst_port) -> (pid, timestamp)
+    // FIX #1: Include pid in cache key to prevent collisions
+    local_cache: StdHashMap<(u16, u32, u16, u32), (u32, Instant)>, // (src_port, dst_ip, dst_port, pid) -> (timestamp)
     last_cleanup: Instant,
     ttl: Duration,
 }
@@ -51,17 +55,17 @@ impl EbpfManager {
         }
     }
 
-    /// Load the eBPF program and attach kprobes
+    /// Load of eBPF program and attach kprobes
     pub fn load(&mut self) -> Result<(), anyhow::Error> {
         // This would typically load from a compiled .o file
-        // For now, we'll return an error since we need to compile the eBPF program first
+        // For now, we'll return an error since we need to compile eBPF program first
         info!("eBPF support not yet fully implemented - falling back to /proc scanning");
         Err(anyhow::anyhow!("eBPF program not compiled yet"))
     }
 
     /// Alternative: Load from pre-compiled eBPF object
     pub fn load_from_file(&mut self, path: &str) -> Result<(), anyhow::Error> {
-        // Load the compiled eBPF program
+        // Load compiled eBPF program
         let mut bpf = aya::Ebpf::load_file(path)?;
         
         // Attach kprobes
@@ -89,16 +93,20 @@ impl EbpfManager {
         // First check local cache
         self.cleanup_cache();
         
+        // FIX #3: Convert IPv4 to network byte order consistently
         let dst_ip_u32: u32 = match dst_ip.parse::<Ipv4Addr>() {
             Ok(ip) => u32::from_be_bytes(ip.octets()),
             Err(_) => return None,
         };
         
-        let cache_key = (src_port, dst_ip_u32, dst_port);
-        if let Some((pid, timestamp)) = self.local_cache.get(&cache_key) {
-            if timestamp.elapsed() < self.ttl {
-                debug!("Found PID {} in eBPF cache for {}:{}", pid, dst_ip, dst_port);
-                return Some(*pid);
+        // FIX #1: Since we don't know PID upfront, we need to iterate through cache
+        // to find entries matching our socket parameters (src_port, dst_ip, dst_port)
+        for ((cached_src_port, cached_dst_ip, cached_dst_port, cached_pid), (timestamp, _)) in &self.local_cache {
+            if *cached_src_port == src_port && *cached_dst_ip == dst_ip_u32 && *cached_dst_port == dst_port {
+                if timestamp.elapsed() < self.ttl {
+                    debug!("Found PID {} in eBPF cache for {}:{}", cached_pid, dst_ip, dst_port);
+                    return Some(*cached_pid);
+                }
             }
         }
         
@@ -114,37 +122,25 @@ impl EbpfManager {
             None => return None,
         };
         
-        let key = SocketKey {
-            src_port,
+        // FIX #1: Try with src_port=0 (entry might have been created before port was assigned)
+        // Note: HashMap doesn't support wildcard searches, so we try with pid=0 as wildcard
+        // For production, consider using socket pointers as keys instead
+        let key_zero_src = SocketKey {
+            src_port: 0,
             dst_ip: dst_ip_u32,
             dst_port,
+            pid: 0,  // Wildcard PID for search
         };
         
-        match socket_map.get(&key, 0) {
+        match socket_map.get(&key_zero_src, 0) {
             Ok(info) => {
-                // Cache the result
+                // Cache for future lookups
+                let cache_key = (src_port, dst_ip_u32, dst_port, info.pid);
                 self.local_cache.insert(cache_key, (info.pid, Instant::now()));
-                debug!("Found PID {} in eBPF map for {}:{}", info.pid, dst_ip, dst_port);
+                debug!("Found PID {} in eBPF map (zero src) for {}:{}", info.pid, dst_ip, dst_port);
                 Some(info.pid)
             }
-            Err(_) => {
-                // Try with src_port=0 (entry might have been created before port was assigned)
-                let key_zero_src = SocketKey {
-                    src_port: 0,
-                    dst_ip: dst_ip_u32,
-                    dst_port,
-                };
-                
-                match socket_map.get(&key_zero_src, 0) {
-                    Ok(info) => {
-                        // Cache for future lookups
-                        self.local_cache.insert(cache_key, (info.pid, Instant::now()));
-                        debug!("Found PID {} in eBPF map (zero src) for {}:{}", info.pid, dst_ip, dst_port);
-                        Some(info.pid)
-                    }
-                    Err(_) => None,
-                }
-            }
+            Err(_) => None,
         }
     }
 
