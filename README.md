@@ -19,7 +19,7 @@ Bastion intercepts outbound connections and prompts you to allow or deny them pe
 ## Features
 
 ### Core Functionality
-- **eBPF Process Tracking** - Kernel-level hooks capture process info at connection creation (~1µs latency)
+- **eBPF Process Tracking** - Kernel-level hooks capture process info at connection creation (~<1µs latency)
 - **Rust Daemon** - High-performance, memory-safe packet processing
 - **Real-time Interception** - iptables NFQUEUE integration
 - **GUI Popups** - Instant allow/deny prompts with Qt 6
@@ -133,7 +133,7 @@ Packet sent → iptables NFQUEUE
     ↓
 ┌─────────────────────────────────────────────┐
 │ Rust Daemon (bastion-daemon)                │
-│  - Query eBPF map (~1µs)                    │
+│  - Query eBPF map (~<1µs)                    │
 │  - Fallback to /proc if needed              │
 │  - Check existing rules                     │
 │  - Send GUI popup request                   │
