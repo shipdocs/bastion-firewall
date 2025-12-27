@@ -5,17 +5,10 @@ After=network.target
 
 [Service]
 Type=simple
+User=root
 ExecStart=/usr/bin/bastion-daemon
 Restart=on-failure
 RestartSec=5s
-
-# Security settings
-NoNewPrivileges=false
-PrivateTmp=true
-
-# Capabilities
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF
 
 # Logging
 StandardOutput=journal

@@ -93,11 +93,29 @@ fi
 systemctl daemon-reload
 print_success "Systemd configuration reloaded"
 
-# Enable and start service
-systemctl enable bastion-daemon 2>/dev/null || systemctl enable bastion-firewall 2>/dev/null || true
+# Set up iptables rules (CRITICAL: must be done before starting daemon)
+print_success "Setting up iptables rules..."
 
-# Try to start the service
-if systemctl start bastion-daemon 2>/dev/null || systemctl start bastion-firewall 2>/dev/null; then
+# Clean up any existing Bastion rules
+iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || true
+for i in {1..10}; do
+    iptables -D OUTPUT -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || break
+done
+
+# Add bypass rules FIRST (higher priority)
+iptables -I OUTPUT 1 -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || true
+iptables -I OUTPUT 1 -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS" -j ACCEPT
+
+# Add NFQUEUE rule (will be after bypass rules)
+iptables -I OUTPUT 3 -m state --state NEW -j NFQUEUE --queue-num 1
+
+print_success "iptables rules configured"
+
+# Enable and start service
+systemctl enable bastion-daemon 2>/dev/null || true
+
+# Start the daemon
+if systemctl restart bastion-daemon 2>/dev/null; then
     print_success "Bastion daemon started"
 else
     print_warning "Could not start daemon automatically"
@@ -125,7 +143,7 @@ echo "  • Qt6 GUI for connection popups"
 echo "  • Learning mode enabled by default"
 echo ""
 echo "To launch the GUI:"
-echo "  Search for 'Bastion Firewall' in your application menu"
+echo "  bastion-gui &"
 echo ""
 echo "To check daemon status:"
 echo "  sudo systemctl status bastion-daemon"

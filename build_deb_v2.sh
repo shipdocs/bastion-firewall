@@ -95,6 +95,11 @@ if [ -f "bastion-control-panel.desktop" ]; then
     cp bastion-control-panel.desktop debian/usr/share/applications/
 fi
 
+# Copy autostart entry
+print_step "Copying autostart entry..."
+mkdir -p debian/etc/xdg/autostart
+cp bastion-tray.desktop debian/etc/xdg/autostart/
+
 # Create AppStream metadata for Software Centre
 print_step "Creating AppStream metadata..."
 cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
@@ -166,8 +171,7 @@ EOF
 print_step "Copying documentation..."
 cp README.md debian/usr/share/doc/bastion-firewall/
 cp REQUIREMENTS.md debian/usr/share/doc/bastion-firewall/
-cp bastion-rs/EBPF_COMPLETE.md debian/usr/share/doc/bastion-firewall/
-cp bastion-rs/STATUS.md debian/usr/share/doc/bastion-firewall/
+cp bastion-rs/README.md debian/usr/share/doc/bastion-firewall/RUST_README.md
 
 # Create copyright file
 cat > debian/usr/share/doc/bastion-firewall/copyright << 'EOF'
