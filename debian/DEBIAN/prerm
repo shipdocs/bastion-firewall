@@ -2,28 +2,54 @@
 set -e
 
 # Stop the daemon before removal
-systemctl stop bastion-daemon 2>/dev/null || systemctl stop bastion-firewall 2>/dev/null || true
-systemctl disable bastion-daemon 2>/dev/null || systemctl disable bastion-firewall 2>/dev/null || true
+# FIX #20: Chain with && instead of || to ensure both services are stopped
+systemctl stop bastion-daemon 2>/dev/null || true
+if systemctl is-active bastion-firewall 2>/dev/null; then
+    systemctl stop bastion-firewall 2>/dev/null || true
+fi
+systemctl disable bastion-daemon 2>/dev/null || true
+if systemctl is-enabled bastion-firewall 2>/dev/null; then
+    systemctl disable bastion-firewall 2>/dev/null || true
+fi
 
-# Kill any GUI processes
-pkill -f bastion-gui 2>/dev/null || true
+# FIX #7: Use more precise matching for GUI processes
+# Kill only bastion-gui processes by exact binary path
+if [ -n "$SUDO_USER" ]; then
+    # Running under sudo - kill processes for real user
+    su - "$SUDO_USER" -c 'pkill -x bastion-gui' 2>/dev/null || true
+else
+    # Running as root directly - try to find and kill GUI processes
+    # Get list of user sessions and kill GUI processes for each user
+    for user_home in /home/*; do
+        if [ -d "$user_home" ]; then
+            user=$(basename "$user_home")
+            su - "$user" -c 'pkill -x bastion-gui' 2>/dev/null || true
+        fi
+    done
+fi
 
-# Clean up iptables rules
-# iptables -F OUTPUT 2>/dev/null || true
+# FIX #9, #11: Clean up iptables rules with explicit presence checks
+# Remove NFQUEUE rules with --queue-bypass
+while iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null; do
+    iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || break
+done
 
-# Remove NFQUEUE rules
-for i in {1..20}; do
+# Also remove any old NFQUEUE rules without --queue-bypass (for cleanup)
+while iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null; do
     iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || break
 done
 
-# Remove BASTION_BYPASS rules
-for i in {1..20}; do
-    if ! iptables -S OUTPUT 2>/dev/null | grep -q "BASTION_BYPASS"; then
-        break
-    fi
-    iptables -D OUTPUT -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || break
+# FIX #8, #21: Remove BASTION_BYPASS rules with full rule specification
+# Check and remove systemd-network bypass rule
+while iptables -C OUTPUT -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null; do
+    iptables -D OUTPUT -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || break
 done
 
-echo "Bastion Firewall services stopped"
+# Check and remove root bypass rule
+while iptables -C OUTPUT -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null; do
+    iptables -D OUTPUT -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || break
+done
+
+echo "Bastion Firewall services stopped and rules removed"
 
 exit 0

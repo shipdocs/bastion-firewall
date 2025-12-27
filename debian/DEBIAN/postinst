@@ -67,8 +67,9 @@ mkdir -p /var/log/bastion
 chown -R bastion:bastion /var/log/bastion
 chmod 750 /var/log/bastion
 
-# Ensure log file has correct permissions
+# FIX #12: Ensure log file is owned by bastion user
 touch /var/log/bastion-daemon.log
+chown bastion:bastion /var/log/bastion-daemon.log
 chmod 644 /var/log/bastion-daemon.log
 print_success "Configured logging"
 
@@ -96,30 +97,55 @@ print_success "Systemd configuration reloaded"
 # Set up iptables rules (CRITICAL: must be done before starting daemon)
 print_success "Setting up iptables rules..."
 
-# Clean up any existing Bastion rules
-iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || true
-for i in {1..10}; do
-    iptables -D OUTPUT -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || break
-done
+# FIX #6: Check if nftables is in use (Debian 12+)
+if command -v nft &> /dev/null && nft list table ip filter 2>/dev/null | grep -q "bastion"; then
+    print_warning "nftables detected - using iptables-nft compatibility layer"
+fi
 
+# FIX #6, #10: Add rule existence checks before adding/removing
+# Check for existing NFQUEUE rule with --queue-bypass
+if iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null; then
+    print_warning "NFQUEUE rule already exists, skipping..."
+else
+    # Clean up any old NFQUEUE rules without --queue-bypass
+    while iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null 2>&1; do :; done
+    
+    # FIX #10: Add NFQUEUE rule with --queue-bypass to allow traffic when daemon is not running
+    iptables -I OUTPUT 3 -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
+    print_success "NFQUEUE rule added with --queue-bypass"
+fi
+
+# FIX #6, #8: Check for existing BASTION_BYPASS rules before adding
 # Add bypass rules FIRST (higher priority)
-iptables -I OUTPUT 1 -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || true
-iptables -I OUTPUT 1 -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS" -j ACCEPT
+if ! iptables -C OUTPUT -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null; then
+    iptables -I OUTPUT 1 -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT
+    print_success "systemd-network bypass rule added"
+fi
 
-# Add NFQUEUE rule (will be after bypass rules)
-iptables -I OUTPUT 3 -m state --state NEW -j NFQUEUE --queue-num 1
+if ! iptables -C OUTPUT -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null; then
+    iptables -I OUTPUT 1 -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS" -j ACCEPT
+    print_success "root bypass rule added"
+fi
 
 print_success "iptables rules configured"
 
 # Enable and start service
 systemctl enable bastion-daemon 2>/dev/null || true
 
-# Start the daemon
-if systemctl restart bastion-daemon 2>/dev/null; then
-    print_success "Bastion daemon started"
+# FIX #14: Check if firewall rule setup succeeded before starting daemon
+# Verify NFQUEUE rule exists
+if ! iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null; then
+    print_error "NFQUEUE rule not found - firewall setup may have failed"
+    print_warning "Daemon will not be started until firewall rules are properly configured"
+    print_warning "Please check your iptables configuration and re-run: sudo dpkg-reconfigure bastion-firewall"
 else
-    print_warning "Could not start daemon automatically"
-    echo "  You can start it manually with: sudo systemctl start bastion-daemon"
+    # Start the daemon
+    if systemctl restart bastion-daemon 2>/dev/null; then
+        print_success "Bastion daemon started"
+    else
+        print_warning "Could not start daemon automatically"
+        echo "  You can start it manually with: sudo systemctl start bastion-daemon"
+    fi
 fi
 
 # Update desktop database

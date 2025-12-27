@@ -23,33 +23,68 @@ fi
 
 # Stop services
 echo "==> Stopping services..."
-sudo systemctl stop bastion-daemon 2>/dev/null || true
-sudo systemctl disable bastion-daemon 2>/dev/null || true
+systemctl stop bastion-daemon 2>/dev/null || true
+if systemctl is-active bastion-firewall 2>/dev/null; then
+    systemctl stop bastion-firewall 2>/dev/null || true
+fi
+systemctl disable bastion-daemon 2>/dev/null || true
+if systemctl is-enabled bastion-firewall 2>/dev/null; then
+    systemctl disable bastion-firewall 2>/dev/null || true
+fi
+
+# FIX #7: Use more precise matching for GUI processes
+# Kill only bastion-gui processes by exact binary path
+if [ -n "$SUDO_USER" ]; then
+    # Running under sudo - kill processes for real user
+    su - "$SUDO_USER" -c 'pkill -x bastion-gui' 2>/dev/null || true
+else
+    # Running as root directly - try to find and kill GUI processes
+    # Get list of user sessions and kill GUI processes for each user
+    for user_home in /home/*; do
+        if [ -d "$user_home" ]; then
+            user=$(basename "$user_home")
+            su - "$user" -c 'pkill -x bastion-gui' 2>/dev/null || true
+        fi
+    done
+fi
+
 # Try graceful shutdown first
-sudo pkill bastion-daemon 2>/dev/null || true
-pkill -f bastion-gui 2>/dev/null || true
 sleep 2
+
 # Force kill if still running
-sudo pkill -9 bastion-daemon 2>/dev/null || true
-pkill -9 -f bastion-gui 2>/dev/null || true
+if [ -n "$SUDO_USER" ]; then
+    su - "$SUDO_USER" -c 'pkill -9 -x bastion-gui' 2>/dev/null || true
+else
+    for user_home in /home/*; do
+        if [ -d "$user_home" ]; then
+            user=$(basename "$user_home")
+            su - "$user" -c 'pkill -9 -x bastion-gui' 2>/dev/null || true
+        fi
+    done
+fi
+
 echo "✅ Services stopped"
 
-# Remove iptables rules
+# FIX #9, #11: Clean up iptables rules with explicit presence checks
 echo "==> Cleaning up iptables rules..."
-sudo iptables -F OUTPUT 2>/dev/null || true
 
-# Remove NFQUEUE rules
-for i in {1..20}; do
-    sudo iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || break
+# Remove NFQUEUE rules with --queue-bypass
+while iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null; do
+    iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || break
 done
 
-# Remove BASTION_BYPASS rules
-for i in {1..20}; do
-    RULE=$(sudo iptables -S OUTPUT | grep "BASTION_BYPASS" | head -n1)
-    if [ -z "$RULE" ]; then
-        break
-    fi
-    sudo iptables -D OUTPUT $(echo $RULE | cut -d' ' -f3-) 2>/dev/null || break
+# Also remove any old NFQUEUE rules without --queue-bypass
+while iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null; do
+    iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || break
+done
+
+# FIX #8, #21: Remove BASTION_BYPASS rules with full rule specification
+while iptables -C OUTPUT -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null; do
+    iptables -D OUTPUT -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || break
+done
+
+while iptables -C OUTPUT -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null; do
+    iptables -D OUTPUT -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || break
 done
 
 echo "✅ iptables rules removed"
@@ -65,7 +100,7 @@ echo "✅ Binaries removed"
 echo "==> Removing systemd service..."
 sudo rm -f /etc/systemd/system/bastion-daemon.service
 sudo rm -f /etc/systemd/system/bastion-firewall.service
-sudo systemctl daemon-reload
+systemctl daemon-reload
 echo "✅ Systemd service removed"
 
 # Remove socket
@@ -74,6 +109,23 @@ sudo rm -f /var/run/bastion/bastion-daemon.sock
 sudo rmdir /var/run/bastion 2>/dev/null || true
 echo "✅ Socket removed"
 
+# FIX #19: Remove desktop file from real user's home directory
+echo "==> Removing desktop entry..."
+if [ -n "$SUDO_USER" ]; then
+    # Use SUDO_USER to find real user's home
+    REAL_HOME="/home/$SUDO_USER"
+    rm -f "$REAL_HOME/.local/share/applications/bastion-firewall.desktop" 2>/dev/null || true
+    rm -f "$REAL_HOME/.config/autostart/bastion-tray.desktop" 2>/dev/null || true
+else
+    # Fallback: try common home directories
+    for user_home in /home/*; do
+        if [ -d "$user_home" ]; then
+            rm -f "$user_home/.local/share/applications/bastion-firewall.desktop" 2>/dev/null || true
+            rm -f "$user_home/.config/autostart/bastion-tray.desktop" 2>/dev/null || true
+        fi
+    done
+fi
+
 # Ask about configuration
 echo ""
 read -p "Remove configuration files? (/etc/bastion/*, /var/log/bastion-daemon.log) [y/N] " -n 1 -r
@@ -81,13 +133,11 @@ echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     sudo rm -rf /etc/bastion
     sudo rm -f /var/log/bastion-daemon.log
+    sudo rm -rf /var/log/bastion
     echo "✅ Configuration removed"
 else
     echo "ℹ️  Configuration preserved in /etc/bastion/"
 fi
-
-# Remove desktop entry
-rm -f ~/.local/share/applications/bastion-firewall.desktop 2>/dev/null || true
 
 echo ""
 echo "=== Uninstall Complete ==="

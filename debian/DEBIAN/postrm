@@ -1,6 +1,26 @@
 #!/bin/bash
 set -e
 
+# FIX #32: Clean up firewall rules on package removal
+# Remove NFQUEUE rules with --queue-bypass
+while iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null; do
+    iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || break
+done
+
+# Also remove any old NFQUEUE rules without --queue-bypass
+while iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null; do
+    iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || break
+done
+
+# Remove BASTION_BYPASS rules with full specification
+while iptables -C OUTPUT -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null; do
+    iptables -D OUTPUT -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || break
+done
+
+while iptables -C OUTPUT -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null; do
+    iptables -D OUTPUT -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || break
+done
+
 case "$1" in
     purge)
         # Remove configuration files on purge
