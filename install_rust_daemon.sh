@@ -71,7 +71,20 @@ if ! command -v rustc &> /dev/null; then
     # SECURITY: Download script to temp file first, verify before executing
     # This prevents arbitrary code execution if the remote server is compromised
     RUST_INSTALLER=$(mktemp /tmp/rustup.XXXXXX.sh)
+    # Pinned SHA256 of the installer script (sh.rustup.rs) as of 2025-12-28
+    # If this fails, the upstream script has changed. Please verify and update the hash.
+    RUSTUP_SHA256="17247e4bcacf6027ec2e11c79a72c494c9af69ac8d1abcc1b271fa4375a106c2"
+
     if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o "$RUST_INSTALLER"; then
+        # Verify SHA256 checksum
+        if ! echo "$RUSTUP_SHA256  $RUST_INSTALLER" | sha256sum -c - >/dev/null 2>&1; then
+             echo "❌ Error: Rust installer checksum verification failed!"
+             echo "   Expected: $RUSTUP_SHA256"
+             echo "   Actual:   $(sha256sum "$RUST_INSTALLER" | awk '{print $1}')"
+             rm -f "$RUST_INSTALLER"
+             exit 1
+        fi
+
         # Verify the file is not empty and looks like a shell script
         if [ -s "$RUST_INSTALLER" ] && head -1 "$RUST_INSTALLER" | grep -q "^#!/"; then
             sh "$RUST_INSTALLER" -y

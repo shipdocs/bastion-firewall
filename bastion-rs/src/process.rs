@@ -15,6 +15,7 @@ pub struct ProcessInfo {
     pub pid: u32,
     pub name: String,
     pub exe_path: String,
+    pub uid: u32,
 }
 
 /// Connection info from /proc/net/tcp or /proc/net/udp
@@ -84,16 +85,23 @@ impl ProcessCache {
             
             let proc_path = format!("/proc/{}", pid);
             
-            // Get process name and exe
-            let (proc_name, exe_path) = match (
+            // Get process name, exe, and uid
+            let (proc_name, exe_path, uid) = match (
                 fs::read_to_string(format!("{}/comm", proc_path)),
                 fs::read_link(format!("{}/exe", proc_path))
             ) {
-                (Ok(name), Ok(exe)) => (
-                    name.trim().to_string(),
-                    exe.to_string_lossy().into_owned()
-                ),
-                (Ok(name), Err(_)) => (name.trim().to_string(), String::new()),
+                (Ok(name), Ok(exe)) => {
+                    let uid = self.get_process_uid(pid).unwrap_or(0);
+                    (
+                        name.trim().to_string(),
+                        exe.to_string_lossy().into_owned(),
+                        uid
+                    )
+                },
+                (Ok(name), Err(_)) => {
+                    let uid = self.get_process_uid(pid).unwrap_or(0);
+                    (name.trim().to_string(), String::new(), uid)
+                },
                 _ => continue,
             };
             
@@ -113,6 +121,7 @@ impl ProcessCache {
                                         pid,
                                         name: proc_name.clone(),
                                         exe_path: exe_path.clone(),
+                                        uid,
                                     });
                                 }
                             }
@@ -123,6 +132,24 @@ impl ProcessCache {
         }
         
         self.last_scan = Instant::now();
+    }
+    
+    /// Helper: Get process UID from /proc/[pid]/status
+    fn get_process_uid(&self, pid: u32) -> Option<u32> {
+        let path = format!("/proc/{}/status", pid);
+        if let Ok(file) = File::open(path) {
+            let reader = BufReader::new(file);
+            for line in reader.lines().flatten() {
+                if line.starts_with("Uid:") {
+                    // Line format: Uid:    1000    1000    1000    1000
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        return parts[1].parse().ok();
+                    }
+                }
+            }
+        }
+        None
     }
     
     /// Read /proc/net/tcp or /proc/net/udp
@@ -285,15 +312,22 @@ impl ProcessCache {
         let proc_path = format!("/proc/{}", pid);
         
         // Get process name and exe
-        let (proc_name, exe_path) = match (
+        let (proc_name, exe_path, uid) = match (
             fs::read_to_string(format!("{}/comm", proc_path)),
             fs::read_link(format!("{}/exe", proc_path))
         ) {
-            (Ok(name), Ok(exe)) => (
-                name.trim().to_string(),
-                exe.to_string_lossy().into_owned()
-            ),
-            (Ok(name), Err(_)) => (name.trim().to_string(), String::new()),
+            (Ok(name), Ok(exe)) => {
+                let uid = self.get_process_uid(pid).unwrap_or(0);
+                (
+                    name.trim().to_string(),
+                    exe.to_string_lossy().into_owned(),
+                    uid
+                )
+            },
+            (Ok(name), Err(_)) => {
+                let uid = self.get_process_uid(pid).unwrap_or(0);
+                (name.trim().to_string(), String::new(), uid)
+            },
             _ => return None,
         };
         
@@ -301,6 +335,7 @@ impl ProcessCache {
             pid,
             name: proc_name,
             exe_path,
+            uid,
         })
     }
     

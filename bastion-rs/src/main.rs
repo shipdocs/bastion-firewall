@@ -109,7 +109,7 @@ impl GuiState {
         // Clean up old entries if cache gets too large
         if self.pending_cache.len() > 1000 {
             let now = std::time::Instant::now();
-            self.pending_cache.retain(|_, (_, timestamp)| {
+            self.pending_cache.retain(|_, timestamp| {
                 now.duration_since(*timestamp) < Duration::from_secs(10)
             });
             debug!("Cleaned pending cache (size was > 1000)");
@@ -289,7 +289,11 @@ fn run_socket_server(gui_state: Arc<Mutex<GuiState>>) {
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
-                info!("GUI client connecting...");
+                if let Ok(cred) = s.peer_cred() {
+                    info!("GUI client connecting (UID: {}, PID: {})", cred.uid(), cred.pid().unwrap_or(0));
+                } else {
+                    warn!("GUI client connecting (unknown credentials)");
+                }
                 gui_state.lock().set_connection(s);
             }
             Err(e) => {
@@ -349,9 +353,9 @@ fn process_packet(
     );
     drop(cache);
     
-    let (app_name, app_path) = match &process_info {
-        Some(info) => (info.name.clone(), info.exe_path.clone()),
-        None => ("unknown".to_string(), "unknown".to_string()),
+    let (app_name, app_path, app_uid) = match &process_info {
+        Some(info) => (info.name.clone(), info.exe_path.clone(), info.uid),
+        None => ("unknown".to_string(), "unknown".to_string(), 0),
     };
     
     // Check whitelist
@@ -365,10 +369,10 @@ fn process_packet(
     if app_path != "unknown" {
         if let Some(allow) = rules.get_decision(&app_path, dst_port) {
             return if allow {
-                debug!("[RULE:ALLOW] {} -> {}:{}", app_name, dst_ip, dst_port);
+                debug!("[RULE:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
                 Verdict::Accept
             } else {
-                info!("[RULE:BLOCK] {} -> {}:{}", app_name, dst_ip, dst_port);
+                info!("[RULE:BLOCK] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
                 Verdict::Drop
             };
         }
@@ -396,10 +400,10 @@ fn process_packet(
             }
             
             return if response.allow {
-                info!("[USER:ALLOW] {} -> {}:{}", app_name, dst_ip, dst_port);
+                info!("[USER:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
                 Verdict::Accept
             } else {
-                info!("[USER:BLOCK] {} -> {}:{}", app_name, dst_ip, dst_port);
+                info!("[USER:BLOCK] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
                 Verdict::Drop
             };
         }
@@ -408,13 +412,13 @@ fn process_packet(
     
     // No GUI or no response - use mode default
     if learning_mode {
-        info!("[LEARN] {} ({}) -> {}:{}", app_name, app_path, dst_ip, dst_port);
+        info!("[LEARN] app=\"{}\" path=\"{}\" dst=\"{}:{}\" user={}", app_name, app_path, dst_ip, dst_port, app_uid);
         Verdict::Accept
     } else {
         if app_path == "unknown" {
             Verdict::Accept
         } else {
-            warn!("[BLOCK] {} -> {}:{} (no GUI)", app_name, dst_ip, dst_port);
+            warn!("[BLOCK] app=\"{}\" dst=\"{}:{}\" user={} (no GUI)", app_name, dst_ip, dst_port, app_uid);
             Verdict::Drop
         }
     }
