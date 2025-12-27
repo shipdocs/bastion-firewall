@@ -10,7 +10,7 @@ ExecStart=/usr/bin/bastion-daemon
 ExecStopPost=/usr/sbin/iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
 Restart=on-failure
 RestartSec=5
-Environment=RUST_LOG=info
+Environment=RUST_LOG=debug
 
 # Directories
 RuntimeDirectory=bastion

@@ -18,10 +18,26 @@ pub struct ProcessInfo {
 /// Find the process that owns a socket by source port
 pub fn find_process_by_port(src_port: u16, protocol: &str) -> Option<ProcessInfo> {
     // 1. Find inode from /proc/net/tcp or /proc/net/udp
-    let inode = find_socket_inode(src_port, protocol)?;
+    let inode = match find_socket_inode(src_port, protocol) {
+        Some(i) => i,
+        None => {
+            debug!("No inode found for port {} ({})", src_port, protocol);
+            return None;
+        }
+    };
+    
+    debug!("Found inode {} for port {}", inode, src_port);
     
     // 2. Find PID that owns this inode
-    let pid = find_pid_by_inode(inode)?;
+    let pid = match find_pid_by_inode(inode) {
+        Some(p) => p,
+        None => {
+            debug!("No PID found for inode {}", inode);
+            return None;
+        }
+    };
+    
+    debug!("Found PID {} for inode {}", pid, inode);
     
     // 3. Get process info
     get_process_info(pid)

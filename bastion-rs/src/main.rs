@@ -1,11 +1,10 @@
-//! Bastion Firewall Daemon - Rust Edition v0.4
+//! Bastion Firewall Daemon - Rust Edition v0.5
 //! 
-//! Uses nfq crate - learning mode for now, popup support planned
+//! With WORKING popup support via blocking GUI queries!
 
 mod process;
 mod rules;
 mod config;
-mod ipc;
 mod whitelist;
 
 use nfq::{Queue, Verdict};
@@ -13,8 +12,12 @@ use etherparse::{Ipv4HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};
 use std::sync::Arc;
 use std::time::Duration;
 use std::thread;
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::collections::HashMap;
 use log::{info, warn, error, debug};
 use parking_lot::Mutex;
+use serde::{Serialize, Deserialize};
 
 use process::ProcessCache;
 use rules::RuleManager;
@@ -22,31 +25,133 @@ use config::ConfigManager;
 use whitelist::should_auto_allow;
 
 const QUEUE_NUM: u16 = 1;
+const SOCKET_PATH: &str = "/var/run/bastion/bastion-daemon.sock";
+const GUI_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Default)]
 pub struct Stats {
     pub total_connections: u64,
     pub allowed_connections: u64,
     pub blocked_connections: u64,
-    pub pending_decisions: u64,
 }
 
-/// Request sent to GUI for decision
-#[derive(Clone)]
-pub struct PendingDecision {
-    pub id: u64,
-    pub app_name: String,
-    pub app_path: String,
-    pub dest_ip: String,
-    pub dest_port: u16,
-    pub protocol: String,
+#[derive(Serialize)]
+struct ConnectionRequest {
+    #[serde(rename = "type")]
+    msg_type: String,
+    app_name: String,
+    app_path: String,
+    app_category: String,
+    dest_ip: String,
+    dest_port: u16,
+    protocol: String,
 }
 
-/// Response from GUI
-pub struct DecisionResponse {
-    pub id: u64,
-    pub allow: bool,
-    pub permanent: bool,
+#[derive(Deserialize)]
+struct GuiResponse {
+    allow: bool,
+    #[serde(default)]
+    permanent: bool,
+}
+
+/// Shared state for GUI connection (we're the SERVER, GUI connects to us)
+struct GuiState {
+    stream: Option<UnixStream>,
+    reader: Option<BufReader<UnixStream>>,
+    pending_cache: HashMap<String, std::time::Instant>,
+}
+
+impl GuiState {
+    fn new() -> Self {
+        Self {
+            stream: None,
+            reader: None,
+            pending_cache: HashMap::new(),
+        }
+    }
+    
+    fn set_connection(&mut self, stream: UnixStream) {
+        stream.set_read_timeout(Some(Duration::from_secs(GUI_TIMEOUT_SECS))).ok();
+        stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
+        let reader = BufReader::new(stream.try_clone().unwrap());
+        self.stream = Some(stream);
+        self.reader = Some(reader);
+        info!("GUI connection established");
+    }
+    
+    fn is_connected(&self) -> bool {
+        self.stream.is_some()
+    }
+    
+    fn disconnect(&mut self) {
+        info!("GUI disconnected");
+        self.stream = None;
+        self.reader = None;
+    }
+    
+    /// Ask GUI for decision - BLOCKS until response or timeout
+    fn ask_gui(&mut self, request: &ConnectionRequest) -> Option<GuiResponse> {
+        if !self.is_connected() {
+            return None;
+        }
+        
+        // Dedup: don't spam same request
+        let cache_key = format!("{}:{}", request.app_path, request.dest_port);
+        if let Some(time) = self.pending_cache.get(&cache_key) {
+            if time.elapsed() < Duration::from_secs(5) {
+                debug!("Dedup: already asked for {}", cache_key);
+                return None;
+            }
+        }
+        self.pending_cache.insert(cache_key, std::time::Instant::now());
+        
+        // Send request to GUI
+        let json = match serde_json::to_string(request) {
+            Ok(j) => j,
+            Err(_) => return None,
+        };
+        
+        if let Some(ref mut stream) = self.stream {
+            if stream.write_all((json + "\n").as_bytes()).is_err() {
+                self.disconnect();
+                return None;
+            }
+        } else {
+            return None;
+        }
+        
+        // Wait for response (blocking with timeout)
+        if let Some(ref mut reader) = self.reader {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => {
+                    self.disconnect();
+                    return None;
+                }
+                Ok(_) => {
+                    match serde_json::from_str::<GuiResponse>(&line) {
+                        Ok(resp) => return Some(resp),
+                        Err(e) => {
+                            debug!("Failed to parse GUI response: {} - line: {}", e, line.trim());
+                            return None;
+                        }
+                    }
+                }
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock || 
+                       e.kind() == std::io::ErrorKind::TimedOut {
+                        debug!("GUI timeout - no response");
+                    } else {
+                        debug!("GUI read error: {}", e);
+                        self.disconnect();
+                    }
+                    return None;
+                }
+            }
+        }
+        
+        None
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -55,7 +160,8 @@ fn main() -> anyhow::Result<()> {
     ).init();
     
     info!("╔════════════════════════════════════════╗");
-    info!("║  Bastion Firewall Daemon (Rust) v0.4  ║");
+    info!("║  Bastion Firewall Daemon (Rust) v0.5  ║");
+    info!("║         With Popup Support!           ║");
     info!("╚════════════════════════════════════════╝");
     
     let config = ConfigManager::new();
@@ -63,10 +169,16 @@ fn main() -> anyhow::Result<()> {
     let rules = Arc::new(RuleManager::new());
     let stats = Arc::new(Mutex::new(Stats::default()));
     
-    info!("Mode: {}", if learning_mode { "🎓 Learning (allow unknown)" } else { "🛡️ Enforcement (block unknown)" });
+    info!("Mode: {}", if learning_mode { "🎓 Learning" } else { "🛡️ Enforcement" });
     
-    // Start IPC server for GUI connection (stats only for now)
-    ipc::start_ipc_server(stats.clone());
+    // Shared GUI state
+    let gui_state = Arc::new(Mutex::new(GuiState::new()));
+    
+    // Start socket server for GUI connections
+    let gui_state_server = gui_state.clone();
+    thread::spawn(move || {
+        run_socket_server(gui_state_server);
+    });
     
     // Open NFQUEUE
     let mut queue = Queue::open()?;
@@ -102,7 +214,13 @@ fn main() -> anyhow::Result<()> {
         stats.lock().total_connections += 1;
         
         let payload = msg.get_payload();
-        let verdict = process_packet(payload, &rules, &process_cache, learning_mode);
+        let verdict = process_packet(
+            payload, 
+            &rules, 
+            &process_cache, 
+            learning_mode,
+            &gui_state,
+        );
         
         msg.set_verdict(verdict);
         if let Err(e) = queue.verdict(msg) {
@@ -118,11 +236,47 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+fn run_socket_server(gui_state: Arc<Mutex<GuiState>>) {
+    // Create socket directory
+    let socket_dir = std::path::Path::new(SOCKET_PATH).parent().unwrap();
+    std::fs::create_dir_all(socket_dir).ok();
+    let _ = std::fs::remove_file(SOCKET_PATH);
+    
+    let listener = match UnixListener::bind(SOCKET_PATH) {
+        Ok(l) => l,
+        Err(e) => {
+            error!("Failed to bind socket: {}", e);
+            return;
+        }
+    };
+    
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o666));
+    }
+    
+    info!("Socket server listening on {}", SOCKET_PATH);
+    
+    for stream in listener.incoming() {
+        match stream {
+            Ok(s) => {
+                info!("GUI client connecting...");
+                gui_state.lock().set_connection(s);
+            }
+            Err(e) => {
+                error!("Socket accept error: {}", e);
+            }
+        }
+    }
+}
+
 fn process_packet(
     payload: &[u8],
     rules: &RuleManager,
     process_cache: &Mutex<ProcessCache>,
     learning_mode: bool,
+    gui_state: &Arc<Mutex<GuiState>>,
 ) -> Verdict {
     // Parse IP header
     let ip_header = match Ipv4HeaderSlice::from_slice(payload) {
@@ -144,18 +298,18 @@ fn process_packet(
     // Parse transport layer
     let (src_port, dst_port, protocol_str) = match proto {
         6 => match TcpHeaderSlice::from_slice(transport_slice) {
-            Ok(tcp) => (tcp.source_port(), tcp.destination_port(), "tcp"),
+            Ok(tcp) => (tcp.source_port(), tcp.destination_port(), "TCP"),
             Err(_) => return Verdict::Accept,
         },
         17 => match UdpHeaderSlice::from_slice(transport_slice) {
-            Ok(udp) => (udp.source_port(), udp.destination_port(), "udp"),
+            Ok(udp) => (udp.source_port(), udp.destination_port(), "UDP"),
             Err(_) => return Verdict::Accept,
         },
         _ => return Verdict::Accept,
     };
     
     // Identify process
-    let process_info = process_cache.lock().get(src_port, protocol_str);
+    let process_info = process_cache.lock().get(src_port, protocol_str.to_lowercase().as_str());
     let (app_name, app_path) = match &process_info {
         Some(info) => (info.name.clone(), info.exe_path.clone()),
         None => ("unknown".to_string(), "unknown".to_string()),
@@ -181,16 +335,47 @@ fn process_packet(
         }
     }
     
-    // Unknown app - use mode default
+    // Unknown app - ask GUI!
+    let request = ConnectionRequest {
+        msg_type: "connection_request".to_string(),
+        app_name: app_name.clone(),
+        app_path: app_path.clone(),
+        app_category: "unknown".to_string(),
+        dest_ip: dst_ip_str.clone(),
+        dest_port: dst_port,
+        protocol: protocol_str.to_string(),
+    };
+    
+    // Try to get GUI decision (blocking with timeout)
+    let mut gui = gui_state.lock();
+    if gui.is_connected() {
+        info!("[POPUP] {} ({}) -> {}:{}", app_name, app_path, dst_ip, dst_port);
+        
+        if let Some(response) = gui.ask_gui(&request) {
+            if response.permanent {
+                rules.add_rule(&app_path, Some(dst_port), response.allow);
+            }
+            
+            return if response.allow {
+                info!("[USER:ALLOW] {} -> {}:{}", app_name, dst_ip, dst_port);
+                Verdict::Accept
+            } else {
+                info!("[USER:BLOCK] {} -> {}:{}", app_name, dst_ip, dst_port);
+                Verdict::Drop
+            };
+        }
+    }
+    drop(gui);
+    
+    // No GUI or no response - use mode default
     if learning_mode {
         info!("[LEARN] {} ({}) -> {}:{}", app_name, app_path, dst_ip, dst_port);
         Verdict::Accept
     } else {
         if app_path == "unknown" {
-            debug!("[PASS] Unknown process -> {}:{}", dst_ip, dst_port);
             Verdict::Accept
         } else {
-            warn!("[BLOCK] {} -> {}:{} (no rule)", app_name, dst_ip, dst_port);
+            warn!("[BLOCK] {} -> {}:{} (no GUI)", app_name, dst_ip, dst_port);
             Verdict::Drop
         }
     }
