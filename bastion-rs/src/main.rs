@@ -74,7 +74,16 @@ impl GuiState {
     fn set_connection(&mut self, stream: UnixStream) {
         stream.set_read_timeout(Some(Duration::from_secs(GUI_TIMEOUT_SECS))).ok();
         stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
-        let reader = BufReader::new(stream.try_clone().unwrap());
+        
+        // FIX #25: Handle clone failure gracefully
+        let reader = match stream.try_clone() {
+            Ok(s) => BufReader::new(s),
+            Err(e) => {
+                error!("Failed to clone stream: {}", e);
+                return;
+            }
+        };
+        
         self.stream = Some(stream);
         self.reader = Some(reader);
         info!("GUI connection established");
@@ -94,6 +103,16 @@ impl GuiState {
     fn ask_gui(&mut self, request: &ConnectionRequest) -> Option<GuiResponse> {
         if !self.is_connected() {
             return None;
+        }
+        
+        // FIX #29: Implement cache eviction to prevent unlimited growth (memory leak)
+        // Clean up old entries if cache gets too large
+        if self.pending_cache.len() > 1000 {
+            let now = std::time::Instant::now();
+            self.pending_cache.retain(|_, (_, timestamp)| {
+                now.duration_since(*timestamp) < Duration::from_secs(10)
+            });
+            debug!("Cleaned pending cache (size was > 1000)");
         }
         
         // Dedup: don't spam same request
@@ -238,8 +257,16 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_socket_server(gui_state: Arc<Mutex<GuiState>>) {
+    // FIX #26: Handle missing parent directory gracefully
     // Create socket directory
-    let socket_dir = std::path::Path::new(SOCKET_PATH).parent().unwrap();
+    let socket_path = std::path::Path::new(SOCKET_PATH);
+    let socket_dir = match socket_path.parent() {
+        Some(dir) => dir,
+        None => {
+            error!("Socket path has no parent directory: {}", SOCKET_PATH);
+            return;
+        }
+    };
     std::fs::create_dir_all(socket_dir).ok();
     let _ = std::fs::remove_file(SOCKET_PATH);
     

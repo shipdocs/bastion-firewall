@@ -36,7 +36,16 @@ pub fn start_ipc_server(stats: Arc<Mutex<Stats>>) {
 }
 
 fn run_server(stats: Arc<Mutex<Stats>>) {
-    let socket_dir = std::path::Path::new(SOCKET_PATH).parent().unwrap();
+    // FIX #26: Handle missing parent directory gracefully
+    let socket_path = std::path::Path::new(SOCKET_PATH);
+    let socket_dir = match socket_path.parent() {
+        Some(dir) => dir,
+        None => {
+            error!("Socket path has no parent directory: {}", SOCKET_PATH);
+            return;
+        }
+    };
+    
     if let Err(e) = std::fs::create_dir_all(socket_dir) {
         error!("Failed to create socket dir: {}", e);
         return;
@@ -96,13 +105,27 @@ fn handle_gui_connection(mut stream: UnixStream, stats: Arc<Mutex<Stats>>) {
     stream.set_read_timeout(Some(Duration::from_millis(100))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
     
+    // FIX #25: Handle clone failure gracefully
     let reader_stream = match stream.try_clone() {
         Ok(s) => s,
-        Err(_) => return,
+        Err(e) => {
+            error!("Failed to clone stream: {}", e);
+            return;
+        }
     };
     let mut reader = BufReader::new(reader_stream);
     
     loop {
+        // FIX #29: Implement cache eviction to prevent unlimited growth (memory leak)
+        // Clean up old entries if cache gets too large
+        if stats.lock().pending_gui.len() > 1000 {
+            let now = std::time::Instant::now();
+            stats.lock().pending_gui.retain(|_, (_, timestamp)| {
+                now.duration_since(*timestamp) < Duration::from_secs(10)
+            });
+            debug!("Cleaned pending cache (size was > 1000)");
+        }
+        
         // Send stats every 2 seconds
         let s = stats.lock();
         let update = StatsUpdate {
@@ -111,7 +134,7 @@ fn handle_gui_connection(mut stream: UnixStream, stats: Arc<Mutex<Stats>>) {
                 total_connections: s.total_connections,
                 allowed_connections: s.allowed_connections,
                 blocked_connections: s.blocked_connections,
-                pending_gui: 0, // default until pending count is implemented
+                pending_gui: s.pending_gui.len() as u64,  // Use actual cache size
             },
         };
         drop(s);
