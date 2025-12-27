@@ -53,6 +53,15 @@ impl ConfigManager {
             return;
         }
         
+        // SECURITY: Check for symlink before loading config
+        // Reject symlinked config files to prevent symlink-based configuration attacks
+        if let Ok(metadata) = fs::symlink_metadata(path) {
+            if metadata.file_type().is_symlink() {
+                warn!("Config file at {} is a symlink, rejecting for security", CONFIG_PATH);
+                return;
+            }
+        }
+        
         match fs::read_to_string(path) {
             Ok(content) => {
                 match serde_json::from_str::<Config>(&content) {
