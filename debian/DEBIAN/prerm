@@ -9,7 +9,7 @@ systemctl disable bastion-daemon 2>/dev/null || systemctl disable bastion-firewa
 pkill -f bastion-gui 2>/dev/null || true
 
 # Clean up iptables rules
-iptables -F OUTPUT 2>/dev/null || true
+# iptables -F OUTPUT 2>/dev/null || true
 
 # Remove NFQUEUE rules
 for i in {1..20}; do
@@ -18,11 +18,10 @@ done
 
 # Remove BASTION_BYPASS rules
 for i in {1..20}; do
-    RULE=$(iptables -S OUTPUT 2>/dev/null | grep "BASTION_BYPASS" | head -n1)
-    if [ -z "$RULE" ]; then
+    if ! iptables -S OUTPUT 2>/dev/null | grep -q "BASTION_BYPASS"; then
         break
     fi
-    iptables -D OUTPUT $(echo $RULE | cut -d' ' -f3-) 2>/dev/null || break
+    iptables -D OUTPUT -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || break
 done
 
 echo "Bastion Firewall services stopped"

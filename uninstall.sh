@@ -25,8 +25,13 @@ fi
 echo "==> Stopping services..."
 sudo systemctl stop bastion-daemon 2>/dev/null || true
 sudo systemctl disable bastion-daemon 2>/dev/null || true
-sudo pkill -9 bastion-daemon 2>/dev/null || true
+# Try graceful shutdown first
+sudo pkill bastion-daemon 2>/dev/null || true
 pkill -f bastion-gui 2>/dev/null || true
+sleep 2
+# Force kill if still running
+sudo pkill -9 bastion-daemon 2>/dev/null || true
+pkill -9 -f bastion-gui 2>/dev/null || true
 echo "✅ Services stopped"
 
 # Remove iptables rules

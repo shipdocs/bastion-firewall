@@ -99,7 +99,7 @@ fn handle_gui_connection(mut stream: UnixStream, stats: Arc<Mutex<Stats>>) {
                 total_connections: s.total_connections,
                 allowed_connections: s.allowed_connections,
                 blocked_connections: s.blocked_connections,
-                pending_gui: s.pending_decisions,
+                pending_gui: 0, // default until pending count is implemented
             },
         };
         drop(s);

@@ -58,8 +58,10 @@ pub fn should_auto_allow(app_path: &str, dest_port: u16, dest_ip: &str) -> (bool
     }
     
     // 2. Localhost connections
-    if dest_ip == "127.0.0.1" || dest_ip == "::1" {
-        return (true, "Localhost");
+    if let Ok(ip) = dest_ip.parse::<std::net::IpAddr>() {
+        if ip.is_loopback() {
+            return (true, "Localhost");
+        }
     }
     
     // 3. System binaries

@@ -17,7 +17,6 @@ fi
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     OS=$ID
-    VER=$VERSION_ID
 else
     echo "Cannot detect OS. /etc/os-release not found."
     exit 1
@@ -27,7 +26,6 @@ echo "Detected: $PRETTY_NAME"
 echo ""
 
 # Check kernel version
-KERNEL_VERSION=$(uname -r | cut -d. -f1-2)
 echo "Kernel version: $(uname -r)"
 
 # Check BTF support
@@ -54,7 +52,7 @@ if [ "$OS" = "ubuntu" ] || [ "$OS" = "zorin" ] || [ "$OS" = "debian" ]; then
         llvm-18-dev \
         libelf-dev \
         libz-dev \
-        linux-headers-$(uname -r)
+        linux-headers-"$(uname -r)"
     
     echo "✅ System dependencies installed"
 else

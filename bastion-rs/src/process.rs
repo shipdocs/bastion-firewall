@@ -19,9 +19,9 @@ pub struct ProcessInfo {
 
 /// Connection info from /proc/net/tcp or /proc/net/udp
 struct NetEntry {
-    local_ip: Ipv4Addr,
+    local_ip: IpAddr,
     local_port: u16,
-    remote_ip: Ipv4Addr,
+    remote_ip: IpAddr,
     remote_port: u16,
     inode: u64,
 }
@@ -177,8 +177,9 @@ impl ProcessCache {
         })
     }
     
-    /// Parse "0100007F:1F90" -> (127.0.0.1, 8080)
-    fn parse_hex_address(&self, s: &str) -> Option<(Ipv4Addr, u16)> {
+    /// Parse "0100007F:1F90" -> (127.0.0.1, 8080) for IPv4
+    /// Parse "00000000000000000000000001000000:1F90" -> (::1, 8080) for IPv6
+    fn parse_hex_address(&self, s: &str) -> Option<(IpAddr, u16)> {
         let (ip_hex, port_hex) = s.split_once(':')?;
         
         // Parse port
@@ -194,10 +195,22 @@ impl ProcessCache {
                 ((ip_num >> 16) & 0xFF) as u8,
                 ((ip_num >> 24) & 0xFF) as u8,
             );
-            Some((ip, port))
+            Some((IpAddr::V4(ip), port))
+        } else if ip_hex.len() == 32 {
+            // IPv6 - parse 128-bit address in reverse byte order
+            let mut segments = [0u16; 8];
+            for i in 0..8 {
+                let segment_hex = &ip_hex[i * 4..(i + 1) * 4];
+                let segment_num = u16::from_str_radix(segment_hex, 16).ok()?;
+                segments[i] = segment_num;
+            }
+            let ip = std::net::Ipv6Addr::new(
+                segments[7], segments[6], segments[5], segments[4],
+                segments[3], segments[2], segments[1], segments[0],
+            );
+            Some((IpAddr::V6(ip), port))
         } else {
-            // IPv6 - simplified handling
-            Some((Ipv4Addr::UNSPECIFIED, port))
+            None
         }
     }
     
@@ -228,8 +241,8 @@ impl ProcessCache {
         }
         
         // Parse IPs
-        let src_addr: Ipv4Addr = src_ip.parse().unwrap_or(Ipv4Addr::UNSPECIFIED);
-        let dest_addr: Ipv4Addr = dest_ip.parse().unwrap_or(Ipv4Addr::UNSPECIFIED);
+        let src_addr: IpAddr = src_ip.parse().unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+        let dest_addr: IpAddr = dest_ip.parse().unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         
         // Read current network connections
         let entries = self.read_net_entries(protocol);
@@ -250,8 +263,8 @@ impl ProcessCache {
         // Fallback: match by local port with wildcard IP
         for entry in &entries {
             if entry.local_port == src_port {
-                let is_match = entry.local_ip == src_addr || 
-                              entry.local_ip == Ipv4Addr::UNSPECIFIED;
+                let is_match = entry.local_ip == src_addr ||
+                              entry.local_ip == IpAddr::V4(Ipv4Addr::UNSPECIFIED);
                 if is_match {
                     if let Some(info) = self.inode_to_process.get(&entry.inode) {
                         debug!("Loose match: {} ({}) on port {}", info.name, info.exe_path, src_port);

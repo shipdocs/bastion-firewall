@@ -62,7 +62,7 @@ impl EbpfManager {
     /// Alternative: Load from pre-compiled eBPF object
     pub fn load_from_file(&mut self, path: &str) -> Result<(), anyhow::Error> {
         // Load the compiled eBPF program
-        let mut bpf = aya::Ebpf::load(include_bytes!("../ebpf/target/bpfel-unknown-none/release/bastion-ebpf.o"))?;
+        let mut bpf = aya::Ebpf::load_file(path)?;
         
         // Attach kprobes
         let program: &mut KProbe = bpf.program_mut("tcp_v4_connect")

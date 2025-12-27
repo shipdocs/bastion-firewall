@@ -52,7 +52,7 @@ fi
 
 # Set up rules file
 if [ ! -f /etc/bastion/rules.json ]; then
-    echo '[]' > /etc/bastion/rules.json
+    echo '{"applications": {}, "services": {}}' > /etc/bastion/rules.json
     chmod 644 /etc/bastion/rules.json
     print_success "Created empty rules file"
 fi

@@ -12,8 +12,8 @@ use aya_log_ebpf::{info, warn};
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct SocketKey {
-    pub src_port: u16,
     pub dst_ip: u32,  // IPv4 only for now
+    pub src_port: u16,
     pub dst_port: u16,
 }
 
@@ -69,9 +69,7 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
     // tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
     // Arguments: RDI = sock, RSI = uaddr, RDX = addr_len
     
-    let pid = match aya_ebpf::helpers::bpf_get_current_pid_tgid() as u32 {
-        pid => pid,
-    };
+    let pid = aya_ebpf::helpers::bpf_get_current_pid_tgid() as u32;
     
     // Get the userspace address from RSI (second argument)
     let uaddr = unsafe {
@@ -130,9 +128,7 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
     // udp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
     // Arguments: RDI = sock, RSI = msg, RDX = len
     
-    let pid = match aya_ebpf::helpers::bpf_get_current_pid_tgid() as u32 {
-        pid => pid,
-    };
+    let pid = aya_ebpf::helpers::bpf_get_current_pid_tgid() as u32;
     
     // Get the msghdr from RSI (second argument)
     let msg = unsafe {

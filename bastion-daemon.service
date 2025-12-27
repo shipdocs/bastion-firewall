@@ -1,7 +1,8 @@
 [Unit]
 Description=Bastion Firewall Daemon (Rust with eBPF)
 Documentation=https://github.com/shipdocs/bastion-firewall
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple

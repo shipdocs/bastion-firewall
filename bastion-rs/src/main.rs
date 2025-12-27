@@ -254,7 +254,7 @@ fn run_socket_server(gui_state: Arc<Mutex<GuiState>>) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o666));
+        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o660));
     }
     
     info!("Socket server listening on {}", SOCKET_PATH);
