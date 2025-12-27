@@ -54,7 +54,7 @@ fn run_server(stats: Arc<Mutex<Stats>>) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o666));
+        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o600));
     }
     
     info!("IPC server listening on {}", SOCKET_PATH);
