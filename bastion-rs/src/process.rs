@@ -197,16 +197,18 @@ impl ProcessCache {
             );
             Some((IpAddr::V4(ip), port))
         } else if ip_hex.len() == 32 {
-            // IPv6 - parse 128-bit address in reverse byte order
+            // FIX #23: IPv6 - parse 128-bit address in correct byte order
+            // /proc/net/tcp6 stores IPv6 in network byte order (big-endian)
+            // Each 16-bit segment is stored as 4 hex characters
             let mut segments = [0u16; 8];
             for i in 0..8 {
                 let segment_hex = &ip_hex[i * 4..(i + 1) * 4];
                 let segment_num = u16::from_str_radix(segment_hex, 16).ok()?;
-                segments[i] = segment_num;
+                segments[i] = u16::from_be(segment_num);  // Convert from network byte order
             }
             let ip = std::net::Ipv6Addr::new(
-                segments[7], segments[6], segments[5], segments[4],
-                segments[3], segments[2], segments[1], segments[0],
+                segments[0], segments[1], segments[2], segments[3],
+                segments[4], segments[5], segments[6], segments[7],
             );
             Some((IpAddr::V6(ip), port))
         } else {
