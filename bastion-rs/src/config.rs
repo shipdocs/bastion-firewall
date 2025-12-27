@@ -1,6 +1,6 @@
 //! Configuration management
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;  // FIX #27: Remove unused Serialize import
 use std::fs;
 use std::path::Path;
 use log::{info, warn};
@@ -85,6 +85,8 @@ impl ConfigManager {
     }
     
     pub fn is_learning_mode(&self) -> bool {
-        self.config.read().mode == "learning"
+        // FIX #22: Default to learning mode on invalid mode strings
+        let mode = &self.config.read().mode;
+        mode == "learning" || mode != "enforcement"
     }
 }

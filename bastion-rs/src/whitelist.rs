@@ -90,30 +90,32 @@ pub fn should_auto_allow(app_path: &str, dest_port: u16, dest_ip: &str) -> (bool
 }
 
 /// Get category for an application (for GUI display)
+// FIX #24: Use case-insensitive matching for executable names
 pub fn get_app_category(app_path: &str) -> AppCategory {
-    if app_path.starts_with("/usr/lib/systemd/") || 
+    if app_path.starts_with("/usr/lib/systemd/") ||
        app_path.starts_with("/usr/sbin/") ||
        SYSTEM_PATHS.contains(app_path) {
         return AppCategory::System;
     }
     
     let name = app_path.split('/').last().unwrap_or("");
+    let name_lower = name.to_lowercase();
     
-    // Browsers
+    // Browsers (case-insensitive)
     if ["firefox", "firefox-esr", "chromium", "chrome", "brave", "vivaldi", "opera"]
-        .iter().any(|b| name.contains(b)) {
+        .iter().any(|b| name_lower.contains(&b.to_lowercase())) {
         return AppCategory::Browser;
     }
     
-    // Dev tools
+    // Dev tools (case-insensitive)
     if ["code", "vim", "nvim", "cargo", "rustc", "python", "node", "npm", "git"]
-        .iter().any(|t| name.contains(t)) {
+        .iter().any(|t| name_lower.contains(&t.to_lowercase())) {
         return AppCategory::Development;
     }
     
-    // Communication
+    // Communication (case-insensitive)
     if ["discord", "slack", "telegram", "signal", "teams", "zoom", "skype"]
-        .iter().any(|c| name.contains(c)) {
+        .iter().any(|c| name_lower.contains(&c.to_lowercase())) {
         return AppCategory::Communication;
     }
     
