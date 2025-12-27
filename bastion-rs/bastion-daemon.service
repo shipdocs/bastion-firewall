@@ -21,8 +21,11 @@ RuntimeDirectory=bastion
 ConfigurationDirectory=bastion
 
 # Security hardening
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_PTRACE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_PTRACE
+# CAP_NET_ADMIN: Required for network firewall operations
+# CAP_NET_RAW: Required for raw socket access (eBPF)
+# CAP_SYS_PTRACE: Removed - unnecessary for network daemon, increases attack surface
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 
 [Install]
 WantedBy=multi-user.target
