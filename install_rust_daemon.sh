@@ -56,8 +56,11 @@ if [ "$OS" = "ubuntu" ] || [ "$OS" = "zorin" ] || [ "$OS" = "debian" ]; then
     
     echo "✅ System dependencies installed"
 else
-    echo "⚠️  Unsupported OS: $OS"
+    # FIX #18: Exit with error on unsupported OS instead of continuing
+    echo "❌ Error: Unsupported OS: $OS"
+    echo "   Supported OS: ubuntu, debian, zorin"
     echo "   Please install manually: clang-18, llvm-18-dev, libelf-dev, linux-headers"
+    exit 1
 fi
 
 echo ""

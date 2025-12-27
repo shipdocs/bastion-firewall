@@ -1,7 +1,20 @@
 #!/bin/bash
 set -e
 
+# FIX #13: Use absolute paths to avoid CWD assumptions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EBPF_DIR="$SCRIPT_DIR/ebpf"
+
 echo ">>> Building eBPF program with Aya..."
+echo "Script directory: $SCRIPT_DIR"
+echo "eBPF directory: $EBPF_DIR"
+
+# Check if eBPF directory exists
+if [ ! -d "$EBPF_DIR" ]; then
+    echo "ERROR: eBPF directory not found at $EBPF_DIR"
+    echo "Please run this script from the bastion-rs directory"
+    exit 1
+fi
 
 # Check if we have the required toolchain
 if ! rustup toolchain list | grep -q "nightly"; then
@@ -15,7 +28,7 @@ if ! rustup component list --toolchain nightly | grep -q "rust-src"; then
 fi
 
 # Build eBPF program
-cd ebpf
+cd "$EBPF_DIR"
 
 # Ensure bpf-linker is in PATH
 export PATH="$HOME/.cargo/bin:$PATH"

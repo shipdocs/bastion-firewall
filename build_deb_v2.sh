@@ -190,7 +190,10 @@ print_step "Setting permissions..."
 if [ -f "debian/DEBIAN/postinst" ]; then chmod +x debian/DEBIAN/postinst; fi
 if [ -f "debian/DEBIAN/prerm" ]; then chmod +x debian/DEBIAN/prerm; fi
 if [ -f "debian/DEBIAN/postrm" ]; then chmod +x debian/DEBIAN/postrm; fi
-if [ -f "debian/DEBIAN/control" ]; then chmod 644 debian/DEBIAN/control; fi
+# FIX #16: Check if control file exists before editing
+if [ -f "debian/DEBIAN/control" ]; then
+    chmod 644 debian/DEBIAN/control
+fi
 
 # Calculate installed size
 INSTALLED_SIZE=$(du -sk debian/usr debian/lib 2>/dev/null | awk '{s+=$1} END {print s}')
