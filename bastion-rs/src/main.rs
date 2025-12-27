@@ -308,8 +308,19 @@ fn process_packet(
         _ => return Verdict::Accept,
     };
     
-    // Identify process
-    let process_info = process_cache.lock().get(src_port, protocol_str.to_lowercase().as_str());
+    // Get source IP
+    let src_ip = ip_header.source_addr();
+    let src_ip_str = format!("{}", src_ip);
+    
+    // Identify process - exactly like Python's find_process_by_socket
+    let mut cache = process_cache.lock();
+    let process_info = cache.find_process_by_socket(
+        &src_ip_str, src_port,
+        &dst_ip_str, dst_port,
+        protocol_str
+    );
+    drop(cache);
+    
     let (app_name, app_path) = match &process_info {
         Some(info) => (info.name.clone(), info.exe_path.clone()),
         None => ("unknown".to_string(), "unknown".to_string()),
