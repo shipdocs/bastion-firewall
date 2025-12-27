@@ -41,7 +41,7 @@ impl ProcessCache {
         let mut ebpf = EbpfManager::new();
         let ebpf_loaded = match ebpf.load_from_file("ebpf/target/bpfel-unknown-none/release/bastion-ebpf.o") {
             Ok(_) => {
-                info!("✅ eBPF process tracking loaded successfully");
+                info!("eBPF process tracking loaded successfully");
                 true
             }
             Err(e) => {

@@ -170,7 +170,7 @@ fn main() -> anyhow::Result<()> {
     let rules = Arc::new(RuleManager::new());
     let stats = Arc::new(Mutex::new(Stats::default()));
     
-    info!("Mode: {}", if learning_mode { "🎓 Learning" } else { "🛡️ Enforcement" });
+    info!("Mode: {}", if learning_mode { "Learning" } else { "Enforcement" });
     
     // Shared GUI state
     let gui_state = Arc::new(Mutex::new(GuiState::new()));
@@ -194,7 +194,7 @@ fn main() -> anyhow::Result<()> {
         loop {
             thread::sleep(Duration::from_secs(30));
             let s = stats_clone.lock();
-            info!("📊 Stats: {} total, {} allowed, {} blocked", 
+            info!("Stats: {} total, {} allowed, {} blocked", 
                 s.total_connections, s.allowed_connections, s.blocked_connections);
         }
     });
