@@ -495,7 +495,7 @@ impl ProcessCache {
     
     /// Compatibility stub for locating the process owning a connection by destination address and port.
     ///
-    — This method is a placeholder and intentionally does not perform any lookup.
+    /// This method is a placeholder and intentionally does not perform any lookup.
     ///
     /// # Returns
     ///

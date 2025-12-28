@@ -805,12 +805,12 @@ class DashboardWindow(QMainWindow):
         # 1. Outbound (Bastion)
         try:
             # Check Active
-            res = subprocess.run(['systemctl', 'is-active', 'bastion-firewall'], 
+            res = subprocess.run(['systemctl', 'is-active', 'bastion-daemon'], 
                                capture_output=True, text=True)
             is_active = res.stdout.strip() == 'active'
             
             # Check Enabled (Boot)
-            res_en = subprocess.run(['systemctl', 'is-enabled', 'bastion-firewall'], 
+            res_en = subprocess.run(['systemctl', 'is-enabled', 'bastion-daemon'], 
                                    capture_output=True, text=True)
             is_enabled = res_en.stdout.strip() == 'enabled'
             
@@ -910,7 +910,7 @@ class DashboardWindow(QMainWindow):
             QMessageBox.critical(self, "Security Error", f"Invalid action: {action}")
             return
             
-        cmd = ['pkexec', 'systemctl', action, 'bastion-firewall']
+        cmd = ['pkexec', 'systemctl', action, 'bastion-daemon']
         ok = self._run_privileged(cmd, success_message=None, error_hint=f"Failed to {action} autostart. Please check system logs.")
         if ok:
             # 2. User GUI (Tray) - Manage ~/.config/autostart
@@ -1066,9 +1066,9 @@ X-GNOME-Autostart-enabled=true
         
         # Use enable --now / disable --now for persistence across reboots
         if is_active:
-            cmd = ['pkexec', 'systemctl', 'disable', '--now', 'bastion-firewall']
+            cmd = ['pkexec', 'systemctl', 'disable', '--now', 'bastion-daemon']
         else:
-            cmd = ['pkexec', 'systemctl', 'enable', '--now', 'bastion-firewall']
+            cmd = ['pkexec', 'systemctl', 'enable', '--now', 'bastion-daemon']
 
         state = "stopped" if is_active else "started"
         if self._run_privileged(cmd, success_message=f"Firewall {state} successfully.", error_hint="Unable to change firewall state. Check system logs." ):
