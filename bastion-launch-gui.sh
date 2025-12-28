@@ -31,7 +31,7 @@ for session in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
             fi
             
             # Check if GUI is already running for this user
-            if pgrep -u "$session_user" -f "bastion-gui" > /dev/null 2>&1; then
+            if pgrep -u "$session_user" -x "bastion-gui" > /dev/null 2>&1; then
                 echo "GUI already running for user $session_user"
                 continue
             fi
