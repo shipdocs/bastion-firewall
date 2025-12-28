@@ -3,7 +3,7 @@ Version: 2.0.0
 Section: net
 Priority: optional
 Architecture: amd64
-Installed-Size: 4140
+Installed-Size: 4084
 Depends: python3 (>= 3.10), python3-pyqt6, iptables, python3-psutil, python3-pystray, python3-pil
 Recommends: linux-headers-generic
 Replaces: douane, bastion-daemon
