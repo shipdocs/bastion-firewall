@@ -2,6 +2,12 @@
 # Bastion Firewall - Complete Uninstaller
 # Removes Rust daemon, Python GUI, and all configuration
 
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+  echo "Please run this script with sudo or as root."
+  exit 1
+fi
+
 set -e
 
 echo "=== Bastion Firewall Uninstaller ==="

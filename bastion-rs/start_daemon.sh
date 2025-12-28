@@ -15,7 +15,8 @@ iptables -I OUTPUT 1 -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS
 iptables -I OUTPUT 1 -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || true
 
 # 3. NFQUEUE rule (goes after bypass rules, so it's checked last)
-iptables -I OUTPUT 3 -m state --state NEW -j NFQUEUE --queue-num 1
+# Use --queue-bypass to prevent network lockouts if daemon crashes/is not running
+iptables -I OUTPUT 3 -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
 
 echo "✅ Iptables rules configured"
 echo ""

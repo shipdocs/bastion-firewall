@@ -223,20 +223,22 @@ impl ProcessCache {
                 ((ip_num >> 24) & 0xFF) as u8,
             );
             Some((IpAddr::V4(ip), port))
-        } else if ip_hex.len() == 32 {
             // FIX #23: IPv6 - parse 128-bit address in correct byte order
-            // /proc/net/tcp6 stores IPv6 in network byte order (big-endian)
-            // Each 16-bit segment is stored as 4 hex characters
-            let mut segments = [0u16; 8];
-            for i in 0..8 {
-                let segment_hex = &ip_hex[i * 4..(i + 1) * 4];
-                let segment_num = u16::from_str_radix(segment_hex, 16).ok()?;
-                segments[i] = u16::from_be(segment_num);  // Convert from network byte order
+            // /proc/net/tcp6 stores IPv6 as four 32-bit words in host-endian byte order.
+            let mut words = [0u32; 4];
+            for i in 0..4 {
+                let word_hex = &ip_hex[i * 8..(i + 1) * 8];
+                words[i] = u32::from_str_radix(word_hex, 16).ok()?;
             }
-            let ip = std::net::Ipv6Addr::new(
-                segments[0], segments[1], segments[2], segments[3],
-                segments[4], segments[5], segments[6], segments[7],
-            );
+            // The words are in host-endian, so we must convert to big-endian bytes for Ipv6Addr.
+            let ip_bytes: [u8; 16] = [
+                words[0].to_be_bytes(),
+                words[1].to_be_bytes(),
+                words[2].to_be_bytes(),
+                words[3].to_be_bytes(),
+            ].concat().try_into().unwrap();
+
+            let ip = std::net::Ipv6Addr::from(ip_bytes);
             Some((IpAddr::V6(ip), port))
         } else {
             None

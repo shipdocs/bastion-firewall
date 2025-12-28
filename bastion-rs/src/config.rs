@@ -3,12 +3,14 @@
 use serde::Deserialize;  // FIX #27: Remove unused Serialize import
 use std::fs;
 use std::path::Path;
+use std::os::unix::fs::OpenOptionsExt;
+use std::io::Read;
 use log::{info, warn};
 use parking_lot::RwLock;
 
 const CONFIG_PATH: &str = "/etc/bastion/config.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     #[serde(default = "default_mode")]
     pub mode: String,  // "learning" or "enforcement"
@@ -53,16 +55,27 @@ impl ConfigManager {
             return;
         }
         
-        // SECURITY: Check for symlink before loading config
-        // Reject symlinked config files to prevent symlink-based configuration attacks
-        if let Ok(metadata) = fs::symlink_metadata(path) {
-            if metadata.file_type().is_symlink() {
-                warn!("Config file at {} is a symlink, rejecting for security", CONFIG_PATH);
+        // SECURITY: Open file without following symlinks to prevent TOCTOU attacks
+        let content = match std::fs::File::options()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+        {
+            Ok(mut file) => {
+                let mut content = String::new();
+                if file.read_to_string(&mut content).is_ok() {
+                    Ok(content)
+                } else {
+                    Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to read file"))
+                }
+            }
+            Err(e) => {
+                warn!("Config file at {} could not be opened securely: {}. Is it a symlink?", CONFIG_PATH, e);
                 return;
             }
-        }
+        };
         
-        match fs::read_to_string(path) {
+        match content {
             Ok(content) => {
                 match serde_json::from_str::<Config>(&content) {
                     Ok(config) => {
