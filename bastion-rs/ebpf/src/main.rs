@@ -59,9 +59,13 @@ fn ipv4_from_sockaddr(addr: *const core::ffi::c_void) -> u32 {
     // };
     unsafe {
         let addr = addr as *const u8;
-        // Skip sin_family (2 bytes) and sin_port (2 bytes)
-        let ip_ptr = addr.add(4) as *const u32;
-        *ip_ptr  // Already in network byte order
+        // Skip sin_family (2 bytes) and sin_port (2 bytes) and read 4 bytes of IP
+        let b0 = *addr.add(4);
+        let b1 = *addr.add(5);
+        let b2 = *addr.add(6);
+        let b3 = *addr.add(7);
+        // Preserve the raw bit pattern as in the original memory
+        u32::from_ne_bytes([b0, b1, b2, b3])
     }
 }
 
@@ -90,9 +94,10 @@ fn ipv4_from_sockaddr(addr: *const core::ffi::c_void) -> u32 {
 fn port_from_sockaddr(addr: *const core::ffi::c_void) -> u16 {
     unsafe {
         let addr = addr as *const u8;
-        // Skip sin_family (2 bytes)
-        let port_ptr = addr.add(2) as *const u16;
-        u16::from_be(*port_ptr)  // Network byte order to host
+        // Skip sin_family (2 bytes) and read the two port bytes
+        let b0 = *addr.add(2);
+        let b1 = *addr.add(3);
+        u16::from_be_bytes([b0, b1])  // Network byte order to host
     }
 }
 
@@ -255,7 +260,7 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
         }
     };
     
-    let msg_name = u64::from_le_bytes(msg_name_ptr);
+    let msg_name = u64::from_ne_bytes(msg_name_ptr);
     if msg_name == 0 {
         // No destination address (connected UDP socket)
         return Ok(());

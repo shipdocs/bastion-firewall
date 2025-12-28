@@ -68,6 +68,8 @@ impl RuleManager {
         let path = Path::new(RULES_PATH);
         if !path.exists() {
             info!("No rules file at {}, starting with empty rules", RULES_PATH);
+            let mut rules = self.rules.write();
+            rules.clear();
             return;
         }
         

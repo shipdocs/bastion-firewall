@@ -12,9 +12,17 @@ if [ ! -d "$EBPF_DIR" ]; then
 fi
 
 # Check for Rust
+export PATH="$HOME/.cargo/bin:$PATH"
+
 if ! command -v cargo >/dev/null 2>&1; then
-    echo "ERROR: Rust not installed"
+    echo "ERROR: Rust (cargo) not installed or not in PATH"
     echo "Install with: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+    exit 1
+fi
+
+if ! command -v rustup >/dev/null 2>&1; then
+    echo "ERROR: rustup not installed or not in PATH"
+    echo "Please install Rust using rustup from https://rustup.rs/"
     exit 1
 fi
 

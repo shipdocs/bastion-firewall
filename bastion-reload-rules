@@ -37,6 +37,9 @@ mv "$TEMP_FILE" "$RULES_FILE"
 chmod 644 "$RULES_FILE"
 
 # Signal the daemon to reload rules and clear cache
-pkill -HUP -f bastion-daemon || true
+if ! pkill -HUP -f bastion-daemon; then
+    echo "Error: bastion-daemon is not running; could not reload rules" >&2
+    exit 1
+fi
 
 exit 0

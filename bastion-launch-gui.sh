@@ -49,7 +49,7 @@ for session in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
                 echo "systemd-run failed, trying direct launch..."
                 
                 if [[ "$session_type" == "wayland" ]]; then
-                    sudo -u "$session_user" \
+                    sudo -u "$session_user" env \
                         XDG_RUNTIME_DIR="/run/user/$user_uid" \
                         WAYLAND_DISPLAY="wayland-0" \
                         DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$user_uid/bus" \
@@ -58,7 +58,7 @@ for session in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
                 else
                     display=$(loginctl show-session "$session" -p Display --value 2>/dev/null)
                     display="${display:-:0}"
-                    sudo -u "$session_user" \
+                    sudo -u "$session_user" env \
                         DISPLAY="$display" \
                         XAUTHORITY="$user_home/.Xauthority" \
                         XDG_RUNTIME_DIR="/run/user/$user_uid" \
