@@ -57,6 +57,12 @@ if [ ! -f /etc/bastion/rules.json ]; then
     print_success "Created empty rules file"
 fi
 
+# Ensure strict blocking by removing loose default rules
+if [ -f /etc/bastion/rules.json ]; then
+    python3 -c "import json; p='/etc/bastion/rules.json'; d=json.load(open(p)); d.pop('unknown:443', None); json.dump(d, open(p,'w'), indent=2)" || true
+    print_success "Enforced strict blocking (removed unknown:443 rule)"
+fi
+
 # Set up socket directory
 mkdir -p /var/run/bastion
 chmod 755 /var/run/bastion
@@ -102,18 +108,15 @@ if command -v nft &> /dev/null && nft list table ip filter 2>/dev/null | grep -q
     print_warning "nftables detected - using iptables-nft compatibility layer"
 fi
 
-# FIX #6, #10: Add rule existence checks before adding/removing
-# Check for existing NFQUEUE rule with --queue-bypass
-if iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null; then
-    print_warning "NFQUEUE rule already exists, skipping..."
-else
-    # Clean up any old NFQUEUE rules without --queue-bypass
-    while iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null 2>&1; do :; done
-    
-    # FIX #10: Add NFQUEUE rule with --queue-bypass to allow traffic when daemon is not running
-    iptables -A OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
-    print_success "NFQUEUE rule added with --queue-bypass"
-fi
+# FIX #6, #10: Force NFQUEUE rule position to ensure it is not shadowed
+# Clean up any old NFQUEUE rules
+while iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null; do :; done
+while iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null; do :; done
+
+# Insert NFQUEUE rule at the top (will be pushed down by bypass rules)
+# This ensures it runs before any other firewall rules (like UFW) might accept traffic
+iptables -I OUTPUT 1 -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
+print_success "NFQUEUE rule configured (forced position)"
 
 # FIX #6, #8: Check for existing BASTION_BYPASS rules before adding
 # Add bypass rules FIRST (higher priority)

@@ -7,8 +7,9 @@
 # Small delay to ensure daemon is fully ready
 sleep 1
 
-# Remove stale lock files
-rm -f /tmp/bastion-gui-*.lock 2>/dev/null
+# Lock files are handled by the python script (stale check)
+# Do not remove them blindly as it causes race conditions
+# rm -f /tmp/bastion-gui-*.lock 2>/dev/null
 
 # Find all logged-in graphical sessions and launch GUI for each
 for session in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
@@ -30,7 +31,7 @@ for session in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
             fi
             
             # Check if GUI is already running for this user
-            if pgrep -u "$session_user" -x bastion-gui > /dev/null 2>&1; then
+            if pgrep -u "$session_user" -f "bastion-gui" > /dev/null 2>&1; then
                 echo "GUI already running for user $session_user"
                 continue
             fi
