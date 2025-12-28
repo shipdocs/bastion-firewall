@@ -159,7 +159,7 @@ impl EbpfManager {
         // eBPF does *ip_ptr where ip_ptr points to network-order bytes.
         // On little-endian x86, this reads the bytes as a little-endian u32.
         let dst_ip_u32: u32 = match dst_ip.parse::<Ipv4Addr>() {
-            Ok(ip) => u32::from_ne_bytes(ip.octets()),  // Native endian from octets
+            Ok(ip) => u32::from_be_bytes(ip.octets()),  // Network byte order
             Err(_) => return None,
         };
         
