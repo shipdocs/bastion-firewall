@@ -338,15 +338,20 @@ impl ProcessCache {
                 words[i] = u32::from_str_radix(word_hex, 16).ok()?;
             }
             // The words are in host-endian, so we must convert to big-endian bytes for Ipv6Addr.
-            let ip_bytes: [u8; 16] = [
+            let ip_bytes: Result<[u8; 16], _> = [
                 words[0].to_be_bytes(),
                 words[1].to_be_bytes(),
                 words[2].to_be_bytes(),
                 words[3].to_be_bytes(),
-            ].concat().try_into().unwrap();
+            ].concat().try_into();
 
-            let ip = std::net::Ipv6Addr::from(ip_bytes);
-            Some((IpAddr::V6(ip), port))
+            match ip_bytes {
+                Ok(bytes) => {
+                    let ip = std::net::Ipv6Addr::from(bytes);
+                    Some((IpAddr::V6(ip), port))
+                }
+                Err(_) => None,
+            }
         } else {
             None
         }

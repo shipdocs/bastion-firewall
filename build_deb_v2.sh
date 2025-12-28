@@ -90,7 +90,7 @@ cp -r bastion/* debian/usr/lib/python3/dist-packages/bastion/
 
 # Copy systemd service
 print_step "Copying systemd service..."
-cp bastion-daemon.service debian/lib/systemd/system/
+cp bastion-firewall.service debian/lib/systemd/system/
 
 # Copy desktop files
 print_step "Copying desktop entries..."

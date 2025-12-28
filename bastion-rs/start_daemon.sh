@@ -18,8 +18,9 @@ iptables -I OUTPUT 1 -m owner --gid-owner systemd-network -m comment --comment "
 
 # 3. NFQUEUE rule (goes after bypass rules, so it's checked last)
 # Use --queue-bypass to prevent network lockouts if daemon crashes/is not running
+# Append to end of chain instead of hardcoded position to handle variable bypass rules
 iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || \
-iptables -I OUTPUT 3 -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
+iptables -A OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
 
 echo "✅ Iptables rules configured"
 echo ""

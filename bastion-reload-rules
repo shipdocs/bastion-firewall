@@ -18,6 +18,16 @@ fi
 TEMP_FILE="$1"
 RULES_FILE="$2"
 
+# Validate destination path - must be under /etc/bastion/
+case "$RULES_FILE" in
+    /etc/bastion/rules.json) ;;
+    *)
+        echo "Error: Invalid rules file path: $RULES_FILE" >&2
+        echo "Rules file must be /etc/bastion/rules.json" >&2
+        exit 1
+        ;;
+esac
+
 # Validate paths
 if [ ! -f "$TEMP_FILE" ]; then
     echo "Error: Temporary file does not exist: $TEMP_FILE" >&2
@@ -30,6 +40,12 @@ if [ -L "$TEMP_FILE" ]; then
     exit 1
 fi
 
+# Also check if target is a symlink to prevent privilege escalation
+if [ -L "$RULES_FILE" ]; then
+    echo "Error: Rules file must not be a symlink: $RULES_FILE" >&2
+    exit 1
+fi
+
 # Move the temporary file to the rules location
 mv "$TEMP_FILE" "$RULES_FILE"
 
@@ -37,7 +53,8 @@ mv "$TEMP_FILE" "$RULES_FILE"
 chmod 644 "$RULES_FILE"
 
 # Signal the daemon to reload rules and clear cache
-if ! pkill -HUP -f bastion-daemon; then
+# Use -x for exact process name matching (not full command line)
+if ! pkill -HUP -x bastion-daemon; then
     echo "Error: bastion-daemon is not running; could not reload rules" >&2
     exit 1
 fi

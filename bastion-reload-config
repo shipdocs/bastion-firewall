@@ -24,14 +24,42 @@ if [ ! -f "$TEMP_FILE" ]; then
     exit 1
 fi
 
+# Reject symlinks on temp file
+if [ -L "$TEMP_FILE" ]; then
+    echo "Error: Temporary file must not be a symlink: $TEMP_FILE" >&2
+    exit 1
+fi
+
 # Ensure the config file lives under the expected Bastion config directory
+# Resolve to absolute path and verify it's under /etc/bastion/
+RESOLVED_PATH=$(realpath -m "$CONFIG_FILE" 2>/dev/null)
+if [ -z "$RESOLVED_PATH" ]; then
+    echo "Error: Could not resolve path: $CONFIG_FILE" >&2
+    exit 1
+fi
+
 case "$CONFIG_FILE" in
-    /etc/bastion/*) ;;
+    /etc/bastion/*)
+        # Also verify resolved path is under /etc/bastion/
+        case "$RESOLVED_PATH" in
+            /etc/bastion/*) ;;
+            *)
+                echo "Error: Path traversal detected: $CONFIG_FILE resolves to $RESOLVED_PATH" >&2
+                exit 1
+                ;;
+        esac
+        ;;
     *)
         echo "Error: Invalid config file path: $CONFIG_FILE" >&2
         exit 1
         ;;
 esac
+
+# Check if target is a symlink
+if [ -L "$CONFIG_FILE" ]; then
+    echo "Error: Config file must not be a symlink: $CONFIG_FILE" >&2
+    exit 1
+fi
 
 # Move the temporary file to the config location
 mv "$TEMP_FILE" "$CONFIG_FILE"
@@ -40,6 +68,7 @@ mv "$TEMP_FILE" "$CONFIG_FILE"
 chmod 644 "$CONFIG_FILE"
 
 # Signal the daemon to reload config and clear cache
-pkill -HUP -f bastion-daemon || true
+# Use -x for exact process name matching (not full command line)
+pkill -HUP -x bastion-daemon || true
 
 exit 0

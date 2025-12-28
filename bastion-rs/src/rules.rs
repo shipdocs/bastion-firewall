@@ -72,7 +72,15 @@ impl RuleManager {
             rules.clear();
             return;
         }
-        
+
+        // Security: Reject symlinks to prevent symlink attacks
+        if path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+            error!("Rules file is a symlink, refusing to load: {}", RULES_PATH);
+            let mut rules = self.rules.write();
+            rules.clear();
+            return;
+        }
+
         match fs::read_to_string(path) {
             Ok(content) => {
                 // Parse as generic JSON object
@@ -176,23 +184,48 @@ impl RuleManager {
     /// ```
     fn save_rules(&self) {
         let rules = self.rules.read();
-        
+        let path = Path::new(RULES_PATH);
+
+        // Security: Reject symlinks
+        if path.exists() {
+            if path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+                error!("Rules file is a symlink, refusing to save: {}", RULES_PATH);
+                return;
+            }
+        }
+
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            if let Err(e) = fs::create_dir_all(parent) {
+                error!("Failed to create rules directory: {}", e);
+                return;
+            }
+        }
+
         // Build Python-compatible format
         let mut map = serde_json::Map::new();
         map.insert("applications".to_string(), serde_json::json!({}));
         map.insert("services".to_string(), serde_json::json!({}));
-        
+
         for ((path, port), &allow) in rules.iter() {
             let key = format!("{}:{}", path, port);
             map.insert(key, serde_json::Value::Bool(allow));
         }
-        
+
         let json = serde_json::Value::Object(map);
-        
+
         match serde_json::to_string_pretty(&json) {
             Ok(content) => {
-                if let Err(e) = fs::write(RULES_PATH, content) {
-                    error!("Failed to write rules file: {}", e);
+                // Atomic write: write to temp file, then rename
+                let temp_path = format!("{}.tmp", RULES_PATH);
+                if let Err(e) = fs::write(&temp_path, &content) {
+                    error!("Failed to write temp rules file: {}", e);
+                    return;
+                }
+                if let Err(e) = fs::rename(&temp_path, RULES_PATH) {
+                    error!("Failed to rename temp rules file: {}", e);
+                    // Try to clean up temp file
+                    let _ = fs::remove_file(&temp_path);
                 } else {
                     info!("Saved {} rules to {}", rules.len(), RULES_PATH);
                 }

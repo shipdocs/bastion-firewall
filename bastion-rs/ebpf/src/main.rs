@@ -64,8 +64,8 @@ fn ipv4_from_sockaddr(addr: *const core::ffi::c_void) -> u32 {
         let b1 = *addr.add(5);
         let b2 = *addr.add(6);
         let b3 = *addr.add(7);
-        // Preserve the raw bit pattern as in the original memory
-        u32::from_ne_bytes([b0, b1, b2, b3])
+        // sockaddr_in stores IP in network byte order (big-endian)
+        u32::from_be_bytes([b0, b1, b2, b3])
     }
 }
 

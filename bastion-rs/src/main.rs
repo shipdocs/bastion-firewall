@@ -201,14 +201,13 @@ impl GuiState {
                 return None;
             }
         }
-        self.pending_cache.insert(cache_key, std::time::Instant::now());
-        
+
         // Send request to GUI
         let json = match serde_json::to_string(request) {
             Ok(j) => j,
             Err(_) => return None,
         };
-        
+
         if let Some(ref mut stream) = self.stream {
             if stream.write_all((json + "\n").as_bytes()).is_err() {
                 self.disconnect();
@@ -217,7 +216,7 @@ impl GuiState {
         } else {
             return None;
         }
-        
+
         // Wait for response (blocking with timeout)
         if let Some(ref mut reader) = self.reader {
             let mut line = String::new();
@@ -228,7 +227,11 @@ impl GuiState {
                 }
                 Ok(_) => {
                     match serde_json::from_str::<GuiResponse>(&line) {
-                        Ok(resp) => return Some(resp),
+                        Ok(resp) => {
+                            // Only cache after successful response to allow retries on timeout/error
+                            self.pending_cache.insert(cache_key, std::time::Instant::now());
+                            return Some(resp);
+                        }
                         Err(e) => {
                             debug!("Failed to parse GUI response: {} - line: {}", e, line.trim());
                             return None;
@@ -236,9 +239,9 @@ impl GuiState {
                     }
                 }
                 Err(e) => {
-                    if e.kind() == std::io::ErrorKind::WouldBlock || 
+                    if e.kind() == std::io::ErrorKind::WouldBlock ||
                        e.kind() == std::io::ErrorKind::TimedOut {
-                        debug!("GUI timeout - no response");
+                        debug!("GUI timeout - no response, allowing retry");
                     } else {
                         debug!("GUI read error: {}", e);
                         self.disconnect();
@@ -411,8 +414,16 @@ fn run_socket_server(gui_state: Arc<Mutex<GuiState>>) {
         }
     };
     std::fs::create_dir_all(socket_dir).ok();
-    let _ = std::fs::remove_file(SOCKET_PATH);
-    
+
+    // Security: Only remove if it's a socket, not a symlink or other file
+    if let Ok(meta) = std::fs::symlink_metadata(SOCKET_PATH) {
+        if meta.file_type().is_symlink() {
+            error!("Socket path is a symlink, refusing to remove: {}", SOCKET_PATH);
+            return;
+        }
+        let _ = std::fs::remove_file(SOCKET_PATH);
+    }
+
     let listener = match UnixListener::bind(SOCKET_PATH) {
         Ok(l) => l,
         Err(e) => {
