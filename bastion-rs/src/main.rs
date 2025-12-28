@@ -63,6 +63,16 @@ struct GuiState {
 }
 
 impl GuiState {
+    /// Creates an empty GuiState with no active connection and an empty pending request cache.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let state = crate::GuiState::new();
+    /// assert!(state.stream.is_none());
+    /// assert!(state.reader.is_none());
+    /// assert!(state.pending_cache.is_empty());
+    /// ```
     fn new() -> Self {
         Self {
             stream: None,
@@ -71,6 +81,22 @@ impl GuiState {
         }
     }
     
+    /// Sets up and stores a GUI connection from the given `UnixStream`.
+    ///
+    /// This configures read and write timeouts on the stream, clones it for buffered reading,
+    /// and stores both the original stream and the cloned reader in the `GuiState`.
+    /// If cloning the stream fails the function logs an error and leaves the state unchanged.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::os::unix::net::UnixStream;
+    /// // create a connected pair of streams for testing
+    /// let (a, _b) = UnixStream::pair().unwrap();
+    /// let mut state = GuiState::new();
+    /// state.set_connection(a);
+    /// assert!(state.is_connected());
+    /// ```
     fn set_connection(&mut self, stream: UnixStream) {
         stream.set_read_timeout(Some(Duration::from_secs(GUI_TIMEOUT_SECS))).ok();
         stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
@@ -89,17 +115,67 @@ impl GuiState {
         info!("GUI connection established");
     }
     
+    /// Checks whether a GUI connection is currently established.
+    ///
+    /// # Returns
+    ///
+    /// `true` if a GUI connection is established, `false` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let gui = GuiState::new();
+    /// assert!(!gui.is_connected());
+    /// ```
     fn is_connected(&self) -> bool {
         self.stream.is_some()
     }
     
+    /// Marks the GUI as disconnected and clears any stored connection.
+    ///
+    /// Clears the stored `UnixStream` and its associated buffered reader so the
+    /// `GuiState` no longer represents an active GUI connection.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut state = GuiState::new();
+    /// state.disconnect();
+    /// assert!(!state.is_connected());
+    /// ```
     fn disconnect(&mut self) {
         info!("GUI disconnected");
         self.stream = None;
         self.reader = None;
     }
     
-    /// Ask GUI for decision - BLOCKS until response or timeout
+    /// Request a decision from the connected GUI for a given connection.
+    ///
+    /// Sends the given `ConnectionRequest` to the GUI (if connected), waits for a single
+    /// JSON `GuiResponse`, and returns the parsed response. Recent duplicate requests
+    /// (same `app_path` and `dest_port`) are deduplicated and will return `None` if asked
+    /// again within a short interval. Also performs bounded pending-cache eviction.
+    ///
+    /// Returns `None` when there is no GUI connection, the request is a recent duplicate,
+    /// JSON serialization fails, writing or reading the socket fails, the GUI times out,
+    /// or the GUI response cannot be parsed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut gui = GuiState::new();
+    /// let req = ConnectionRequest {
+    ///     msg_type: "connection_request".to_string(),
+    ///     app_name: "example".to_string(),
+    ///     app_path: "/usr/bin/example".to_string(),
+    ///     app_category: "unknown".to_string(),
+    ///     dest_ip: "1.2.3.4".to_string(),
+    ///     dest_port: 80,
+    ///     protocol: "TCP".to_string(),
+    /// };
+    /// // No GUI connected, so this returns None.
+    /// assert!(gui.ask_gui(&req).is_none());
+    /// ```
     fn ask_gui(&mut self, request: &ConnectionRequest) -> Option<GuiResponse> {
         if !self.is_connected() {
             return None;
@@ -174,6 +250,24 @@ impl GuiState {
     }
 }
 
+/// Daemon entry point that initializes logging, configuration, GUI socket server, NFQUEUE, and the main packet processing loop.
+///
+/// This function bootstraps the firewall: it configures logging, reads configuration (learning vs enforcement),
+/// starts the GUI Unix socket server, opens and binds the NFQUEUE, spawns background threads for statistics and
+/// the socket server, and then enters the main packet processing loop which inspects packets, consults rules,
+/// optionally prompts the GUI, and issues accept/drop verdicts.
+///
+/// # Returns
+///
+/// `Ok(())` on successful startup and run (the function runs indefinitely under normal operation).
+/// `Err` if initialization fails (for example, opening/binding NFQUEUE or other startup errors).
+///
+/// # Examples
+///
+/// ```no_run
+/// // Start the daemon (do not run inside doc tests).
+/// // Use `cargo run` or run the compiled binary to start the Bastion Firewall Daemon.
+/// ```
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("info")
@@ -256,6 +350,31 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+/// Starts a Unix-domain socket server that accepts a single GUI connection and stores it in `gui_state`.
+///
+/// The server ensures the socket directory exists, binds to SOCKET_PATH, sets socket permissions (on Unix),
+/// and assigns each accepted stream to the provided `GuiState`. Errors during setup or accept are logged
+/// and cause the function to return or continue accepting respectively.
+///
+/// # Examples
+///
+/// ```
+/// use std::sync::{Arc, Mutex};
+/// use std::thread;
+/// use std::time::Duration;
+/// use std::os::unix::net::UnixStream;
+///
+/// // Start the server in a background thread.
+/// let gui_state = Arc::new(Mutex::new(crate::GuiState::new()));
+/// let gs = gui_state.clone();
+/// thread::spawn(move || {
+///     crate::run_socket_server(gs);
+/// });
+///
+/// // Give the server a moment to start, then connect as a client.
+/// std::thread::sleep(Duration::from_millis(100));
+/// let _ = UnixStream::connect(crate::SOCKET_PATH).expect("connect to socket");
+/// ```
 fn run_socket_server(gui_state: Arc<Mutex<GuiState>>) {
     // FIX #26: Handle missing parent directory gracefully
     // Create socket directory
@@ -303,6 +422,49 @@ fn run_socket_server(gui_state: Arc<Mutex<GuiState>>) {
     }
 }
 
+///Decides whether a captured packet should be accepted or dropped based on
+///IP/transport headers, the originating process (if discovered), whitelists,
+///existing rules, GUI operator decisions, and the daemon's learning mode.
+///
+///This function:
+///- Parses the IPv4 and transport headers to determine source/destination IPs,
+///  ports, and protocol.
+///- Looks up the originating process via the provided `ProcessCache`.
+///- Automatically accepts packets that match the auto-allow whitelist.
+///- Applies an existing per-application rule (allow or block) when present.
+///- If no rule exists, asks the connected GUI for a decision; if the GUI's
+///  response is marked `permanent`, a new rule will be added.
+///- Falls back to learning or enforcement behavior when no GUI decision is
+///  available: in learning mode unknown traffic is accepted; in enforcement
+///  mode unknown apps are accepted only if the app path is `"unknown"`, otherwise
+///  they are blocked.
+///
+///Parameters:
+///- `payload`: raw packet bytes starting with an IPv4 header.
+///- `rules`: rule manager consulted for existing per-app decisions; may be
+///  updated if the GUI returns a permanent decision.
+///- `process_cache`: cache used to map socket tuples to process metadata.
+///- `learning_mode`: when `true`, unknown connections are accepted by default.
+///- `gui_state`: GUI connection state used to prompt the operator for decisions.
+///
+///Returns:
+///`Verdict::Accept` when the packet should be allowed, `Verdict::Drop` when it
+///should be blocked.
+///
+///# Examples
+///
+///```
+/// // A minimal example: an empty or truncated payload cannot be parsed as IPv4,
+/// // so it is accepted.
+/// let payload: &[u8] = &[];
+/// // The following managers are placeholders; in real usage provide the actual instances.
+/// // Here we only illustrate the function call and expected early-accept behavior.
+/// let rules = RuleManager::new(); // assume constructor exists
+/// let process_cache = parking_lot::Mutex::new(ProcessCache::new());
+/// let gui_state = std::sync::Arc::new(parking_lot::Mutex::new(GuiState::new()));
+/// let verdict = process_packet(payload, &rules, &process_cache, true, &gui_state);
+/// assert_eq!(verdict, Verdict::Accept);
+/// ```
 fn process_packet(
     payload: &[u8],
     rules: &RuleManager,

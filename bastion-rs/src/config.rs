@@ -22,10 +22,47 @@ pub struct Config {
     pub allow_systemd_bypass: bool,
 }
 
+/// Default configuration mode string.
+///
+/// # Returns
+///
+/// The default mode string, `"learning"`.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(default_mode(), "learning".to_string());
+/// ```
 fn default_mode() -> String { "learning".to_string() }
+/// Provide the default `true` value for Serde-backed fields.
+///
+/// Returns `true`.
+///
+/// This function is intended to be referenced from `#[serde(default = "default_true")]`.
+///
+/// # Examples
+///
+/// ```
+/// assert!(crate::default_true());
+/// ```
 fn default_true() -> bool { true }
 
 impl Default for Config {
+    /// Creates a `Config` populated with the module's default settings.
+    ///
+    /// Defaults:
+    /// - `mode` is `"learning"`.
+    /// - `allow_root_bypass` is `true`.
+    /// - `allow_systemd_bypass` is `true`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let cfg = Config::default();
+    /// assert_eq!(cfg.mode, "learning");
+    /// assert!(cfg.allow_root_bypass);
+    /// assert!(cfg.allow_systemd_bypass);
+    /// ```
     fn default() -> Self {
         Self {
             mode: default_mode(),
@@ -40,6 +77,18 @@ pub struct ConfigManager {
 }
 
 impl ConfigManager {
+    /// Creates a ConfigManager initialized with default configuration and attempts to load overrides from disk.
+    ///
+    /// The manager starts with the default `Config` and then calls `load()` to replace it with values from
+    /// the configuration file if available and valid; on any load error the defaults are retained.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mgr = crate::config::ConfigManager::new();
+    /// let cfg = mgr.get();
+    /// assert_eq!(cfg.mode, "learning");
+    /// ```
     pub fn new() -> Self {
         let manager = Self {
             config: RwLock::new(Config::default()),
@@ -48,6 +97,24 @@ impl ConfigManager {
         manager
     }
     
+    /// Loads configuration from the on-disk config file and updates the in-memory config when valid.
+    ///
+    /// This attempts to read CONFIG_PATH ("/etc/bastion/config.json") and, if the file exists and
+    /// parses successfully as JSON, replaces the manager's current config with the parsed values.
+    /// If the file is missing, cannot be opened securely, cannot be read, or fails JSON parsing,
+    /// the existing in-memory defaults are preserved and a warning is logged. The file is opened
+    /// with `O_NOFOLLOW` to avoid following symlinks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mgr = ConfigManager::new();
+    /// // load() is idempotent and safe to call; new() already attempts an initial load.
+    /// mgr.load();
+    /// let cfg = mgr.get();
+    /// // defaults are present when no valid config file is available
+    /// assert!(cfg.mode.len() > 0);
+    /// ```
     pub fn load(&self) {
         let path = Path::new(CONFIG_PATH);
         if !path.exists() {
@@ -93,10 +160,38 @@ impl ConfigManager {
         }
     }
     
+    /// Retrieve a cloned copy of the current configuration.
+    ///
+    /// This returns a snapshot of the in-memory `Config` so callers can read or inspect
+    /// configuration without holding locks or affecting the shared state.
+    ///
+    /// # Returns
+    ///
+    /// `Config` containing the current configuration snapshot.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mgr = ConfigManager::new();
+    /// let cfg = mgr.get();
+    /// assert_eq!(cfg.mode, cfg.mode); // simple usage example
+    /// ```
     pub fn get(&self) -> Config {
         self.config.read().clone()
     }
     
+    /// Determine whether the current configuration is operating in learning mode.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the configured `mode` is `"learning"` or any value other than `"enforcement"`, `false` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mgr = ConfigManager::new();
+    /// assert!(mgr.is_learning_mode());
+    /// ```
     pub fn is_learning_mode(&self) -> bool {
         // FIX #22: Default to learning mode on invalid mode strings
         let mode = &self.config.read().mode;
