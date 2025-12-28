@@ -199,11 +199,14 @@ if [ -f "debian/DEBIAN/postrm" ]; then chmod +x debian/DEBIAN/postrm; fi
 # FIX #16: Check if control file exists before editing
 if [ -f "debian/DEBIAN/control" ]; then
     chmod 644 debian/DEBIAN/control
-fi
 
-# Calculate installed size
-INSTALLED_SIZE=$(du -sk debian/usr debian/lib 2>/dev/null | awk '{s+=$1} END {print s}')
-sed -i "s/^Installed-Size:.*/Installed-Size: $INSTALLED_SIZE/" debian/DEBIAN/control
+    # Calculate installed size
+    INSTALLED_SIZE=$(du -sk debian/usr debian/lib 2>/dev/null | awk '{s+=$1} END {print s}')
+    sed -i "s/^Installed-Size:.*/Installed-Size: $INSTALLED_SIZE/" debian/DEBIAN/control
+else
+    print_error "debian/DEBIAN/control file not found. Cannot build package."
+    exit 1
+fi
 
 # Build package
 print_step "Building package..."
