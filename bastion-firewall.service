@@ -3,11 +3,12 @@ Description=Bastion Firewall Daemon
 After=network.target
 
 [Service]
-Type=notify
-ExecStart=/usr/bin/python3 /usr/bin/bastion-daemon
+Type=simple
+ExecStartPre=/bin/sh -c 'iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || iptables -I OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass'
+ExecStart=/usr/bin/bastion-daemon
+ExecStopPost=/bin/sh -c 'iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || true'
 Restart=on-failure
 RestartSec=5s
-WatchdogSec=30s
 User=root
 Group=root
 

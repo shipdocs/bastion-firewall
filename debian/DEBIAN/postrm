@@ -1,49 +1,8 @@
 #!/bin/bash
 set -e
-
-# FIX #32: Clean up firewall rules on package removal
-# Remove NFQUEUE rules with --queue-bypass
-while iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null; do
-    iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || break
-done
-
-# Also remove any old NFQUEUE rules without --queue-bypass
-while iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null; do
-    iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || break
-done
-
-# Remove BASTION_BYPASS rules with full specification
-while iptables -C OUTPUT -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null; do
-    iptables -D OUTPUT -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || break
-done
-
-while iptables -C OUTPUT -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null; do
-    iptables -D OUTPUT -m owner --uid-owner 0 -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || break
-done
-
-case "$1" in
-    purge)
-        # Remove configuration files on purge
-        rm -rf /etc/bastion
-        rm -f /var/log/bastion-daemon.log
-        rm -rf /var/log/bastion
-        rm -rf /var/run/bastion
-        
-        # Remove user and group
-        userdel bastion 2>/dev/null || true
-        groupdel bastion 2>/dev/null || true
-        
-        echo "Bastion Firewall configuration purged"
-        ;;
-    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
-        # Keep configuration files on normal removal
-        ;;
-esac
-
-# Update desktop database
-update-desktop-database 2>/dev/null || true
-
-# Reload systemd
-systemctl daemon-reload 2>/dev/null || true
-
-exit 0
+if [ "$1" = "purge" ]; then
+    rm -rf /etc/bastion
+    rm -rf /var/log/bastion
+    rm -rf /var/lib/bastion
+fi
+update-desktop-database || true

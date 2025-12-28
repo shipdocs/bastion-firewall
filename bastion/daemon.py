@@ -1,3 +1,6 @@
+"""
+DEPRECATED: Legacy Python daemon. v2.0+ uses Rust daemon (bastion-rs/).
+"""
 
 import os
 import sys
@@ -130,51 +133,58 @@ class BastionDaemon:
         """Start the daemon"""
         logger.info("Starting Bastion Daemon...")
 
-        # Setup signals
-        self._setup_signals()
+        try:
+            # Setup signals
+            self._setup_signals()
 
-        # Setup Socket
-        self._setup_socket()
+            # Setup Socket
+            self._setup_socket()
 
-        # Setup iptables
-        allow_root = self.config.get('allow_root_bypass', True)
-        allow_systemd = self.config.get('allow_systemd_bypass', True)
-        logger.info(f"Configuring iptables (Root Bypass: {allow_root}, Systemd Bypass: {allow_systemd})")
-        
-        if not IPTablesManager.setup_nfqueue(queue_num=1, allow_root=allow_root, allow_systemd=allow_systemd):
-            logger.error("Failed to setup iptables")
-            return
+            # Setup iptables
+            allow_root = self.config.get('allow_root_bypass', True)
+            allow_systemd = self.config.get('allow_systemd_bypass', True)
+            logger.info(f"Configuring iptables (Root Bypass: {allow_root}, Systemd Bypass: {allow_systemd})")
+            
+            if not IPTablesManager.setup_nfqueue(queue_num=1, allow_root=allow_root, allow_systemd=allow_systemd):
+                logger.error("Failed to setup iptables")
+                return
 
-        # Start Packet Processor IMMEDIATELY
-        self.packet_processor = PacketProcessor(self._handle_packet)
-        self.running = True
+            # Start Packet Processor IMMEDIATELY
+            self.packet_processor = PacketProcessor(self._handle_packet)
+            self.running = True
 
-        # Start processor in background thread
-        processor_thread = threading.Thread(target=self._run_processor, daemon=True)
-        processor_thread.start()
-        logger.info("Packet processor started")
+            # Start processor in background thread
+            processor_thread = threading.Thread(target=self._run_processor, daemon=True)
+            processor_thread.start()
+            logger.info("Packet processor started")
 
-        # Start GUI connection acceptor in background thread
-        gui_thread = threading.Thread(target=self._accept_gui_connections, daemon=True)
-        gui_thread.start()
-        logger.info("Waiting for GUI to connect...")
+            # Start GUI connection acceptor in background thread
+            gui_thread = threading.Thread(target=self._accept_gui_connections, daemon=True)
+            gui_thread.start()
+            logger.info("Waiting for GUI to connect...")
 
-        # Smart GUI launch: attempt to start gui for all active graphical sessions
-        logger.info("Triggering smart GUI auto-start for active sessions...")
-        self.gui_manager.start_gui()
+            # Smart GUI launch: attempt to start gui for all active graphical sessions
+            logger.info("Triggering smart GUI auto-start for active sessions...")
+            self.gui_manager.start_gui()
 
-        # Wait for GUI to connect (timeout allows for user login)
-        self._wait_for_gui_connection(timeout=30)
+            # Wait for GUI to connect (timeout allows for user login)
+            self._wait_for_gui_connection(timeout=30)
 
-        # Start health monitor
-        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
-        self.monitor_thread.start()
+            # Start health monitor
+            self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+            self.monitor_thread.start()
 
-        # Watchdog loop (legacy main loop, now just fallback/keepalive)
-        self._run_watchdog()
+            # Watchdog loop (legacy main loop, now just fallback/keepalive)
+            self._run_watchdog()
 
-        # Cleanup - threads are daemon threads, they'll stop automatically
-        self.stop()
+        except Exception as e:
+            logger.error(f"Daemon crashed during startup: {e}", exc_info=True)
+            raise
+        finally:
+            # CRITICAL: Always cleanup on exit, even if crash
+            # This prevents iptables rules from remaining active if daemon fails
+            logger.info("Cleaning up due to shutdown or crash...")
+            self.stop()
 
     def _monitor_loop(self):
         """Background thread for systemd watchdog and health checks"""

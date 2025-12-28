@@ -372,10 +372,11 @@ class IPTablesManager:
         IPTablesManager.cleanup_nfqueue(queue_num)
 
         # Rule to queue new outbound connections
+        # CRITICAL: Use --queue-bypass to prevent network blocking if daemon crashes
         rule = [
             'iptables', '-I', 'OUTPUT', '1',
             '-m', 'state', '--state', 'NEW',
-            '-j', 'NFQUEUE', '--queue-num', str(queue_num)
+            '-j', 'NFQUEUE', '--queue-num', str(queue_num), '--queue-bypass'
         ]
 
         try:
