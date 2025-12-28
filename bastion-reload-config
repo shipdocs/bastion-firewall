@@ -24,6 +24,15 @@ if [ ! -f "$TEMP_FILE" ]; then
     exit 1
 fi
 
+# Ensure the config file lives under the expected Bastion config directory
+case "$CONFIG_FILE" in
+    /etc/bastion/*) ;;
+    *)
+        echo "Error: Invalid config file path: $CONFIG_FILE" >&2
+        exit 1
+        ;;
+esac
+
 # Move the temporary file to the config location
 mv "$TEMP_FILE" "$CONFIG_FILE"
 

@@ -24,6 +24,12 @@ if [ ! -f "$TEMP_FILE" ]; then
     exit 1
 fi
 
+# Reject symlinks to avoid clobbering arbitrary root-owned files
+if [ -L "$TEMP_FILE" ]; then
+    echo "Error: Temporary file must not be a symlink: $TEMP_FILE" >&2
+    exit 1
+fi
+
 # Move the temporary file to the rules location
 mv "$TEMP_FILE" "$RULES_FILE"
 
