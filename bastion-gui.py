@@ -260,7 +260,7 @@ class BastionClient(QObject):
                 }) + '\n'
                 try:
                     self.sock.sendall(resp.encode())
-                except:
+                except (OSError, BrokenPipeError, ConnectionResetError):
                     self.handle_disconnect()
 
             dialog.deleteLater()  # Clean up dialog

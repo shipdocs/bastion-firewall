@@ -42,8 +42,8 @@ for session in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
             # This properly inherits the user's environment
             systemd-run --user --machine="${session_user}@.host" \
                 --setenv=QT_QPA_PLATFORM=wayland \
-                /usr/bin/bastion-gui &
-            
+                /usr/bin/bastion-gui
+
             # Alternative fallback if systemd-run doesn't work
             if [ $? -ne 0 ]; then
                 echo "systemd-run failed, trying direct launch..."
