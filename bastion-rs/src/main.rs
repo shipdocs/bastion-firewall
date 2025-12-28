@@ -424,8 +424,16 @@ fn run_socket_server(gui_state: Arc<Mutex<GuiState>>) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        // Allow all local users to connect to the socket
-        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o666));
+        use std::process::Command;
+
+        // Set socket permissions to 0o660 (owner + group only)
+        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o660));
+
+        // Set group ownership to bastion group for secure access control
+        let _ = Command::new("chgrp")
+            .arg("bastion")
+            .arg(SOCKET_PATH)
+            .output();
     }
     
     info!("Socket server listening on {}", SOCKET_PATH);

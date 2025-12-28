@@ -9,6 +9,24 @@ if ! getent passwd bastion >/dev/null; then
     useradd -r -g bastion -d /var/lib/bastion -s /usr/sbin/nologin -c "Bastion Firewall User" bastion
 fi
 
+# Add all desktop users to bastion group (UID >= 1000, excluding system accounts)
+echo "Adding desktop users to bastion group..."
+ADDED_USERS=""
+getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | while read username; do
+    # Skip nobody and other special accounts
+    if [ "$username" = "nobody" ]; then
+        continue
+    fi
+
+    # Add user to bastion group if not already a member
+    if ! groups "$username" 2>/dev/null | grep -q bastion; then
+        usermod -a -G bastion "$username" 2>/dev/null && echo "  ✓ Added $username to bastion group"
+    fi
+done
+
+echo "Desktop users have been added to bastion group."
+echo "Note: Users must log out and back in for group membership to take effect."
+
 # Set up configuration directory
 mkdir -p /etc/bastion
 if [ ! -f /etc/bastion/config.json ]; then
