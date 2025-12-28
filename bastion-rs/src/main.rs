@@ -19,6 +19,8 @@ use std::collections::HashMap;
 use log::{info, warn, error, debug};
 use parking_lot::Mutex;
 use serde::{Serialize, Deserialize};
+use signal_hook::consts::SIGHUP;
+use signal_hook::iterator::Signals;
 
 use process::ProcessCache;
 use rules::RuleManager;
@@ -27,7 +29,7 @@ use whitelist::should_auto_allow;
 
 const QUEUE_NUM: u16 = 1;
 const SOCKET_PATH: &str = "/var/run/bastion/bastion-daemon.sock";
-const GUI_TIMEOUT_SECS: u64 = 30;
+const GUI_TIMEOUT_SECS: u64 = 60;  // Increased to 60s to allow user to finish typing
 
 #[derive(Default)]
 pub struct Stats {
@@ -307,11 +309,33 @@ fn main() -> anyhow::Result<()> {
         loop {
             thread::sleep(Duration::from_secs(30));
             let s = stats_clone.lock();
-            info!("Stats: {} total, {} allowed, {} blocked", 
+            info!("Stats: {} total, {} allowed, {} blocked",
                 s.total_connections, s.allowed_connections, s.blocked_connections);
         }
     });
-    
+
+    // SIGHUP handler - clear pending cache when rules are modified
+    let gui_state_sighup = gui_state.clone();
+    let rules_sighup = rules.clone();
+    thread::spawn(move || {
+        let mut signals = match Signals::new(&[SIGHUP]) {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to register SIGHUP handler: {}", e);
+                return;
+            }
+        };
+
+        for sig in signals.forever() {
+            if sig == SIGHUP {
+                info!("Received SIGHUP - clearing pending cache and reloading rules");
+                gui_state_sighup.lock().pending_cache.clear();
+                rules_sighup.reload();
+                info!("Cache cleared and rules reloaded");
+            }
+        }
+    });
+
     // Process cache
     let process_cache = Mutex::new(ProcessCache::new(120));
     

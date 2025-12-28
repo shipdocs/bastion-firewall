@@ -11,6 +11,8 @@ Restart=on-failure
 RestartSec=5s
 User=root
 Group=root
+StandardOutput=append:/var/log/bastion-daemon.log
+StandardError=append:/var/log/bastion-daemon.log
 
 [Install]
 WantedBy=multi-user.target

@@ -1,0 +1,36 @@
+#!/bin/bash
+# Bastion Firewall - Rules Reload Helper
+# This script updates the rules file and signals the daemon to reload
+# Usage: bastion-reload-rules <temp_file_path> <target_path>
+
+set -e  # Exit on error
+
+if [ "$EUID" -ne 0 ]; then
+    echo "Error: This script must be run as root" >&2
+    exit 1
+fi
+
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <temp_file> <rules_file>" >&2
+    exit 1
+fi
+
+TEMP_FILE="$1"
+RULES_FILE="$2"
+
+# Validate paths
+if [ ! -f "$TEMP_FILE" ]; then
+    echo "Error: Temporary file does not exist: $TEMP_FILE" >&2
+    exit 1
+fi
+
+# Move the temporary file to the rules location
+mv "$TEMP_FILE" "$RULES_FILE"
+
+# Set proper permissions (readable by all, writable by root)
+chmod 644 "$RULES_FILE"
+
+# Signal the daemon to reload rules and clear cache
+pkill -HUP -f bastion-daemon || true
+
+exit 0

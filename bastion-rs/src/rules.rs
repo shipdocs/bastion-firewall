@@ -56,6 +56,14 @@ impl RuleManager {
     /// // Querying for a decision returns `Some(true|false)` if an exact "path:port" rule exists
     /// let decision = manager.get_decision("/usr/bin/myapp", 8080);
     /// ```
+    /// Reload rules from disk - public wrapper for load_rules().
+    ///
+    /// Used when rules are modified externally (e.g., via GUI) and the daemon
+    /// receives a SIGHUP signal to reload configuration.
+    pub fn reload(&self) {
+        self.load_rules();
+    }
+
     pub fn load_rules(&self) {
         let path = Path::new(RULES_PATH);
         if !path.exists() {

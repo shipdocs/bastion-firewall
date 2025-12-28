@@ -58,6 +58,8 @@ cp bastion-rs/ebpf/target/bpfel-unknown-none/release/bastion-ebpf.o debian/usr/s
 cp bastion-gui.py debian/usr/bin/bastion-gui
 cp bastion_control_panel.py debian/usr/bin/bastion-control-panel
 cp bastion-launch-gui.sh debian/usr/bin/bastion-launch
+cp bastion-reload-rules debian/usr/bin/bastion-reload-rules
+cp bastion-reload-config debian/usr/bin/bastion-reload-config
 chmod +x debian/usr/bin/*
 
 print_step "Copying Python modules..."

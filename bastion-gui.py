@@ -232,34 +232,41 @@ class BastionClient(QObject):
 
     def handle_connection_request(self, req):
         """
-        Display a modal firewall decision dialog for an incoming connection request and send the user's decision back to the daemon.
-        
+        Display a non-modal firewall decision dialog for an incoming connection request and send the user's decision back to the daemon.
+
         Parameters:
             req (dict): Incoming request payload used to populate the dialog. May include a numeric 'decision_id' (defaults to 0) which will be echoed back in the response.
-        
+
         Behavior:
-            - Shows a modal FirewallDialog with a 30-second timeout to obtain the user's decision and permanence choice.
+            - Shows a non-modal FirewallDialog with a 60-second timeout to obtain the user's decision and permanence choice.
+            - Dialog doesn't steal focus, allowing user to continue working.
             - If connected to the daemon, sends a JSON line containing `allow` (boolean), `permanent` (boolean), and `decision_id` back over the socket.
             - If sending the response fails, the client disconnects and resets its connection state.
         """
-        dialog = FirewallDialog(req, timeout=30)
-        result = dialog.exec()
-        
-        decision = (dialog.decision == 'allow')
-        permanent = dialog.permanent
-        decision_id = req.get('decision_id', 0)  # Get decision ID from request
-        
-        # Send response with decision_id
-        if self.connected and self.sock:
-            resp = json.dumps({
-                'allow': decision, 
-                'permanent': permanent,
-                'decision_id': decision_id
-            }) + '\n'
-            try:
-                self.sock.sendall(resp.encode())
-            except:
-                self.handle_disconnect()
+        dialog = FirewallDialog(req, timeout=60)
+        decision_id = req.get('decision_id', 0)
+
+        # Handle dialog completion (non-modal)
+        def on_dialog_finished():
+            decision = (dialog.decision == 'allow')
+            permanent = dialog.permanent
+
+            # Send response with decision_id
+            if self.connected and self.sock:
+                resp = json.dumps({
+                    'allow': decision,
+                    'permanent': permanent,
+                    'decision_id': decision_id
+                }) + '\n'
+                try:
+                    self.sock.sendall(resp.encode())
+                except:
+                    self.handle_disconnect()
+
+            dialog.deleteLater()  # Clean up dialog
+
+        dialog.finished.connect(on_dialog_finished)
+        dialog.show()  # Non-modal - doesn't steal focus!
 
     def open_control_panel(self):
         import subprocess

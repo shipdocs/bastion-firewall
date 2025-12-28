@@ -179,10 +179,10 @@ QCheckBox::indicator:checked {{
 class FirewallDialog(QDialog):
     """
     Decision dialog for new connections.
-    Always stays on top and grabs focus.
+    Stays on top but doesn't steal focus or disappear on click-away.
     """
-    
-    def __init__(self, conn_info, timeout=30, learning_mode=False):
+
+    def __init__(self, conn_info, timeout=60, learning_mode=False):
         super().__init__()
         self.conn_info = conn_info
         self.timeout = timeout
@@ -212,11 +212,14 @@ class FirewallDialog(QDialog):
             }}
         """)
         
+        # Stay on top but don't steal focus
         self.setWindowFlags(
-            Qt.WindowType.WindowStaysOnTopHint | 
-            Qt.WindowType.FramelessWindowHint | 
-            Qt.WindowType.Dialog
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.Tool  # Tool windows don't steal focus
         )
+        # Prevent focus stealing when window appears
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         
         layout = QVBoxLayout()
         layout.setContentsMargins(25, 25, 25, 25)
@@ -371,6 +374,10 @@ class FirewallDialog(QDialog):
         elif event.key() == Qt.Key.Key_A: self.allow_always()
         elif event.key() == Qt.Key.Key_D: self.deny_always()
         else: super().keyPressEvent(event)
+
+    def closeEvent(self, event):
+        """Prevent accidental dismissal - only allow closing via buttons or timeout"""
+        event.ignore()  # Ignore all close requests (clicking away, Alt+F4, etc.)
 
 
 from .inbound_firewall import InboundFirewallDetector
@@ -1102,15 +1109,11 @@ X-GNOME-Autostart-enabled=true
             with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
                 json.dump(self.data_rules, tmp, indent=2)
                 tmp_path = tmp.name
-            
-            if not self._run_privileged(['pkexec', 'mv', tmp_path, str(self.rules_path)],
-                                        error_hint="Failed to save rules (move)."):
+
+            # Use single helper script to move, chmod, and signal daemon (only 1 password prompt)
+            if not self._run_privileged(['pkexec', '/usr/bin/bastion-reload-rules', tmp_path, str(self.rules_path)],
+                                        error_hint="Failed to save rules."):
                 return
-            if not self._run_privileged(['pkexec', 'chmod', '644', str(self.rules_path)],
-                                        error_hint="Failed to set rule permissions."):
-                return
-            self._run_privileged(['pkill', '-HUP', '-f', 'bastion-daemon'],
-                                 error_hint=None)
         except Exception as e:
             from .notification import show_notification
             show_notification(self, "Error", f"Failed to save rules: {e}")
@@ -1121,16 +1124,12 @@ X-GNOME-Autostart-enabled=true
             with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
                 json.dump(self.data_config, tmp, indent=2)
                 tmp_path = tmp.name
-                
-            if not self._run_privileged(['pkexec', 'mv', tmp_path, str(self.config_path)],
-                                        error_hint="Failed to write configuration."):
+
+            # Use single helper script to move, chmod, and signal daemon (only 1 password prompt)
+            if not self._run_privileged(['pkexec', '/usr/bin/bastion-reload-config', tmp_path, str(self.config_path)],
+                                        error_hint="Failed to save configuration."):
                 return
-            if not self._run_privileged(['pkexec', 'chmod', '644', str(self.config_path)],
-                                        error_hint="Failed to set configuration permissions."):
-                return
-            
-            # signal daemon
-            self._run_privileged(['pkill', '-HUP', '-f', 'bastion-daemon'], error_hint=None)
+
             from .notification import show_notification
             show_notification(self, "Success", "Configuration saved.")
         except Exception as e:
