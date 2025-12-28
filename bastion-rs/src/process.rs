@@ -50,18 +50,32 @@ impl ProcessCache {
     /// // `cache` is ready to query for socket ownership.
     /// ```
     pub fn new(_ttl_secs: u64) -> Self {
-        // Try to initialize eBPF
+        // Try to initialize eBPF from installed or dev locations
         let mut ebpf = EbpfManager::new();
-        let ebpf_loaded = match ebpf.load_from_file("ebpf/target/bpfel-unknown-none/release/bastion-ebpf.o") {
-            Ok(_) => {
-                info!("eBPF process tracking loaded successfully");
-                true
+        
+        // Paths to try in order: installed first, then dev
+        let ebpf_paths = [
+            "/usr/share/bastion-firewall/bastion-ebpf.o",  // Installed location
+            "ebpf/target/bpfel-unknown-none/release/bastion-ebpf.o",  // Dev location
+        ];
+        
+        let mut ebpf_loaded = false;
+        for path in &ebpf_paths {
+            match ebpf.load_from_file(path) {
+                Ok(_) => {
+                    info!("eBPF process tracking loaded from {}", path);
+                    ebpf_loaded = true;
+                    break;
+                }
+                Err(e) => {
+                    debug!("eBPF load from {} failed: {}", path, e);
+                }
             }
-            Err(e) => {
-                warn!("eBPF load failed: {}", e);
-                false
-            }
-        };
+        }
+        
+        if !ebpf_loaded {
+            warn!("eBPF not available - falling back to /proc scanning");
+        }
         
         let mut cache = Self {
             inode_to_process: HashMap::new(),
@@ -315,6 +329,7 @@ impl ProcessCache {
                 ((ip_num >> 24) & 0xFF) as u8,
             );
             Some((IpAddr::V4(ip), port))
+        } else if ip_hex.len() == 32 {
             // FIX #23: IPv6 - parse 128-bit address in correct byte order
             // /proc/net/tcp6 stores IPv6 as four 32-bit words in host-endian byte order.
             let mut words = [0u32; 4];

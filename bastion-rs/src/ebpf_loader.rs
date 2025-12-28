@@ -155,18 +155,22 @@ impl EbpfManager {
         // First check local cache
         self.cleanup_cache();
         
-        // FIX #3: Convert IPv4 to network byte order consistently
+        // Convert IP to the format stored by eBPF:
+        // eBPF does *ip_ptr where ip_ptr points to network-order bytes.
+        // On little-endian x86, this reads the bytes as a little-endian u32.
         let dst_ip_u32: u32 = match dst_ip.parse::<Ipv4Addr>() {
-            Ok(ip) => u32::from_be_bytes(ip.octets()),
+            Ok(ip) => u32::from_ne_bytes(ip.octets()),  // Native endian from octets
             Err(_) => return None,
         };
         
-        // FIX #1: Since we don't know PID upfront, we need to iterate through cache
-        // to find entries matching our socket parameters (src_port, dst_ip, dst_port)
-        for ((cached_src_port, cached_dst_ip, cached_dst_port, cached_pid), (timestamp, _)) in &self.local_cache {
-            if *cached_src_port == src_port && *cached_dst_ip == dst_ip_u32 && *cached_dst_port == dst_port {
+        // Check local cache first (faster than eBPF map query)
+        for ((cached_src_port, cached_dst_ip, cached_dst_port, cached_pid), (_pid, timestamp)) in &self.local_cache {
+            // Match on dst_ip and dst_port (src_port may be 0 in eBPF entries)
+            if (*cached_src_port == 0 || *cached_src_port == src_port) 
+                && *cached_dst_ip == dst_ip_u32 
+                && *cached_dst_port == dst_port {
                 if timestamp.elapsed() < self.ttl {
-                    debug!("Found PID {} in eBPF cache for {}:{}", cached_pid, dst_ip, dst_port);
+                    debug!("Found PID {} in local cache for {}:{}", cached_pid, dst_ip, dst_port);
                     return Some(*cached_pid);
                 }
             }
@@ -177,33 +181,33 @@ impl EbpfManager {
             return None;
         }
         
-        // Query eBPF map
+        // Query eBPF map by iterating through all entries
         let bpf = self.bpf.as_ref().unwrap();
         let socket_map: HashMap<_, SocketKey, SocketInfo> = match bpf.map("SOCKET_MAP") {
-            Some(map) => HashMap::try_from(map).ok()?,
+            Some(map) => match HashMap::try_from(map) {
+                Ok(m) => m,
+                Err(_) => return None,
+            },
             None => return None,
         };
         
-        // FIX #1: Try with src_port=0 (entry might have been created before port was assigned)
-        // Note: HashMap doesn't support wildcard searches, so we try with pid=0 as wildcard
-        // For production, consider using socket pointers as keys instead
-        let key_zero_src = SocketKey {
-            src_port: 0,
-            dst_ip: dst_ip_u32,
-            dst_port,
-            pid: 0,  // Wildcard PID for search
-        };
-        
-        match socket_map.get(&key_zero_src, 0) {
-            Ok(info) => {
-                // Cache for future lookups
-                let cache_key = (src_port, dst_ip_u32, dst_port, info.pid);
-                self.local_cache.insert(cache_key, (info.pid, Instant::now()));
-                debug!("Found PID {} in eBPF map (zero src) for {}:{}", info.pid, dst_ip, dst_port);
-                Some(info.pid)
+        // Iterate through all entries to find matching dst_ip:dst_port
+        // (src_port is 0 in eBPF because it's not known at connect time)
+        for result in socket_map.iter() {
+            if let Ok((key, info)) = result {
+                if key.dst_ip == dst_ip_u32 && key.dst_port == dst_port {
+                    // Found a match!
+                    let pid = info.pid;
+                    // Cache for future lookups
+                    let cache_key = (src_port, dst_ip_u32, dst_port, pid);
+                    self.local_cache.insert(cache_key, (pid, Instant::now()));
+                    debug!("Found PID {} in eBPF map for {}:{}", pid, dst_ip, dst_port);
+                    return Some(pid);
+                }
             }
-            Err(_) => None,
         }
+        
+        None
     }
 
     /// Remove entries from the local TTL cache that are older than the manager's `ttl`.

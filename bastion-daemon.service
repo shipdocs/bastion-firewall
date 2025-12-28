@@ -8,6 +8,7 @@ Wants=network-online.target
 Type=simple
 User=root
 ExecStart=/usr/bin/bastion-daemon
+ExecStartPost=/usr/bin/bastion-launch-gui
 Restart=on-failure
 RestartSec=5s
 

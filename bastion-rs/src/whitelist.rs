@@ -72,36 +72,35 @@ pub enum AppCategory {
 /// assert_eq!((allowed, reason), (false, ""));
 /// ```
 pub fn should_auto_allow(app_path: &str, dest_port: u16, dest_ip: &str) -> (bool, &'static str) {
-    // 1. Essential ports (DNS, DHCP, NTP) - only for trusted binaries
-    if ESSENTIAL_PORTS.contains(&dest_port) {
-        // SECURITY: Only allow essential ports for trusted system binaries
-        // This prevents malicious processes from bypassing the firewall via DNS/DHCP/NTP
+    // 1. Localhost connections - auto-allow all (low risk, internal traffic)
+    if let Ok(ip) = dest_ip.parse::<std::net::IpAddr>() {
+        if ip.is_loopback() {
+            return (true, "Localhost");
+        }
+    }
+    // Also check string patterns for systemd-resolved
+    if dest_ip == "127.0.0.53" || dest_ip.starts_with("127.") {
+        return (true, "Localhost");
+    }
+    
+    // 2. DNS traffic - auto-allow (needed for everything to work)
+    if dest_port == 53 {
+        return (true, "DNS");
+    }
+    
+    // 3. Other essential ports (DHCP, NTP) - only for trusted binaries
+    if ESSENTIAL_PORTS.contains(&dest_port) && dest_port != 53 {
         if SYSTEM_PATHS.contains(app_path) || app_path.starts_with("/usr/lib/systemd/") {
             return (true, "Essential port (trusted)");
         }
-        // Don't auto-allow unknown processes on essential ports
-        return (false, "");
     }
     
-    // 2. Localhost connections - only for trusted binaries
-    if let Ok(ip) = dest_ip.parse::<std::net::IpAddr>() {
-        if ip.is_loopback() {
-            // SECURITY: Only auto-allow localhost for trusted system binaries
-            // This prevents malicious processes from bypassing firewall via loopback tunnels
-            if SYSTEM_PATHS.contains(app_path) || app_path.starts_with("/usr/lib/systemd/") {
-                return (true, "Localhost (trusted)");
-            }
-            // Don't auto-allow unknown processes on localhost
-            return (false, "");
-        }
-    }
-    
-    // 3. System binaries
+    // 4. System binaries
     if SYSTEM_PATHS.contains(app_path) {
         return (true, "System service");
     }
     
-    // 4. Check path prefixes
+    // 5. Check path prefixes
     if app_path.starts_with("/usr/lib/systemd/") {
         return (true, "Systemd service");
     }

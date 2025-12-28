@@ -79,8 +79,10 @@ print_info "eBPF program will be embedded in binary for production, but included
 print_step "Copying Python GUI..."
 cp bastion-gui.py debian/usr/bin/bastion-gui
 cp bastion_control_panel.py debian/usr/bin/bastion-control-panel
+cp bastion-launch-gui.sh debian/usr/bin/bastion-launch-gui
 chmod +x debian/usr/bin/bastion-gui
 chmod +x debian/usr/bin/bastion-control-panel
+chmod +x debian/usr/bin/bastion-launch-gui
 
 # Copy Python modules
 print_step "Copying Python modules..."

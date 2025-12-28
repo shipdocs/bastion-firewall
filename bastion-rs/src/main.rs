@@ -400,7 +400,8 @@ fn run_socket_server(gui_state: Arc<Mutex<GuiState>>) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o660));
+        // Allow all local users to connect to the socket
+        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o666));
     }
     
     info!("Socket server listening on {}", SOCKET_PATH);
@@ -408,11 +409,7 @@ fn run_socket_server(gui_state: Arc<Mutex<GuiState>>) {
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
-                if let Ok(cred) = s.peer_cred() {
-                    info!("GUI client connecting (UID: {}, PID: {})", cred.uid(), cred.pid().unwrap_or(0));
-                } else {
-                    warn!("GUI client connecting (unknown credentials)");
-                }
+                    info!("GUI client connecting");
                 gui_state.lock().set_connection(s);
             }
             Err(e) => {

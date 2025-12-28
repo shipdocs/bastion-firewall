@@ -146,11 +146,18 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
         (*regs).rsi
     };
     
-    // Read the sockaddr structure from userspace
+    // Read the sockaddr structure (try kernel space first, then user space)
     let sockaddr: [u8; 16] = unsafe {
-        match aya_ebpf::helpers::bpf_probe_read_user(uaddr as *const [u8; 16]) {
+        // Try kernel space read first (for some kernel versions)
+        match aya_ebpf::helpers::bpf_probe_read(uaddr as *const [u8; 16]) {
             Ok(val) => val,
-            Err(_) => return Err(2),
+            Err(_) => {
+                // Fall back to user space read
+                match aya_ebpf::helpers::bpf_probe_read_user(uaddr as *const [u8; 16]) {
+                    Ok(val) => val,
+                    Err(_) => return Err(2),
+                }
+            }
         }
     };
     

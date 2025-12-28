@@ -111,7 +111,7 @@ else
     while iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null 2>&1; do :; done
     
     # FIX #10: Add NFQUEUE rule with --queue-bypass to allow traffic when daemon is not running
-    iptables -I OUTPUT 3 -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
+    iptables -A OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
     print_success "NFQUEUE rule added with --queue-bypass"
 fi
 
