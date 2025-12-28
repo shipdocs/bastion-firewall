@@ -231,6 +231,17 @@ class BastionClient(QObject):
         self.tray_icon.showMessage(title, message, icon, 5000)
 
     def handle_connection_request(self, req):
+        """
+        Display a modal firewall decision dialog for an incoming connection request and send the user's decision back to the daemon.
+        
+        Parameters:
+            req (dict): Incoming request payload used to populate the dialog. May include a numeric 'decision_id' (defaults to 0) which will be echoed back in the response.
+        
+        Behavior:
+            - Shows a modal FirewallDialog with a 30-second timeout to obtain the user's decision and permanence choice.
+            - If connected to the daemon, sends a JSON line containing `allow` (boolean), `permanent` (boolean), and `decision_id` back over the socket.
+            - If sending the response fails, the client disconnects and resets its connection state.
+        """
         dialog = FirewallDialog(req, timeout=30)
         result = dialog.exec()
         

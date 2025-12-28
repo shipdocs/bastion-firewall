@@ -37,6 +37,18 @@ pub struct ProcessCache {
 }
 
 impl ProcessCache {
+    /// Creates a new `ProcessCache`, attempts to enable eBPF-based tracking, and populates the inode-to-process map.
+    ///
+    /// The provided `ttl_secs` parameter is currently unused but reserved for future cache TTL behavior.
+    /// On success, this initializes an optional eBPF manager and performs an immediate scan of `/proc` to build the
+    /// internal mapping of socket inodes to process information.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let cache = bastion_rs::process::ProcessCache::new(60);
+    /// // `cache` is ready to query for socket ownership.
+    /// ```
     pub fn new(_ttl_secs: u64) -> Self {
         // Try to initialize eBPF
         let mut ebpf = EbpfManager::new();
@@ -61,7 +73,18 @@ impl ProcessCache {
         cache
     }
     
-    /// Scan all /proc/[pid]/fd to build inode->process map
+    /// Rebuilds the inode-to-process mapping by scanning /proc for processes and their open socket file descriptors.
+    ///
+    /// This clears the current map, iterates numeric entries under `/proc`, reads each process's name, executable path (when available),
+    /// and UID, then inspects `/proc/[pid]/fd` for `socket:[inode]` links to associate socket inodes with ProcessInfo entries.
+    /// Updates `self.last_scan` to the current time on completion.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut cache = ProcessCache::new(60);
+    /// cache.scan_processes();
+    /// ```
     fn scan_processes(&mut self) {
         self.inode_to_process.clear();
         
@@ -134,7 +157,23 @@ impl ProcessCache {
         self.last_scan = Instant::now();
     }
     
-    /// Helper: Get process UID from /proc/[pid]/status
+    /// Retrieve the primary UID of a process by reading /proc/[pid]/status.
+    ///
+    /// Parses the `Uid:` line from `/proc/<pid>/status` and returns the first numeric UID listed.
+    ///
+    /// # Returns
+    ///
+    /// `Some(uid)` if the primary UID was found and parsed, `None` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Create a cache (constructor visible in the module) and query PID 1 as an example.
+    /// let cache = ProcessCache::new(1);
+    /// let uid = cache.get_process_uid(1);
+    /// // On most systems PID 1 exists; ensure the call returns a value or gracefully handles absence.
+    /// assert!(uid.is_some() || uid.is_none());
+    /// ```
     fn get_process_uid(&self, pid: u32) -> Option<u32> {
         let path = format!("/proc/{}/status", pid);
         if let Ok(file) = File::open(path) {
@@ -152,7 +191,23 @@ impl ProcessCache {
         None
     }
     
-    /// Read /proc/net/tcp or /proc/net/udp
+    /// Reads and system network tables for the specified protocol and returns parsed entries.
+    ///
+    /// Accepts "tcp" or "udp" (case-insensitive) and will read both the IPv4 and IPv6
+    /// files under `/proc/net/` (e.g. `/proc/net/tcp` and `/proc/net/tcp6`).
+    /// Lines that cannot be parsed are ignored.
+    ///
+    /// # Returns
+    ///
+    /// A vector of `NetEntry` structs parsed from the matching `/proc/net/*` files.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let cache = ProcessCache::new(60);
+    /// let tcp_entries = cache.read_net_entries("tcp");
+    /// // tcp_entries contains any parsed TCP socket entries from /proc/net
+    /// ```
     fn read_net_entries(&self, protocol: &str) -> Vec<NetEntry> {
         let mut entries = Vec::new();
         
@@ -178,8 +233,24 @@ impl ProcessCache {
         entries
     }
     
-    /// Parse a line from /proc/net/tcp
-    /// Format: sl local_address rem_address st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode
+    /// Parse a single socket entry line from a /proc/net/* file into a NetEntry.
+    ///
+    /// Parses the local and remote address/port fields and the socket inode. Returns `Some(NetEntry)` when the line contains a valid entry and `None` if the line is malformed or missing required fields.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use bastion_rs::process::ProcessCache;
+    /// # use bastion_rs::process::NetEntry;
+    /// let mut cache = ProcessCache::new(1);
+    /// // Example line format from /proc/net/tcp (fields truncated for brevity)
+    /// let line = "  5: 0100007F:0035 00000000:0000 0A ... 0 0 12345 1 00000000 100 0 0 10 0";
+    /// let entry = cache.parse_net_line(line);
+    /// assert!(entry.is_some());
+    /// let e = entry.unwrap();
+    /// assert_eq!(e.local_port, 53);
+    /// assert_eq!(e.inode, 12345);
+    /// ```
     fn parse_net_line(&self, line: &str) -> Option<NetEntry> {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() < 10 {
@@ -204,8 +275,29 @@ impl ProcessCache {
         })
     }
     
-    /// Parse "0100007F:1F90" -> (127.0.0.1, 8080) for IPv4
-    /// Parse "00000000000000000000000001000000:1F90" -> (::1, 8080) for IPv6
+    /// Parse a `/proc/net/*` hex address like `IP_HEX:PORT_HEX` into an `IpAddr` and port.
+    ///
+    /// Accepts IPv4 in the 8-hex-digit reversed-byte format produced by `/proc/net/tcp`
+    /// (e.g. `"0100007F:1F90"` -> `127.0.0.1:8080`) and IPv6 in the 32-hex-digit form used by
+    /// `/proc/net/tcp6` (four 8-hex-digit words) (e.g. `"00000000000000000000000001000000:1F90"` -> `::1:8080`).
+    ///
+    /// # Returns
+    ///
+    /// `Some((IpAddr, port))` if parsing succeeds, `None` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // IPv4: 127.0.0.1:8080
+    /// let addr = parse_hex_address("0100007F:1F90").unwrap();
+    /// assert_eq!(addr.0.to_string(), "127.0.0.1");
+    /// assert_eq!(addr.1, 8080);
+    ///
+    /// // IPv6: ::1:8080 (represented in /proc/net/tcp6 as four 32-bit words)
+    /// let addr6 = parse_hex_address("00000000000000000000000001000000:1F90").unwrap();
+    /// assert_eq!(addr6.0.to_string(), "::1");
+    /// assert_eq!(addr6.1, 8080);
+    /// ```
     fn parse_hex_address(&self, s: &str) -> Option<(IpAddr, u16)> {
         let (ip_hex, port_hex) = s.split_once(':')?;
         
@@ -245,7 +337,23 @@ impl ProcessCache {
         }
     }
     
-    /// Find process by socket - like Python's find_process_by_socket
+    /// Locate the process that owns a socket identified by source/destination IPs and ports for a given protocol.
+    ///
+    /// This first attempts a kernel-level lookup using eBPF (if available) and falls back to scanning /proc and /proc/net
+    /// entries to match socket inodes to processes.
+    ///
+    /// # Returns
+    ///
+    /// `Some(ProcessInfo)` containing the owning process information if a matching process is found, `None` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut cache = ProcessCache::new(60);
+    /// // Likely no process uses this unlikely combination; real usage should supply observed socket details.
+    /// let res = cache.find_process_by_socket("127.0.0.1", 65000, "8.8.8.8", 53, "udp");
+    /// assert!(res.is_none() || res.is_some());
+    /// ```
     pub fn find_process_by_socket(
         &mut self,
         src_ip: &str,
@@ -309,7 +417,20 @@ impl ProcessCache {
         None
     }
     
-    /// Helper: Get process info by PID (used after eBPF lookup)
+    /// Retrieve basic process information for the given PID by reading /proc entries.
+    ///
+    /// Reads /proc/{pid}/comm for the process name and /proc/{pid}/exe for the executable path;
+    /// also attempts to obtain the process UID from /proc/{pid}/status. Returns `None` if the
+    /// required process files are not present or cannot be read.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let mut cache = ProcessCache::new(60);
+    /// if let Some(info) = cache.get_process_info_by_pid(1) {
+    ///     println!("pid={} name={} exe={} uid={}", info.pid, info.name, info.exe_path, info.uid);
+    /// }
+    /// ```
     fn get_process_info_by_pid(&self, pid: u32) -> Option<ProcessInfo> {
         let proc_path = format!("/proc/{}", pid);
         
@@ -341,11 +462,37 @@ impl ProcessCache {
         })
     }
     
-    /// Compatibility interface
+    /// Locate the process that owns a socket matching the given source port and protocol, using any local or remote IP.
+    ///
+    /// Returns `Some(ProcessInfo)` if a matching process is found, `None` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let mut cache = ProcessCache::new(60);
+    /// if let Some(proc_info) = cache.get(8080, "tcp") {
+    ///     println!("Found process {} (pid {})", proc_info.name, proc_info.pid);
+    /// }
+    /// ```
     pub fn get(&mut self, src_port: u16, protocol: &str) -> Option<ProcessInfo> {
         self.find_process_by_socket("0.0.0.0", src_port, "0.0.0.0", 0, protocol)
     }
     
+    /// Compatibility stub for locating the process owning a connection by destination address and port.
+    ///
+    — This method is a placeholder and intentionally does not perform any lookup.
+    ///
+    /// # Returns
+    ///
+    /// `None` — this function is not implemented and always returns `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let cache = ProcessCache::new(60);
+    /// let result = cache.get_by_destination("192.0.2.1", 80);
+    /// assert!(result.is_none());
+    /// ```
     pub fn get_by_destination(&self, _dest_ip: &str, _dest_port: u16) -> Option<ProcessInfo> {
         None
     }

@@ -34,6 +34,21 @@ static mut SOCKET_MAP: HashMap<SocketKey, SocketInfo> = HashMap::with_max_entrie
 
 // Helper to convert IPv4 address from struct sockaddr_in
 // FIX #3: Returns IPv4 in network byte order (already in correct format in sockaddr)
+/// Extracts the IPv4 address from a pointer to a `sockaddr_in`.
+///
+/// Interprets `addr` as a pointer to a C `sockaddr_in` and reads the 32-bit
+/// IPv4 address field. The returned value is in network byte order (big-endian).
+///
+/// # Examples
+///
+/// ```
+/// use core::ffi::c_void;
+/// // Construct a sockaddr_in-like buffer: [family(2), port(2), ip(4), ...]
+/// let buf: [u8; 8] = [0, 2, 0x1F, 0x90, 192, 168, 1, 10]; // family=AF_INET, port=8080, ip=192.168.1.10
+/// let ip_be = unsafe { ipv4_from_sockaddr(buf.as_ptr() as *const c_void) };
+/// // ip_be is 0xC0A8010A (192.168.1.10) in network byte order
+/// assert_eq!(ip_be.to_be(), 0xC0A8_010A);
+/// ```
 #[inline]
 fn ipv4_from_sockaddr(addr: *const core::ffi::c_void) -> u32 {
     // sockaddr_in structure:
@@ -51,6 +66,26 @@ fn ipv4_from_sockaddr(addr: *const core::ffi::c_void) -> u32 {
 }
 
 // Helper to extract port from struct sockaddr_in
+/// Extracts the 16-bit port number from a pointer to a `sockaddr_in`.
+///
+/// Interprets `addr` as a pointer to a `sockaddr_in`-style buffer and returns the port
+/// converted from network byte order to host byte order.
+///
+/// # Safety
+///
+/// The caller must ensure `addr` is a valid pointer to at least a `sockaddr_in`-sized
+/// region (commonly 16 bytes) and properly aligned for reading a `u16`.
+///
+/// # Examples
+///
+/// ```
+/// let mut buf = [0u8; 16];
+/// // place port 8080 (0x1F90) into bytes 2..4 (network byte order)
+/// buf[2] = 0x1F;
+/// buf[3] = 0x90;
+/// let port = port_from_sockaddr(buf.as_ptr() as *const core::ffi::c_void);
+/// assert_eq!(port, 8080);
+/// ```
 #[inline]
 fn port_from_sockaddr(addr: *const core::ffi::c_void) -> u16 {
     unsafe {
@@ -61,6 +96,15 @@ fn port_from_sockaddr(addr: *const core::ffi::c_void) -> u16 {
     }
 }
 
+/// Kprobe entry for the kernel's `tcp_v4_connect`; records outbound TCP destinations.
+///
+/// # Examples
+///
+/// ```
+/// // The probe entry always returns 0 when invoked.
+/// let rc = tcp_v4_connect(unsafe { core::mem::zeroed() });
+/// assert_eq!(rc, 0);
+/// ```
 #[kprobe]
 fn tcp_v4_connect(ctx: KProbe) -> u32 {
     match try_tcp_v4_connect(ctx) {
@@ -69,6 +113,22 @@ fn tcp_v4_connect(ctx: KProbe) -> u32 {
     }
 }
 
+/// Records an outbound TCP IPv4 connect attempt in the global SOCKET_MAP keyed by destination and PID.
+///
+/// Reads a user-space `sockaddr` from the second argument of `tcp_v4_connect`, extracts the
+/// destination IPv4 address and port, and inserts a `SocketInfo` (with PID and timestamp) into
+/// `SOCKET_MAP`. The `SocketKey`'s `src_port` is set to 0 because the source port is not known
+/// at connect time.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Invoked from a kprobe handler with a valid `KProbe` context.
+/// try_tcp_v4_connect(ctx).ok();
+/// ```
+///
+/// Returns `Ok(())` on success; returns `Err(code)` if reading registers or user memory fails or
+/// if map operations encounter an error.
 fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
     // tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
     // Arguments: RDI = sock, RSI = uaddr, RDX = addr_len
@@ -123,6 +183,18 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
     Ok(())
 }
 
+/// Kprobe handler attached to the kernel's `udp_sendmsg` entry that records UDP peer destinations into the global socket map.
+///
+/// The handler always returns `0` to indicate the probe completed (no directional error signalling).
+///
+/// # Examples
+///
+/// ```
+/// // Constructing a real `KProbe` is platform-specific; in tests or simulation you can pass a zeroed context.
+/// let ctx: KProbe = unsafe { core::mem::zeroed() };
+/// let res = udp_sendmsg(ctx);
+/// assert_eq!(res, 0);
+/// ```
 #[kprobe]
 fn udp_sendmsg(ctx: KProbe) -> u32 {
     match try_udp_sendmsg(ctx) {
@@ -131,6 +203,26 @@ fn udp_sendmsg(ctx: KProbe) -> u32 {
     }
 }
 
+/// Parse a user-space msghdr from a UDP sendmsg probe and record the destination in SOCKET_MAP.
+///
+/// Reads the msghdr pointer from the probe context, obtains the msg_name (destination sockaddr)
+/// from user space, extracts the IPv4 destination address and port, and inserts a SocketKey/SocketInfo
+/// entry (with `src_port = 0`) keyed by destination and calling PID so consumers can later correlate
+/// packets with the originating process.
+///
+/// On success returns `Ok(())`. Returns `Err(code)` for recoverable probe/read failures:
+/// - `Err(1)` if the probe register context is null,
+/// - `Err(2)` if reading the msghdr's msg_name pointer fails,
+/// - `Err(3)` if reading the sockaddr from user space fails.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// // In eBPF context the KProbe is provided by the framework; this example shows intended usage.
+/// # use aya_bpf::macros::kprobe;
+/// # use aya_bpf::programs::KProbe;
+/// // fn example(ctx: KProbe) { let _ = try_udp_sendmsg(ctx); }
+/// ```
 fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
     // udp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
     // Arguments: RDI = sock, RSI = msg, RDX = len
@@ -199,6 +291,7 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
     Ok(())
 }
 
+/// Halts execution on panic by entering an infinite loop.
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}

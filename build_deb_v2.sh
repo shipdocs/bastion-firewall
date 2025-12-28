@@ -14,9 +14,13 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# print_info prints an informational message prefixed with a green "[INFO]" tag.
 print_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+# print_step prints a blue "[STEP]" prefix followed by the provided message to stdout, using color codes and resetting the color.
 print_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
+# print_error prints an error message prefixed with `[ERROR]` in red; the message is provided as the first argument.
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+# print_warning prints a yellow "[WARNING]" prefix followed by the given message to stdout.
 print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 
 echo "============================================================"

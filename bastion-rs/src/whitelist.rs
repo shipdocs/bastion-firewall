@@ -50,7 +50,27 @@ pub enum AppCategory {
     Unknown,
 }
 
-/// Check if this connection should be auto-allowed
+/// Decides whether a connection should be automatically allowed and returns a short reason label.
+///
+/// This grants trusted system binaries access to essential service ports and loopback addresses,
+/// and treats known system paths (and systemd services) as allowed sources.
+/// The decision follows the file's whitelist policy: essential ports and localhost are only
+/// auto-allowed for trusted binaries; known system binaries and `/usr/lib/systemd/` paths are allowed.
+///
+/// # Returns
+///
+/// A tuple where the first element is `true` if the connection should be auto-allowed, `false` otherwise;
+/// the second element is a short static reason string when allowed, or an empty string when denied.
+///
+/// # Examples
+///
+/// ```
+/// let (allowed, reason) = should_auto_allow("/usr/sbin/NetworkManager", 53, "8.8.8.8");
+/// assert_eq!((allowed, reason), (true, "Essential port (trusted)"));
+///
+/// let (allowed, reason) = should_auto_allow("/home/user/myapp", 80, "127.0.0.1");
+/// assert_eq!((allowed, reason), (false, ""));
+/// ```
 pub fn should_auto_allow(app_path: &str, dest_port: u16, dest_ip: &str) -> (bool, &'static str) {
     // 1. Essential ports (DNS, DHCP, NTP) - only for trusted binaries
     if ESSENTIAL_PORTS.contains(&dest_port) {
@@ -91,6 +111,31 @@ pub fn should_auto_allow(app_path: &str, dest_port: u16, dest_ip: &str) -> (bool
 
 /// Get category for an application (for GUI display)
 // FIX #24: Use case-insensitive matching for executable names
+/// Infers a display category for an application from its filesystem path.
+///
+/// The function classifies the application into one of `AppCategory` variants
+/// based on the path or executable name (case-insensitive).
+///
+/// - `app_path`: filesystem path to the application binary or service unit.
+///
+/// # Returns
+///
+/// `AppCategory::System` when the path is a known system binary or is under
+/// `/usr/lib/systemd/` or `/usr/sbin/`. `AppCategory::Browser` when the
+/// executable name indicates a web browser. `AppCategory::Development` when the
+/// executable name indicates a development tool. `AppCategory::Communication`
+/// when the executable name indicates a communication app. Otherwise
+/// `AppCategory::Unknown`.
+///
+/// # Examples
+///
+/// ```
+/// let cat = get_app_category("/usr/bin/firefox");
+/// assert_eq!(cat, AppCategory::Browser);
+///
+/// let sys = get_app_category("/usr/lib/systemd/systemd");
+/// assert_eq!(sys, AppCategory::System);
+/// ```
 pub fn get_app_category(app_path: &str) -> AppCategory {
     if app_path.starts_with("/usr/lib/systemd/") ||
        app_path.starts_with("/usr/sbin/") ||

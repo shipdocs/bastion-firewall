@@ -29,12 +29,45 @@ struct StatsData {
     pending_gui: u64,
 }
 
+/// Starts the IPC server in a new background thread to accept GUI connections and send periodic stats updates.
+///
+/// `stats` is the shared statistics state used to generate the JSON updates sent to connected GUI clients.
+///
+/// # Examples
+///
+/// ```
+/// use std::sync::{Arc, Mutex};
+///
+/// // Create shared stats and start the IPC server in the background.
+/// let stats = Arc::new(Mutex::new(Stats::default()));
+/// start_ipc_server(stats.clone());
+/// ```
 pub fn start_ipc_server(stats: Arc<Mutex<Stats>>) {
     thread::spawn(move || {
         run_server(stats);
     });
 }
 
+/// Starts the IPC server that listens on the configured Unix domain socket and spawns a handler thread for each GUI connection.
+///
+/// The server ensures the socket directory exists, refuses to operate if the socket path is a symbolic link (security), removes any existing socket file, binds a non-blocking Unix listener at `SOCKET_PATH`, sets socket file permissions to owner-read/write (on Unix), and enters an accept loop. Each accepted connection is handled on its own thread by `handle_gui_connection`, which uses the provided shared statistics state.
+///
+/// # Parameters
+///
+/// - `stats`: Shared, thread-safe statistics state that connection handlers will read and use when producing GUI updates.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::sync::{Arc, Mutex};
+/// // Create or obtain a Stats instance...
+/// let stats = Arc::new(Mutex::new(Stats::default()));
+/// // Run the server on a background thread so the example doesn't block the current thread.
+/// std::thread::spawn({
+///     let stats = stats.clone();
+///     move || run_server(stats)
+/// });
+/// ```
 fn run_server(stats: Arc<Mutex<Stats>>) {
     // FIX #26: Handle missing parent directory gracefully
     let socket_path = std::path::Path::new(SOCKET_PATH);
@@ -101,6 +134,40 @@ fn run_server(stats: Arc<Mutex<Stats>>) {
     }
 }
 
+/// Handles a single GUI connection: periodically writes JSON-encoded stats updates to the
+/// connected Unix socket, reads and logs incoming lines from the GUI, and maintains the
+/// in-memory pending GUI cache (evicting entries older than 10 seconds when it grows
+/// beyond 1000 items).
+///
+/// The function configures short read and moderate write timeouts on the socket, clones the
+/// stream for non-blocking reads, and runs a loop that:
+/// - cleans the pending GUI cache when it exceeds 1000 entries,
+/// - constructs a `StatsUpdate` payload (msg_type = `"stats_update"`) with the current
+///   totals and the number of pending GUI entries,
+/// - sends the payload as a newline-terminated JSON string to the GUI,
+/// - attempts to read a single line from the GUI (ignored on WouldBlock/TimedOut),
+/// - sleeps 2 seconds between iterations.
+/// The loop exits on write failures, EOF, or unrecoverable read errors. Logs when the GUI disconnects.
+///
+/// # Arguments
+///
+/// * `stream` - connected UnixStream to the GUI.
+/// * `stats` - shared statistics and pending-GUI cache (Arc<Mutex<Stats>>); `pending_gui.len()`
+///   is used as the `pending_gui` count in the sent payload.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::sync::{Arc, Mutex};
+/// use std::os::unix::net::UnixStream;
+/// // Assume `Stats` exists in scope and can be constructed appropriately.
+/// let (s1, _s2) = UnixStream::pair().unwrap();
+/// let stats = Arc::new(Mutex::new(Stats::default()));
+/// // spawn a thread to handle the GUI side of the pair
+/// std::thread::spawn(move || {
+///     handle_gui_connection(s1, stats);
+/// });
+/// ```
 fn handle_gui_connection(mut stream: UnixStream, stats: Arc<Mutex<Stats>>) {
     stream.set_read_timeout(Some(Duration::from_millis(100))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();

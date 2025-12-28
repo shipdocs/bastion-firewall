@@ -46,6 +46,17 @@ pub struct EbpfManager {
 }
 
 impl EbpfManager {
+    /// Creates a new EbpfManager with default state.
+    ///
+    /// The manager is initialized with no loaded eBPF object, an empty local cache,
+    /// the current instant as the last cleanup time, and a 5-second cache TTL.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mgr = EbpfManager::new();
+    /// assert!(!mgr.is_loaded());
+    /// ```
     pub fn new() -> Self {
         Self {
             bpf: None,
@@ -55,7 +66,18 @@ impl EbpfManager {
         }
     }
 
-    /// Load of eBPF program and attach kprobes
+    /// Attempts to load a compiled eBPF object and attach the configured kprobes.
+    ///
+    /// On success the manager will hold the loaded eBPF object ready for map queries and probe attachments.
+    /// On failure, an error is returned describing why the eBPF object could not be loaded or attached (for example, when the eBPF program is not compiled).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut mgr = crate::ebpf_loader::EbpfManager::new();
+    /// // In the current build this will return an error because the eBPF program is not compiled.
+    /// assert!(mgr.load().is_err());
+    /// ```
     pub fn load(&mut self) -> Result<(), anyhow::Error> {
         // This would typically load from a compiled .o file
         // For now, we'll return an error since we need to compile eBPF program first
@@ -63,7 +85,29 @@ impl EbpfManager {
         Err(anyhow::anyhow!("eBPF program not compiled yet"))
     }
 
-    /// Alternative: Load from pre-compiled eBPF object
+    /// Loads a compiled eBPF object from the given filesystem path and attaches its kprobe programs.
+    ///
+    /// On success stores the loaded eBPF object in the manager and attaches `tcp_v4_connect` and
+    /// `udp_sendmsg` kprobes so socket events can be observed for PID lookup.
+    ///
+    /// # Parameters
+    ///
+    /// - `path`: Filesystem path to the compiled eBPF object file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the eBPF object cannot be loaded, if either required program
+    /// (`tcp_v4_connect`, `udp_sendmsg`) is missing or cannot be converted to a `KProbe`,
+    /// or if attaching either kprobe fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut mgr = EbpfManager::new();
+    /// // path should point to a compiled eBPF object containing the expected probes
+    /// let res = mgr.load_from_file("/usr/lib/bpf/socket_probes.o");
+    /// assert!(res.is_ok());
+    /// ```
     pub fn load_from_file(&mut self, path: &str) -> Result<(), anyhow::Error> {
         // Load compiled eBPF program
         let mut bpf = aya::Ebpf::load_file(path)?;
@@ -88,7 +132,25 @@ impl EbpfManager {
         Ok(())
     }
 
-    /// Look up PID by socket information
+    /// Resolve a process ID (PID) for a socket identified by source port, destination IPv4 address, and destination port.
+    ///
+    /// Looks up a cached PID first; if not found and an eBPF program is loaded, queries the eBPF `SOCKET_MAP` using the destination IP and port (with a wildcard source port/pid) and caches any discovered PID for subsequent lookups. The function accepts the destination IP as an IPv4 dotted-decimal string.
+    ///
+    /// # Parameters
+    ///
+    /// - `dst_ip` — Destination IPv4 address in dotted-decimal notation (e.g., "192.0.2.1").
+    ///
+    /// # Returns
+    ///
+    /// `Some(pid)` if a PID matching the socket information is found, `None` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut mgr = EbpfManager::new();
+    /// // No eBPF loaded, lookup returns None
+    /// assert_eq!(mgr.lookup_pid(1234, "127.0.0.1", 80), None);
+    /// ```
     pub fn lookup_pid(&mut self, src_port: u16, dst_ip: &str, dst_port: u16) -> Option<u32> {
         // First check local cache
         self.cleanup_cache();
@@ -144,7 +206,20 @@ impl EbpfManager {
         }
     }
 
-    /// Clean up expired entries from local cache
+    /// Remove entries from the local TTL cache that are older than the manager's `ttl`.
+    ///
+    /// This runs at most once per second (no-op if called more frequently) and updates
+    /// `last_cleanup` to the current time when a cleanup occurs.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut mgr = crate::EbpfManager::new();
+    /// // simulate an expired entry (timestamp far in the past)
+    /// mgr.local_cache.insert((1, 0, 2, 3), (3, std::time::Instant::now() - std::time::Duration::from_secs(10)));
+    /// mgr.cleanup_cache();
+    /// assert!(mgr.local_cache.is_empty());
+    /// ```
     fn cleanup_cache(&mut self) {
         if self.last_cleanup.elapsed() < Duration::from_secs(1) {
             return;
@@ -158,12 +233,33 @@ impl EbpfManager {
         self.last_cleanup = now;
     }
 
-    /// Check if eBPF is loaded and functional
+    /// Reports whether an eBPF object is currently loaded.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let manager = EbpfManager::new();
+    /// assert!(!manager.is_loaded());
+    /// ```
     pub fn is_loaded(&self) -> bool {
         self.bpf.is_some()
     }
 
-    /// Unload eBPF program
+    /// Unloads any currently loaded eBPF program and clears the local socket cache.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut mgr = EbpfManager::new();
+    /// // ensure unload is a no-op when nothing is loaded
+    /// mgr.unload();
+    /// assert!(!mgr.is_loaded());
+    ///
+    /// // after loading (when available), unload clears state
+    /// // mgr.load_from_file("path/to/ebpf.o").unwrap();
+    /// // mgr.unload();
+    /// // assert!(!mgr.is_loaded());
+    /// ```
     pub fn unload(&mut self) {
         self.bpf = None;
         self.local_cache.clear();
@@ -172,6 +268,17 @@ impl EbpfManager {
 }
 
 impl Default for EbpfManager {
+    /// Creates a new `EbpfManager` with default runtime state.
+    ///
+    /// The manager is initialized with no loaded eBPF object, an empty local cache,
+    /// the current instant as `last_cleanup`, and a 5-second time-to-live for cache entries.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mgr = bastion_rs::ebpf_loader::EbpfManager::default();
+    /// assert!(!mgr.is_loaded());
+    /// ```
     fn default() -> Self {
         Self::new()
     }
