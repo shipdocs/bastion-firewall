@@ -3,10 +3,11 @@
 ## Rust Daemon (bastion-daemon)
 
 ### Runtime Requirements
-- **Linux Kernel:** 6.0+ with BTF support
-  - Check: `ls /sys/kernel/btf/vmlinux` (file should exist)
-  - Check: `uname -r` (version should be 6.0+)
-- **eBPF Support:** Enabled in kernel
+- **Linux Kernel:** 5.8+ with BTF support (6.0+ recommended for optimal eBPF performance)
+  - Check: `ls /sys/kernel/btf/vmlinux` (file should exist for eBPF support)
+  - Check: `uname -r` (version should be 5.8+)
+  - Note: Falls back to /proc on kernels without eBPF/BTF support
+- **eBPF Support:** Recommended but not required (fallback available)
 - **Root Access:** Daemon requires CAP_BPF and CAP_NET_ADMIN capabilities
 - **Architecture:** x86_64 (amd64)
 

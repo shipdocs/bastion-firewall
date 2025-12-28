@@ -42,18 +42,44 @@ echo "==> Installing system dependencies..."
 
 if [ "$OS" = "ubuntu" ] || [ "$OS" = "zorin" ] || [ "$OS" = "debian" ]; then
     sudo apt-get update
-    
-    # Core build tools
+
+    # Core build tools (non-LLVM)
     sudo apt-get install -y \
         build-essential \
         pkg-config \
         libssl-dev \
-        clang-18 \
-        llvm-18-dev \
         libelf-dev \
         libz-dev \
         linux-headers-"$(uname -r)"
-    
+
+    # Try to install clang-18, fall back to available version if not found
+    if sudo apt-get install -y clang-18 llvm-18-dev 2>/dev/null; then
+        echo "✅ clang-18 installed"
+    else
+        echo "⚠️  clang-18 not available in standard repositories"
+        echo "   Attempting to add LLVM repository..."
+
+        # Add LLVM repository for Ubuntu/Debian
+        if command -v lsb_release &> /dev/null; then
+            CODENAME=$(lsb_release -cs)
+            wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+            echo "deb http://apt.llvm.org/$CODENAME/ llvm-toolchain-$CODENAME-18 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+            sudo apt-get update
+
+            if sudo apt-get install -y clang-18 llvm-18-dev; then
+                echo "✅ clang-18 installed from LLVM repository"
+            else
+                echo "❌ Error: Failed to install clang-18"
+                echo "   Please install manually from https://apt.llvm.org/"
+                exit 1
+            fi
+        else
+            echo "❌ Error: Cannot detect distribution codename"
+            echo "   Please install clang-18 manually from https://apt.llvm.org/"
+            exit 1
+        fi
+    fi
+
     echo "✅ System dependencies installed"
 else
     # FIX #18: Exit with error on unsupported OS instead of continuing
@@ -147,10 +173,10 @@ echo "  eBPF:   bastion-rs/ebpf/target/bpfel-unknown-none/release/bastion-ebpf.o
 echo ""
 echo "To install system-wide:"
 echo "  sudo cp bastion-rs/target/release/bastion-daemon /usr/bin/"
-echo "  sudo cp bastion-rs/bastion-daemon.service /etc/systemd/system/"
+echo "  sudo cp bastion-firewall.service /etc/systemd/system/"
 echo "  sudo systemctl daemon-reload"
-echo "  sudo systemctl enable bastion-daemon"
-echo "  sudo systemctl start bastion-daemon"
+echo "  sudo systemctl enable bastion-firewall"
+echo "  sudo systemctl start bastion-firewall"
 echo ""
 echo "Or run manually:"
 echo "  cd bastion-rs"

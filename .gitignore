@@ -66,3 +66,6 @@ temp/
 # Test cache
 .pytest_cache/
 target/
+
+# Automated review artifacts
+latest_codeant_review.md
