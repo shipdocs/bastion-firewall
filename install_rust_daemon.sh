@@ -88,7 +88,12 @@ if ! command -v rustc &> /dev/null; then
         # Verify the file is not empty and looks like a shell script
         if [ -s "$RUST_INSTALLER" ] && head -1 "$RUST_INSTALLER" | grep -q "^#!/"; then
             sh "$RUST_INSTALLER" -y
+            # Source for current session
             source "$HOME/.cargo/env"
+            # Ensure it's in the user's profile for future sessions
+            if [ -f "$HOME/.bashrc" ] && ! grep -q 'source "$HOME/.cargo/env"' "$HOME/.bashrc"; then
+                echo 'source "$HOME/.cargo/env"' >> "$HOME/.bashrc"
+            fi
             echo "✅ Rust installed"
         else
             echo "❌ Error: Downloaded installer is invalid or corrupted"
