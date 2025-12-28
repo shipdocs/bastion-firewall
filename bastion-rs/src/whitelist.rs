@@ -147,19 +147,19 @@ pub fn get_app_category(app_path: &str) -> AppCategory {
     
     // Browsers (case-insensitive)
     if ["firefox", "firefox-esr", "chromium", "chrome", "brave", "vivaldi", "opera"]
-        .iter().any(|b| name_lower.contains(&b.to_lowercase())) {
+        .iter().any(|&b| name_lower.contains(b)) {
         return AppCategory::Browser;
     }
-    
+
     // Dev tools (case-insensitive)
     if ["code", "vim", "nvim", "cargo", "rustc", "python", "node", "npm", "git"]
-        .iter().any(|t| name_lower.contains(&t.to_lowercase())) {
+        .iter().any(|&t| name_lower.contains(t)) {
         return AppCategory::Development;
     }
-    
+
     // Communication (case-insensitive)
     if ["discord", "slack", "telegram", "signal", "teams", "zoom", "skype"]
-        .iter().any(|c| name_lower.contains(&c.to_lowercase())) {
+        .iter().any(|&c| name_lower.contains(c)) {
         return AppCategory::Communication;
     }
     
