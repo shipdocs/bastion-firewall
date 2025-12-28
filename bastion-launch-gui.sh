@@ -47,16 +47,19 @@ for session in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
             # Alternative fallback if systemd-run doesn't work
             if [ $? -ne 0 ]; then
                 echo "systemd-run failed, trying direct launch..."
-                
-                if [[ "$session_type" == "wayland" ]]; then
+    
+                # Get session environment variables
+                display=$(loginctl show-session "$session" -p Display --value 2>/dev/null)
+                wayland_display=$(loginctl show-session "$session" -p XDG_SESSION_ID --value 2>/dev/null | xargs -I{} find /run/user/"$user_uid" -name "wayland-*" -print -quit)
+    
+                if [[ "$session_type" == "wayland" ]] && [ -n "$wayland_display" ]; then
                     sudo -u "$session_user" env \
                         XDG_RUNTIME_DIR="/run/user/$user_uid" \
-                        WAYLAND_DISPLAY="wayland-0" \
+                        WAYLAND_DISPLAY=$(basename "$wayland_display") \
                         DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$user_uid/bus" \
                         QT_QPA_PLATFORM="wayland;xcb" \
                         setsid /usr/bin/bastion-gui </dev/null >/tmp/bastion-gui-$session_user.log 2>&1 &
                 else
-                    display=$(loginctl show-session "$session" -p Display --value 2>/dev/null)
                     display="${display:-:0}"
                     sudo -u "$session_user" env \
                         DISPLAY="$display" \
