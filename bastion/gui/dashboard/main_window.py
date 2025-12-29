@@ -14,6 +14,7 @@ import threading
 import socket
 from pathlib import Path
 from datetime import datetime
+from functools import partial
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QPushButton, QFrame, QStackedWidget,
@@ -738,26 +739,18 @@ X-GNOME-Autostart-enabled=true
     def refresh_logs(self):
         def load_logs():
             try:
-                # Check if we can read the log file directly
-                if os.access(self.log_path, os.R_OK):
-                    # We can read it directly
-                    cmd = ['tail', '-n', '50', str(self.log_path)]
-                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-                    lines = res.stdout.strip().split('\n') if res.stdout else []
-                    logger.info(f"Successfully read {len(lines)} log lines directly")
-                else:
-                    # Need elevated privileges to read the log
-                    # Use pkexec with a shell command to properly handle the path
-                    cmd = ['pkexec', 'sh', '-c', f'tail -n 50 "{self.log_path}"']
-                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-                    lines = res.stdout.strip().split('\n') if res.stdout else []
-                    logger.info(f"Successfully read {len(lines)} log lines with pkexec")
-            except Exception as e:
-                lines = [f"Error reading logs: {e}"]
-                logger.error(f"Failed to read logs: {e}")
+                # Read logs from systemd journal (Rust daemon logs to stdout, captured by journald)
+                cmd = ['journalctl', '-u', 'bastion-firewall', '-n', '100', '--no-pager']
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                lines = res.stdout.strip().split('\n') if res.stdout else []
+                logger.info(f"Successfully read {len(lines)} log lines from journal")
 
-            # Use QTimer.singleShot to ensure _populate_logs runs in main thread
-            QTimer.singleShot(0, lambda: self._populate_logs(lines))
+                # Schedule UI update in main thread using functools.partial
+                QTimer.singleShot(0, partial(self._populate_logs, lines))
+            except Exception as e:
+                error_lines = [f"Error reading logs: {e}"]
+                logger.error(f"Failed to read logs: {e}")
+                QTimer.singleShot(0, partial(self._populate_logs, error_lines))
 
         logger.info(f"Starting log refresh thread")
         threading.Thread(target=load_logs, daemon=True).start()
