@@ -383,12 +383,28 @@ impl ProcessCache {
         protocol: &str,
     ) -> Option<ProcessInfo> {
         // FIRST: Try eBPF lookup (kernel-level tracking, most accurate)
-        if let Some(ref mut ebpf) = self.ebpf {
-            if let Some(pid) = ebpf.lookup_pid(src_port, dest_ip, dest_port) {
-                // Got PID from eBPF, now resolve to process info
-                if let Some(info) = self.get_process_info_by_pid(pid) {
-                    debug!("eBPF match: {} ({}) PID={}", info.name, info.exe_path, pid);
-                    return Some(info);
+        // Retry with backoff to handle race condition where kprobe fires just after packet arrives
+        if self.ebpf.is_some() {
+            for attempt in 0..3 {
+                // Scope the ebpf borrow to avoid conflicts with get_process_info_by_pid
+                let pid_opt = {
+                    let ebpf = self.ebpf.as_mut().unwrap();
+                    ebpf.lookup_pid(src_port, dest_ip, dest_port)
+                };
+
+                if let Some(pid) = pid_opt {
+                    // Got PID from eBPF, now resolve to process info
+                    if let Some(info) = self.get_process_info_by_pid(pid) {
+                        debug!("eBPF match (attempt {}): {} ({}) PID={}", attempt + 1, info.name, info.exe_path, pid);
+                        return Some(info);
+                    }
+                }
+
+                // Only retry if not the last attempt
+                if attempt < 2 {
+                    // Exponential backoff: 15ms, 30ms, 60ms (max 105ms total - imperceptible to user)
+                    let delay_ms = 15 * (2_u64.pow(attempt as u32));
+                    std::thread::sleep(Duration::from_millis(delay_ms));
                 }
             }
         }
