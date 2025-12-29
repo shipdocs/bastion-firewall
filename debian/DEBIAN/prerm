@@ -1,6 +1,34 @@
 #!/bin/bash
 set -e
-systemctl stop bastion-firewall || true
+
+echo "Stopping Bastion Firewall service..."
+if systemctl is-active --quiet bastion-firewall; then
+    systemctl stop bastion-firewall || true
+    # Wait for service to actually stop (max 5 seconds)
+    for i in {1..10}; do
+        if ! systemctl is-active --quiet bastion-firewall; then
+            echo "Service stopped successfully"
+            break
+        fi
+        sleep 0.5
+    done
+    # Force kill if still running
+    if systemctl is-active --quiet bastion-firewall; then
+        echo "WARNING: Service did not stop gracefully, forcing..."
+        systemctl kill bastion-firewall || true
+        sleep 1
+    fi
+fi
+
+echo "Disabling Bastion Firewall service..."
 systemctl disable bastion-firewall || true
-pkill -f bastion-gui || true
-pkill -f bastion-control-panel || true
+
+# Kill GUI processes for all users
+echo "Stopping GUI processes..."
+pkill -f '/usr/bin/bastion-gui' || true
+pkill -f '/usr/bin/bastion-control-panel' || true
+
+# Wait for processes to terminate (max 3 seconds)
+sleep 1
+
+echo "Bastion Firewall stopped successfully"
