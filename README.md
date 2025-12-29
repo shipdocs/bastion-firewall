@@ -10,17 +10,27 @@ An application firewall for Linux that gives you control over outbound network c
 
 ## Overview
 
-Bastion intercepts outbound connections and prompts you to allow or deny them per application. It uses eBPF for kernel-level process identification and provides a Qt 6 interface for managing rules.
+Bastion intercepts outbound connections and prompts you to allow or deny them per application. It features a **high-performance Rust daemon** with **kernel-level eBPF process tracking** and a Qt 6 control panel.
+
+**NEW:** v2.0 introduces a Rust daemon with eBPF for <1µs process identification, solving timing issues with short-lived connections (curl, wget, etc).
 
 **Target Platform:** Zorin OS 18 / Ubuntu 24.04 LTS (Debian-based distributions)
 
 ## Features
 
-- Real-time packet interception via iptables NFQUEUE
-- eBPF-based process identification
-- Qt 6 control panel with system tray integration
-- Per-application rules stored in `/etc/bastion/rules.json`
-- Learning mode for initial configuration
+### Core Functionality
+- **eBPF Process Tracking** - Kernel-level hooks capture process info at connection creation (~<1µs latency)
+- **Rust Daemon** - High-performance, memory-safe packet processing
+- **Real-time Interception** - iptables NFQUEUE integration
+- **GUI Popups** - Instant allow/deny prompts with Qt 6
+- **Persistent Rules** - Per-application rules in `/etc/bastion/rules.json`
+- **Learning Mode** - Automatic rule discovery
+- **System Bypass** - Root and systemd traffic exempted for stability
+
+### Advanced Features
+- Identifies short-lived connections (curl, wget) that timing-based methods miss
+- /proc scanning fallback for compatibility
+- Connection caching with TTL
 - UFW integration for inbound protection
 
 ## Installation
@@ -62,14 +72,22 @@ python -m pytest tests/
 
 ### Requirements
 
-- Linux kernel 5.0+ with eBPF support
+#### System Requirements
+- **Linux kernel 6.0+** with BTF support (check: `ls /sys/kernel/btf/vmlinux`)
+- **eBPF support** enabled in kernel
+- **CAP_BPF and CAP_NET_ADMIN** capabilities (daemon runs as root)
+
+#### Build Dependencies (for Rust daemon)
+- Rust 1.75+ (stable + nightly toolchain)
+- clang 18+
+- llvm-18-dev
+- bpf-linker (`cargo install bpf-linker`)
+- kernel headers
+
+#### GUI Dependencies (Python)
 - Python 3.10+
 - PyQt6
-- BCC (eBPF toolkit)
 - psutil>=5.9.0
-- tabulate>=0.9.0
-- NetfilterQueue>=1.1.0
-- scapy>=2.5.0
 - pystray>=0.19.0
 - Pillow>=10.2.0
 
@@ -101,23 +119,31 @@ Configuration is stored in `/etc/bastion/config.json`:
 ## Architecture
 
 ```
+Application calls connect()
+    ↓
 ┌─────────────────────────────────────────────┐
-│  Outbound Connection                        │
-│         ↓                                   │
-│  iptables NFQUEUE                           │
-│         ↓                                   │
-│  ┌─────────────────────────────────────┐   │
-│  │  Daemon (root)                      │   │
-│  │  - Packet interception              │   │
-│  │  - eBPF process identification      │   │
-│  │  - Rule enforcement                 │   │
-│  └──────────────┬──────────────────────┘   │
-│                 │ Unix socket               │
-│  ┌──────────────▼──────────────────────┐   │
-│  │  GUI (user)                         │   │
-│  │  - Connection prompts               │   │
-│  │  - System tray                      │   │
-│  └─────────────────────────────────────┘   │
+│ Kernel: tcp_v4_connect/udp_sendmsg          │
+│    ↓                                        │
+│ eBPF kprobe → Capture PID + socket info     │
+│    ↓                                        │
+│ Store in BPF HashMap                        │
+└─────────────────────────────────────────────┘
+    ↓
+Packet sent → iptables NFQUEUE
+    ↓
+┌─────────────────────────────────────────────┐
+│ Rust Daemon (bastion-daemon)                │
+│  - Query eBPF map (~<1µs)                    │
+│  - Fallback to /proc if needed              │
+│  - Check existing rules                     │
+│  - Send GUI popup request                   │
+└──────────────┬──────────────────────────────┘
+               │ Unix socket
+┌──────────────▼──────────────────────────────┐
+│ Python GUI (bastion-gui)                    │
+│  - Show allow/deny popup                    │
+│  - Send decision to daemon                  │
+│  - System tray management                   │
 └─────────────────────────────────────────────┘
 ```
 
