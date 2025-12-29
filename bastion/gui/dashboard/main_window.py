@@ -11,6 +11,7 @@ import logging
 import subprocess
 import tempfile
 import threading
+import socket
 from pathlib import Path
 from datetime import datetime
 
@@ -19,7 +20,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar,
                             QMessageBox, QCheckBox, QScrollArea, QAbstractItemView,
                             QApplication)
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QSocketNotifier
 from PyQt6.QtGui import QIcon, QFont, QColor
 
 from ..theme import COLORS, STYLESHEET
@@ -42,21 +43,107 @@ class DashboardWindow(QMainWindow):
         self.config_path = Path("/etc/bastion/config.json")
         self.rules_path = Path("/etc/bastion/rules.json")
         self.log_path = Path("/var/log/bastion-daemon.log")
-        
+        self.socket_path = '/var/run/bastion/bastion-daemon.sock'
+
         self.data_rules = {}
         self.data_config = {'mode': 'learning', 'timeout_seconds': 30}
         self.inbound_status = {}
-        
+
+        # IPC connection to daemon for stats
+        self.sock = None
+        self.notifier = None
+        self.buffer = ""
+        self.daemon_connected = False
+
         self.init_ui()
-        
+
         # Initial Data Load
         self.load_data()
         self.refresh_ui()
-        
+
         # Auto Refresh
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh_status)
         self.timer.start(3000)
+
+        # Connect to daemon for stats updates
+        self.connect_to_daemon()
+
+    def connect_to_daemon(self):
+        """Connect to daemon socket for receiving stats updates."""
+        if self.daemon_connected:
+            return
+
+        if not os.path.exists(self.socket_path):
+            logger.debug(f"Daemon socket not found: {self.socket_path}")
+            return
+
+        try:
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.connect(self.socket_path)
+            self.sock.setblocking(False)
+
+            self.notifier = QSocketNotifier(self.sock.fileno(), QSocketNotifier.Type.Read)
+            self.notifier.activated.connect(self.on_daemon_message)
+
+            self.daemon_connected = True
+            logger.info("Connected to daemon for stats updates")
+        except Exception as e:
+            logger.debug(f"Failed to connect to daemon: {e}")
+            if self.sock:
+                self.sock.close()
+                self.sock = None
+
+    def on_daemon_message(self):
+        """Handle incoming messages from daemon."""
+        try:
+            data = self.sock.recv(4096).decode()
+            if not data:
+                # Disconnected
+                self.disconnect_from_daemon()
+                return
+
+            self.buffer += data
+            while '\n' in self.buffer:
+                line, self.buffer = self.buffer.split('\n', 1)
+                self.process_daemon_message(line)
+        except Exception as e:
+            logger.debug(f"Socket error: {e}")
+            self.disconnect_from_daemon()
+
+    def disconnect_from_daemon(self):
+        """Handle daemon disconnection."""
+        logger.debug("Disconnected from daemon")
+        self.daemon_connected = False
+        if self.notifier:
+            self.notifier.setEnabled(False)
+            self.notifier = None
+        if self.sock:
+            self.sock.close()
+            self.sock = None
+
+    def process_daemon_message(self, line):
+        """Process JSON messages from daemon."""
+        try:
+            msg = json.loads(line)
+            if msg.get('type') == 'stats_update':
+                stats = msg.get('stats', {})
+                total = stats.get('total_connections', 0)
+                allowed = stats.get('allowed_connections', 0)
+                blocked = stats.get('blocked_connections', 0)
+
+                # Update stats labels
+                self.stat_connections_label.setText(str(total))
+                self.stat_blocked_label.setText(str(blocked))
+
+                logger.debug(f"Stats update: {total} total, {allowed} allowed, {blocked} blocked")
+        except json.JSONDecodeError as e:
+            logger.debug(f"Failed to parse daemon message: {e}")
+
+    def closeEvent(self, event):
+        """Clean up on window close."""
+        self.disconnect_from_daemon()
+        super().closeEvent(event)
 
     def load_data(self):
         # Load Rules
@@ -527,36 +614,18 @@ class DashboardWindow(QMainWindow):
             logger.error(f"Failed to check UFW status: {e}")
             self.lbl_inbound_title.setText("Unknown")
 
-        # 3. Update Stats (Approximate from rules and logs)
+        # 3. Update Stats
+        # Rules count (always available)
         self.stat_rules_label.setText(str(len(self.data_rules)))
 
-        try:
-            if self.log_path.exists():
-                if os.access(self.log_path, os.R_OK):
-                    # We can read it directly
-                    # SECURITY FIX: Use list arguments instead of shell=True to prevent command injection
-                    res = subprocess.run(['wc', '-l', str(self.log_path)], capture_output=True, text=True)
-                    total = res.stdout.strip().split()[0] if res.returncode == 0 else "0"
-                    self.stat_connections_label.setText(total)
-
-                    res = subprocess.run(['grep', '-c', 'decision: deny', str(self.log_path)],
-                                       capture_output=True, text=True)
-                    denied = res.stdout.strip() if res.returncode == 0 else "0"
-                    self.stat_blocked_label.setText(denied)
-                else:
-                    # Need elevated privileges
-                    cmd = ['pkexec', 'sh', '-c', f'wc -l "{self.log_path}" | cut -d" " -f1']
-                    res = subprocess.run(cmd, capture_output=True, text=True)
-                    total = res.stdout.strip() if res.returncode == 0 else "0"
-                    self.stat_connections_label.setText(total)
-
-                    cmd = ['pkexec', 'sh', '-c', f'grep -c "decision: deny" "{self.log_path}"']
-                    res = subprocess.run(cmd, capture_output=True, text=True)
-                    denied = res.stdout.strip() if res.returncode == 0 else "0"
-                    self.stat_blocked_label.setText(denied)
-        except Exception as e:
-            # Log the error but don't crash the GUI
-            logger.error(f"Error updating statistics: {e}")
+        # Connection stats come from daemon via IPC (updated in process_daemon_message)
+        # If not connected to daemon, try to reconnect
+        if not self.daemon_connected:
+            self.connect_to_daemon()
+            # Show "Connecting..." if not connected yet
+            if not self.daemon_connected:
+                self.stat_connections_label.setText("—")
+                self.stat_blocked_label.setText("—")
 
     def toggle_autostart(self):
         should_enable = self.chk_autostart.isChecked()
