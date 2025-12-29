@@ -8,6 +8,8 @@ Bastion Firewall is a Linux application firewall providing user-level control ov
 
 **Current Version: v2.0 (Rust Daemon)**
 
+**Target Platform:** Zorin OS 18 / Ubuntu 24.04 LTS (Debian-based distributions)
+
 **Key architectural pattern: Multi-layer defense**
 - Kernel-level eBPF hooks capture process info at connection creation (~1µs)
 - User-space Rust daemon processes packets via Netfilter NFQUEUE
@@ -37,6 +39,10 @@ sudo apt-get install -f  # If dependencies are missing
 
 ### Rust Daemon Development
 ```bash
+# Quick development setup (installs dependencies, builds eBPF + daemon)
+./install_rust_daemon.sh
+
+# Manual build steps:
 cd bastion-rs
 
 # Build eBPF program (requires nightly Rust)
@@ -235,6 +241,13 @@ pytest tests/test_rules.py -v
 - Dependencies: network.target, iptables
 - Auto-restart on failure
 - GUI launched separately per user session
+
+### Iptables Bypass Rules
+The daemon sets up bypass rules to prevent system lockup:
+1. Root user (UID 0) bypass - allows system traffic
+2. systemd-network group bypass - allows network management traffic
+3. NFQUEUE rule with `--queue-bypass` - packets accepted if daemon crashes
+4. NFQUEUE rule is appended to OUTPUT chain (checked last, after bypasses)
 
 ## Code Style
 
