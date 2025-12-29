@@ -16,19 +16,53 @@ import threading
 from pathlib import Path
 from datetime import datetime
 
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QLabel, QPushButton, QFrame, QStackedWidget,
                             QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar,
-                            QSystemTrayIcon, QMenu, QMessageBox, QDialog, QCheckBox, 
+                            QSystemTrayIcon, QMenu, QMessageBox, QDialog, QCheckBox,
                             QScrollArea, QAbstractItemView)
 from .notification import show_notification
 from . import __version__
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QPoint
-from PyQt6.QtGui import QIcon, QFont, QColor, QAction, QPixmap
+from PyQt6.QtGui import QIcon, QFont, QColor, QAction, QPixmap, QGuiApplication
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Platform detection for window behavior
+def get_platform_name():
+    """
+    Detect the current windowing platform (Wayland, X11, etc.)
+    Returns: 'wayland', 'xcb' (X11), or 'unknown'
+    """
+    try:
+        app = QGuiApplication.instance()
+        if app:
+            platform = app.platformName().lower()
+            logger.info(f"Detected Qt platform: {platform}")
+            return platform
+    except Exception as e:
+        logger.warning(f"Failed to detect platform: {e}")
+
+    # Fallback: check environment variables
+    if os.environ.get('WAYLAND_DISPLAY'):
+        logger.info("Detected Wayland via WAYLAND_DISPLAY environment variable")
+        return 'wayland'
+    elif os.environ.get('DISPLAY'):
+        logger.info("Detected X11 via DISPLAY environment variable")
+        return 'xcb'
+
+    return 'unknown'
+
+_platform_cache = None
+
+def is_wayland():
+    """Check if running on Wayland"""
+    global _platform_cache
+    if _platform_cache is None:
+        _platform_cache = get_platform_name()
+    return _platform_cache == 'wayland'
 
 # Modern Dark Theme Palette
 COLORS = {
@@ -211,16 +245,37 @@ class FirewallDialog(QDialog):
                 border: 1px solid {COLORS["card_border"]};
             }}
         """)
-        
-        # Stay on top but don't steal focus
-        self.setWindowFlags(
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.Tool  # Tool windows don't steal focus
-        )
-        # Prevent focus stealing when window appears
+
+        # Platform-specific window flags to prevent focus stealing
+        # On Wayland, WindowStaysOnTopHint is often ignored by compositors
+        # We use different strategies based on the platform
+        if is_wayland():
+            # On Wayland: Use minimal flags
+            # Many Wayland compositors (GNOME, KDE) ignore WindowStaysOnTopHint
+            # We rely on WA_ShowWithoutActivating and compositor behavior
+            logger.info("Using Wayland-compatible window flags")
+            self.setWindowFlags(
+                Qt.WindowType.Dialog |
+                Qt.WindowType.FramelessWindowHint
+            )
+        else:
+            # On X11: Use traditional flags that work reliably
+            logger.info("Using X11 window flags")
+            self.setWindowFlags(
+                Qt.WindowType.WindowStaysOnTopHint |
+                Qt.WindowType.FramelessWindowHint |
+                Qt.WindowType.Tool  # Tool windows don't steal focus on X11
+            )
+
+        # Prevent focus stealing when window appears (works on both platforms)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        
+
+        # Additional hint to stay above other windows without stealing focus
+        self.setAttribute(Qt.WidgetAttribute.WA_X11DoNotAcceptFocus, True)
+
+        # Position dialog in notification area (top-right corner)
+        self.position_dialog()
+
         layout = QVBoxLayout()
         layout.setContentsMargins(25, 25, 25, 25)
         layout.setSpacing(20)
@@ -318,6 +373,22 @@ class FirewallDialog(QDialog):
             self.progress.setValue(self.timeout * 10)
             layout.addWidget(self.progress)
             
+    def position_dialog(self):
+        """Position dialog in notification area (top-right corner)"""
+        try:
+            # Get the primary screen
+            from PyQt6.QtGui import QGuiApplication
+            screen = QGuiApplication.primaryScreen()
+            if screen:
+                screen_geometry = screen.availableGeometry()
+                # Position in top-right corner with some margin
+                x = screen_geometry.width() - self.width() - 20
+                y = 20
+                self.move(x, y)
+                logger.debug(f"Positioned dialog at ({x}, {y})")
+        except Exception as e:
+            logger.warning(f"Failed to position dialog: {e}")
+
     def add_detail_row(self, layout, label, value):
         row = QHBoxLayout()
         lbl = QLabel(label + ":")

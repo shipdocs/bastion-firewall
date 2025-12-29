@@ -1,7 +1,24 @@
 import sys
+import os
+import logging
 from PyQt6.QtWidgets import QDialog, QLabel, QHBoxLayout, QVBoxLayout, QPushButton
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QRect
-from PyQt6.QtGui import QIcon, QFont
+from PyQt6.QtGui import QIcon, QFont, QGuiApplication
+
+logger = logging.getLogger(__name__)
+
+def is_wayland():
+    """Check if running on Wayland"""
+    try:
+        app = QGuiApplication.instance()
+        if app:
+            platform = app.platformName().lower()
+            return platform == 'wayland'
+    except Exception:
+        pass
+
+    # Fallback: check environment variables
+    return bool(os.environ.get('WAYLAND_DISPLAY'))
 
 class NotificationDialog(QDialog):
     """A modern, sleek notification dialog that auto‑closes.
@@ -9,8 +26,24 @@ class NotificationDialog(QDialog):
     """
     def __init__(self, title: str, message: str, icon_path: str | None = None, timeout: int = 3000, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+
+        # Platform-specific window flags
+        if is_wayland():
+            # On Wayland: minimal flags to avoid compositor issues
+            self.setWindowFlags(
+                Qt.WindowType.FramelessWindowHint |
+                Qt.WindowType.Dialog
+            )
+        else:
+            # On X11: traditional flags work well
+            self.setWindowFlags(
+                Qt.WindowType.FramelessWindowHint |
+                Qt.WindowType.Tool |
+                Qt.WindowType.WindowStaysOnTopHint
+            )
+
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.timeout = timeout
 
         # Main layout
