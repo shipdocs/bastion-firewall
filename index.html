@@ -47,13 +47,13 @@
                     🏰 <span class="gradient-text">Your Last Line of Defense</span>
                 </h1>
                 <p class="hero-subtitle">
-                    Production-ready application firewall built for Zorin OS 18. Now featuring a <strong>high-performance Rust daemon with eBPF</strong> for <1µs process identification. Like a medieval bastion protecting a
-                    fortress, Bastion stands guard over your network connections, giving you the control you had on Windows.
+                    Production-ready application firewall with a <strong>high-performance Rust daemon and kernel-level eBPF</strong> for <1µs process identification. Like a medieval bastion protecting a
+                    fortress, Bastion stands guard over your network connections, giving you complete control over outbound traffic.
                 </p>
 
                 <div style="background: linear-gradient(135deg, #1a3a5f 0%, #2d5a8a 100%); padding: 15px 25px; border-radius: 8px; margin: 20px auto; max-width: 700px; border-left: 4px solid #4a9eff;">
-                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 5px;">🚀 NEW in v2.0</div>
-                    <div style="font-size: 13px; opacity: 0.95;">Rust daemon with kernel-level eBPF hooks solves the timing issue for short-lived connections (curl, wget, etc). Process identification now works at connection creation time with microsecond latency!</div>
+                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 5px;">🎉 v2.0.0 Released!</div>
+                    <div style="font-size: 13px; opacity: 0.95;">Complete rewrite with Rust daemon + eBPF kernel hooks. 98% success rate for short-lived connections (curl, wget), <1µs process lookup, IPv6 support, and non-intrusive popups that don't steal focus!</div>
                 </div>
 
                 <!-- Dynamic Release Cards -->
@@ -162,7 +162,7 @@
                 <div class="feature-card">
                     <div class="feature-icon">⏱️</div>
                     <h3>Timeout Protection</h3>
-                    <p>Auto-deny after 30 seconds (configurable) to prevent hanging connections</p>
+                    <p>Auto-deny after 60 seconds (configurable) to prevent hanging connections</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🔐</div>
@@ -289,10 +289,16 @@ sudo apt-get install -f</code></pre>
                 <h3>System Requirements</h3>
                 <div class="req-grid">
                     <div class="req-item">
-                        <strong>OS:</strong> Zorin OS 18 (or any Debian-based distribution)
+                        <strong>OS:</strong> Ubuntu 22.04+, Debian 12+, or compatible
                     </div>
                     <div class="req-item">
-                        <strong>Python:</strong> 3.6 or higher
+                        <strong>Kernel:</strong> Linux 6.0+ with BTF support (for eBPF)
+                    </div>
+                    <div class="req-item">
+                        <strong>Architecture:</strong> amd64 (x86_64)
+                    </div>
+                    <div class="req-item">
+                        <strong>RAM:</strong> 2GB minimum (4GB recommended)
                     </div>
                     <div class="req-item">
                         <strong>Display:</strong> X11 or Wayland
@@ -415,13 +421,12 @@ sudo apt-get install -f</code></pre>
             <h2 class="section-title">Built For</h2>
             <div class="distro-badges">
                 <span class="badge"
-                    style="background: linear-gradient(135deg, #0066cc 0%, #0099ff 100%); font-weight: 600;">🎯 Zorin OS
-                    18</span>
-                <span class="badge">Ubuntu 20.04+</span>
-                <span class="badge">Debian 11+</span>
+                    style="background: linear-gradient(135deg, #0066cc 0%, #0099ff 100%); font-weight: 600;">🎯 Ubuntu 22.04+</span>
+                <span class="badge">Debian 12+</span>
                 <span class="badge">Linux Mint 21+</span>
-                <span class="badge">Pop!_OS</span>
-                <span class="badge">Elementary OS</span>
+                <span class="badge">Pop!_OS 22.04+</span>
+                <span class="badge">Zorin OS 17+</span>
+                <span class="badge">Elementary OS 7+</span>
             </div>
         </div>
     </section>
@@ -446,7 +451,7 @@ sudo apt-get install -f</code></pre>
             <div class="footer-content">
                 <div class="footer-section">
                     <h4>🏰 Bastion Firewall</h4>
-                    <p>Your Last Line of Defense - Built for Zorin OS 18</p>
+                    <p>Your Last Line of Defense - Rust + eBPF v2.0</p>
                 </div>
                 <div class="footer-section">
                     <h4>Links</h4>
@@ -471,7 +476,7 @@ sudo apt-get install -f</code></pre>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>🏰 Built with ❤️ for Zorin OS 18 - Your Last Line of Defense</p>
+                <p>🏰 Built with ❤️ and Rust - Your Last Line of Defense</p>
             </div>
         </div>
     </footer>
