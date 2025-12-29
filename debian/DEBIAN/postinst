@@ -1,14 +1,6 @@
 #!/bin/bash
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
-
-print_success() { echo -e "${GREEN}✓ $1${NC}"; }
-print_error() { echo -e "${RED}✗ $1${NC}"; }
-
 # Create bastion user/group if they don't exist
 if ! getent group bastion >/dev/null; then
     groupadd -r bastion
@@ -16,6 +8,24 @@ fi
 if ! getent passwd bastion >/dev/null; then
     useradd -r -g bastion -d /var/lib/bastion -s /usr/sbin/nologin -c "Bastion Firewall User" bastion
 fi
+
+# Add all desktop users to bastion group (UID >= 1000, excluding system accounts)
+echo "Adding desktop users to bastion group..."
+ADDED_USERS=""
+getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | while read username; do
+    # Skip nobody and other special accounts
+    if [ "$username" = "nobody" ]; then
+        continue
+    fi
+
+    # Add user to bastion group if not already a member
+    if ! groups "$username" 2>/dev/null | grep -q bastion; then
+        usermod -a -G bastion "$username" 2>/dev/null && echo "  ✓ Added $username to bastion group"
+    fi
+done
+
+echo "Desktop users have been added to bastion group."
+echo "Note: Users must log out and back in for group membership to take effect."
 
 # Set up configuration directory
 mkdir -p /etc/bastion
@@ -45,35 +55,46 @@ if [ -f /usr/share/doc/bastion-firewall/bastion-firewall.logrotate ]; then
 fi
 
 # Ensure log file has correct permissions if it exists
-# Ensure log file exists and has correct permissions
 touch /var/log/bastion-daemon.log
 chgrp bastion /var/log/bastion-daemon.log
 chmod 644 /var/log/bastion-daemon.log
 
-# Install NetfilterQueue dependency (Cross-platform robust install)
-if ! python3 -c "import netfilterqueue" 2>/dev/null; then
-    echo "Installing required NetfilterQueue module..."
-    if apt-get install -y python3-netfilterqueue >/dev/null 2>&1; then
-        echo "✓ Installed python3-netfilterqueue via apt"
-    else
-        echo "System package not found. Trying pip..."
-        # Try with break-system-packages (newer OS) first as it's the likely failure point
-        if pip3 install NetfilterQueue --break-system-packages >/dev/null 2>&1; then
-            echo "✓ Installed NetfilterQueue via pip (break-system-packages)"
-        elif pip3 install NetfilterQueue >/dev/null 2>&1; then
-            echo "✓ Installed NetfilterQueue via pip"
-        else
-            echo "⚠ WARNING: Failed to install NetfilterQueue. Service may fail."
-        fi
-    fi
+# Verify daemon binary
+if [ ! -x /usr/bin/bastion-daemon ]; then
+    echo "ERROR: Daemon binary not found"
+    exit 1
 fi
 
-# Reload systemd
+# Warn if eBPF unavailable
+if [ ! -f /usr/share/bastion-firewall/bastion-ebpf.o ] || [ ! -f /sys/kernel/btf/vmlinux ]; then
+    echo "WARNING: eBPF not available. Daemon will use /proc fallback."
+fi
+
+mkdir -p /var/run/bastion
+
 # Reload systemd
 systemctl daemon-reload
-# Always enable and start/restart firewall
+
+# Enable service
 systemctl enable bastion-firewall
-systemctl restart bastion-firewall
+
+# Try starting service and verify it succeeds
+echo "Starting bastion-firewall service..."
+if systemctl start bastion-firewall; then
+    # Wait a moment and verify it's still running
+    sleep 2
+    if ! systemctl is-active --quiet bastion-firewall; then
+        echo "✗ ERROR: Service failed to start after 2 seconds. Installation failed."
+        echo "Check logs with: journalctl -u bastion-firewall -n 50"
+        # Stop service to ensure cleanup
+        systemctl stop bastion-firewall || true
+        exit 1
+    fi
+    echo "✓ bastion-firewall service started successfully"
+else
+    echo "✗ ERROR: Failed to start bastion-firewall service. Installation failed."
+    exit 1
+fi
 
 # Update desktop database
 update-desktop-database || true
