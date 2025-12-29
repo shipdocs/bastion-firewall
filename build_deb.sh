@@ -1,13 +1,8 @@
 #!/bin/bash
-#
-# Build Debian package for Bastion Firewall
-#
-
 set -e
 
-VERSION="1.4.7"
+VERSION="2.0.0"
 
-# Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
@@ -17,20 +12,14 @@ print_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 print_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-echo "============================================================"
-echo "Building Bastion Firewall Debian Package"
-echo "============================================================"
+echo "Building Bastion Firewall v${VERSION}..."
 echo ""
 
-# Check if running in project directory
-if [ ! -f "bastion-daemon.py" ]; then
+if [ ! -d "bastion-rs" ]; then
     print_error "Must run from project root directory"
     exit 1
 fi
 
-# Clean previous build
-print_step "Cleaning previous build..."
-# Clean previous build
 print_step "Cleaning previous build..."
 rm -rf debian/usr/bin/*
 rm -rf debian/usr/lib/python3/dist-packages/douane
@@ -42,7 +31,6 @@ rm -rf debian/usr/share/metainfo/*
 rm -rf debian/etc
 rm -f bastion-firewall_*.deb
 
-# Ensure directory structure exists
 print_step "Creating directory structure..."
 mkdir -p debian/usr/bin
 mkdir -p debian/usr/lib/python3/dist-packages/bastion
@@ -51,23 +39,29 @@ mkdir -p debian/usr/share/applications
 mkdir -p debian/usr/share/metainfo
 mkdir -p debian/lib/systemd/system
 mkdir -p debian/usr/share/polkit-1/actions
+mkdir -p debian/usr/share/bastion-firewall
 mkdir -p debian/DEBIAN
-# Note: /etc/bastion is created by postinst, not in package
 
-# Copy executables
-print_step "Copying executables..."
-cp setup_firewall.sh debian/usr/bin/bastion-setup-firewall
-cp bastion-daemon.py debian/usr/bin/bastion-daemon
+print_step "Building Rust daemon and eBPF..."
+cd bastion-rs
+
+./build_ebpf.sh || { print_error "eBPF build failed"; cd ..; exit 1; }
+
+print_info "Building Rust daemon..."
+cargo build --release || { print_error "Rust daemon build failed"; cd ..; exit 1; }
+
+cd ..
+
+print_step "Copying binaries..."
+cp bastion-rs/target/release/bastion-daemon debian/usr/bin/bastion-daemon
+cp bastion-rs/ebpf/target/bpfel-unknown-none/release/bastion-ebpf.o debian/usr/share/bastion-firewall/
 cp bastion-gui.py debian/usr/bin/bastion-gui
 cp bastion_control_panel.py debian/usr/bin/bastion-control-panel
-cp launch_bastion.sh debian/usr/bin/bastion-launch
-chmod +x debian/usr/bin/bastion-setup-firewall
-chmod +x debian/usr/bin/bastion-daemon
-chmod +x debian/usr/bin/bastion-gui
-chmod +x debian/usr/bin/bastion-control-panel
-chmod +x debian/usr/bin/bastion-launch
+cp bastion-launch-gui.sh debian/usr/bin/bastion-launch
+cp bastion-reload-rules debian/usr/bin/bastion-reload-rules
+cp bastion-reload-config debian/usr/bin/bastion-reload-config
+chmod +x debian/usr/bin/*
 
-# Copy Python modules
 print_step "Copying Python modules..."
 cp -r bastion/* debian/usr/lib/python3/dist-packages/bastion/
 
@@ -249,98 +243,14 @@ EOF
 
 gzip -9 debian/usr/share/doc/bastion-firewall/changelog
 
-# Create postinst
-print_step "Creating postinst script..."
-cat > debian/DEBIAN/postinst << 'EOF'
-#!/bin/bash
-set -e
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
-
-print_success() { echo -e "${GREEN}✓ $1${NC}"; }
-print_error() { echo -e "${RED}✗ $1${NC}"; }
-
-# Create bastion user/group if they don't exist
-if ! getent group bastion >/dev/null; then
-    groupadd -r bastion
+# Copy postinst (use existing file instead of generating inline)
+print_step "Copying postinst script..."
+if [ -f "debian/DEBIAN/postinst" ]; then
+    chmod +x debian/DEBIAN/postinst
+else
+    print_error "ERROR: debian/DEBIAN/postinst not found!"
+    exit 1
 fi
-if ! getent passwd bastion >/dev/null; then
-    useradd -r -g bastion -d /var/lib/bastion -s /usr/sbin/nologin -c "Bastion Firewall User" bastion
-fi
-
-# Set up configuration directory
-mkdir -p /etc/bastion
-if [ ! -f /etc/bastion/config.json ]; then
-    if [ -f /usr/share/doc/bastion-firewall/config.json.example ]; then
-        cp /usr/share/doc/bastion-firewall/config.json.example /etc/bastion/config.json
-    else
-        echo '{"log_level": "INFO", "rules_file": "/etc/bastion/rules.json"}' > /etc/bastion/config.json
-    fi
-    chmod 644 /etc/bastion/config.json
-fi
-
-# Set up rules file
-if [ ! -f /etc/bastion/rules.json ]; then
-    echo '{"applications": {}, "services": {}}' > /etc/bastion/rules.json
-    chmod 644 /etc/bastion/rules.json
-fi
-
-# Set permissions for logs
-mkdir -p /var/log/bastion
-chown -R bastion:bastion /var/log/bastion
-chmod 750 /var/log/bastion
-
-# Install logrotate configuration
-if [ -f /usr/share/doc/bastion-firewall/bastion-firewall.logrotate ]; then
-    cp /usr/share/doc/bastion-firewall/bastion-firewall.logrotate /etc/logrotate.d/bastion-firewall
-fi
-
-# Ensure log file has correct permissions if it exists
-# Ensure log file exists and has correct permissions
-touch /var/log/bastion-daemon.log
-chgrp bastion /var/log/bastion-daemon.log
-chmod 644 /var/log/bastion-daemon.log
-
-# Install NetfilterQueue dependency (Cross-platform robust install)
-if ! python3 -c "import netfilterqueue" 2>/dev/null; then
-    echo "Installing required NetfilterQueue module..."
-    if apt-get install -y python3-netfilterqueue >/dev/null 2>&1; then
-        echo "✓ Installed python3-netfilterqueue via apt"
-    else
-        echo "System package not found. Trying pip..."
-        # Try with break-system-packages (newer OS) first as it's the likely failure point
-        if pip3 install NetfilterQueue --break-system-packages >/dev/null 2>&1; then
-            echo "✓ Installed NetfilterQueue via pip (break-system-packages)"
-        elif pip3 install NetfilterQueue >/dev/null 2>&1; then
-            echo "✓ Installed NetfilterQueue via pip"
-        else
-            echo "⚠ WARNING: Failed to install NetfilterQueue. Service may fail."
-        fi
-    fi
-fi
-
-# Reload systemd
-# Reload systemd
-systemctl daemon-reload
-# Always enable and start/restart firewall
-systemctl enable bastion-firewall
-systemctl restart bastion-firewall
-
-# Update desktop database
-update-desktop-database || true
-
-# Autostart helpers
-if [ -d /home ]; then
-    for user_dir in /home/*; do
-        if [ -d "$user_dir/.config/autostart" ]; then
-            chown -R $(basename "$user_dir"):$(basename "$user_dir") "$user_dir/.config/autostart" 2>/dev/null || true
-        fi
-    done
-fi
-EOF
 
 # Create prerm
 print_step "Creating prerm script..."
