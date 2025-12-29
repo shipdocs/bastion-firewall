@@ -157,6 +157,7 @@ cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
   </developer>
   <update_contact>shipdocs@users.noreply.github.com</update_contact>
   <content_rating type="oars-1.1" />
+  <pkgname>bastion-firewall</pkgname>
   <provides>
     <binary>bastion-daemon</binary>
     <binary>bastion-gui</binary>
@@ -248,8 +249,8 @@ EOF
 
 gzip -9 debian/usr/share/doc/bastion-firewall/changelog
 
-# Copy postinst (use existing file instead of generating inline)
-print_step "Copying postinst script..."
+# Copy maintainer scripts (use existing files instead of generating inline)
+print_step "Copying maintainer scripts..."
 if [ -f "debian/DEBIAN/postinst" ]; then
     chmod +x debian/DEBIAN/postinst
 else
@@ -257,29 +258,23 @@ else
     exit 1
 fi
 
-# Create prerm
-print_step "Creating prerm script..."
-cat > debian/DEBIAN/prerm << 'EOF'
-#!/bin/bash
-set -e
-systemctl stop bastion-firewall || true
-systemctl disable bastion-firewall || true
-pkill -f bastion-gui || true
-pkill -f bastion-control-panel || true
-EOF
-
-# Create postrm
-print_step "Creating postrm script..."
-cat > debian/DEBIAN/postrm << 'EOF'
-#!/bin/bash
-set -e
-if [ "$1" = "purge" ]; then
-    rm -rf /etc/bastion
-    rm -rf /var/log/bastion
-    rm -rf /var/lib/bastion
+if [ -f "debian/DEBIAN/prerm" ]; then
+    chmod +x debian/DEBIAN/prerm
+else
+    print_error "ERROR: debian/DEBIAN/prerm not found!"
+    exit 1
 fi
-update-desktop-database || true
-EOF
+
+if [ -f "debian/DEBIAN/postrm" ]; then
+    chmod +x debian/DEBIAN/postrm
+else
+    print_error "ERROR: debian/DEBIAN/postrm not found!"
+    exit 1
+fi
+
+if [ -f "debian/DEBIAN/preinst" ]; then
+    chmod +x debian/DEBIAN/preinst
+fi
 
 # Set permissions
 print_step "Setting permissions..."
