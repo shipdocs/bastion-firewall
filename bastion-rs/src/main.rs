@@ -71,11 +71,21 @@ struct StatsData {
     blocked_connections: u64,
 }
 
+/// User decision for an unknown connection
+#[derive(Clone, Copy)]
+struct UnknownDecision {
+    allow: bool,
+    timestamp: std::time::Instant,
+}
+
 /// Shared state for GUI connection (we're the SERVER, GUI connects to us)
 struct GuiState {
     stream: Option<UnixStream>,
     reader: Option<BufReader<UnixStream>>,
     pending_cache: HashMap<String, std::time::Instant>,
+    // Cache user decisions for "unknown" apps to prevent popup spam
+    // Key: "dest_ip:dest_port", Value: (allow_bool, timestamp)
+    unknown_decisions: HashMap<String, UnknownDecision>,
 }
 
 impl GuiState {
@@ -94,6 +104,7 @@ impl GuiState {
             stream: None,
             reader: None,
             pending_cache: HashMap::new(),
+            unknown_decisions: HashMap::new(),
         }
     }
     
@@ -275,8 +286,38 @@ impl GuiState {
                 }
             }
         }
-        
+
         None
+    }
+
+    /// Check if we have a cached decision for an unknown app connection
+    /// Returns Some(allow) if cached and still valid (within 60 seconds)
+    fn check_unknown_decision(&self, dest_ip: &str, dest_port: u16) -> Option<bool> {
+        let key = format!("{}:{}", dest_ip, dest_port);
+        if let Some(decision) = self.unknown_decisions.get(&key) {
+            // Cache valid for 60 seconds
+            if decision.timestamp.elapsed() < Duration::from_secs(60) {
+                debug!("Using cached unknown decision for {}:{} -> {}", dest_ip, dest_port,
+                    if decision.allow { "ALLOW" } else { "BLOCK" });
+                return Some(decision.allow);
+            }
+        }
+        None
+    }
+
+    /// Store a user decision for an unknown app connection
+    fn cache_unknown_decision(&mut self, dest_ip: &str, dest_port: u16, allow: bool) {
+        let key = format!("{}:{}", dest_ip, dest_port);
+        self.unknown_decisions.insert(key, UnknownDecision {
+            allow,
+            timestamp: std::time::Instant::now(),
+        });
+
+        // Clean up old entries
+        let now = std::time::Instant::now();
+        self.unknown_decisions.retain(|_, dec| {
+            now.duration_since(dec.timestamp) < Duration::from_secs(60)
+        });
     }
 }
 
@@ -683,11 +724,33 @@ fn process_packet(
         dest_port: dst_port,
         protocol: protocol_str.to_string(),
     };
-    
+
     // Try to get GUI decision (blocking with timeout)
     let mut gui = gui_state.lock();
+
+    // For unknown apps, check if we have a recent cached decision to prevent popup spam
+    if app_name == "unknown" || app_path == "unknown" {
+        if let Some(cached_decision) = gui.check_unknown_decision(&dst_ip_str, dst_port) {
+            drop(gui);
+            return if cached_decision {
+                debug!("[CACHED:ALLOW] unknown app dst=\"{}:{}\"", dst_ip, dst_port);
+                Verdict::Accept
+            } else {
+                debug!("[CACHED:BLOCK] unknown app dst=\"{}:{}\"", dst_ip, dst_port);
+                Verdict::Drop
+            };
+        }
+    }
+
     if gui.is_connected() {
         if let Some(response) = gui.ask_gui(&request) {
+            // For unknown apps, cache the decision to prevent popup spam
+            if app_name == "unknown" || app_path == "unknown" {
+                gui.cache_unknown_decision(&dst_ip_str, dst_port, response.allow);
+                debug!("[CACHE] Stored decision for unknown app -> {}:{} (allow: {})",
+                    dst_ip_str, dst_port, response.allow);
+            }
+
             if response.permanent && app_name != "unknown" && !app_name.is_empty() {
                 let rule_key = if !app_path.is_empty() && app_path != "unknown" {
                     app_path.clone()
