@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="2.0.0"
+VERSION="2.0.19"
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'

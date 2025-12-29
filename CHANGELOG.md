@@ -5,6 +5,26 @@ All notable changes to Bastion Firewall will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.19] - 2025-12-30
+
+### Code Quality & Repository Cleanup
+- **Repository Cleanup**: Removed all AI attribution footers and references from commit history
+- **Code Refactoring**: Split monolithic `gui_qt.py` (1,265 lines) into modular package structure
+  - Created `bastion/gui/` package with separate modules for dialogs, dashboard, platform, and theme
+  - Improved maintainability and testability
+- **Documentation**: Updated all version numbers to 2.0.19 for consistency
+- **GitHub Pages**: Updated website to reflect v2.0.19 release
+
+### Bug Fixes
+- **Logs Display**: Fixed control panel logs to read from journalctl instead of empty log file
+- **UI Threading**: Fixed QTimer callback using functools.partial instead of lambda
+- **IPC Connection**: Added proper IPC connection to dashboard for real-time stats
+
+### Improvements
+- **Focus Management**: Improved popup behavior on Wayland/GNOME to prevent focus stealing
+- **Process Identification**: Enhanced process tracking with eBPF for better reliability
+- **Stats Display**: Added live stats updates in control panel dashboard
+
 ## [1.4.7] - 2025-12-26
 
 ### Critical Fixes
