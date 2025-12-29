@@ -77,7 +77,7 @@ Cargo.lock
 *.o
 !bastion-rs/ebpf/src/*.o
 
-# Automated review artifacts
+# Automated review artifacts (AI-generated spam)
 latest_codeant_review.md
 all_codeant_reviews.md
 pr_full_details.json
@@ -85,16 +85,16 @@ pr_full_details.json
 # Claude AI artifacts
 .claude/
 
-# Task tracking and planning
+# Task tracking and planning (use GitHub Issues/Projects instead)
 tasks.md
 PLAN.md
+REFACTORING_SUMMARY.md
 
 # GitHub issue drafts
 .github-issue-*.md
 
 # Build scripts (temporary/testing)
 build_deb_v2.sh
-CLAUDE.md
 
 # Git commit template
 .gitmessage
