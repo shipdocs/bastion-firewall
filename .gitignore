@@ -77,12 +77,12 @@ Cargo.lock
 *.o
 !bastion-rs/ebpf/src/*.o
 
-# Automated review artifacts (AI-generated spam)
+# Automated review artifacts
 latest_codeant_review.md
 all_codeant_reviews.md
 pr_full_details.json
 
-# Claude AI artifacts
+# Development artifacts
 .claude/
 
 # Task tracking and planning (use GitHub Issues/Projects instead)
