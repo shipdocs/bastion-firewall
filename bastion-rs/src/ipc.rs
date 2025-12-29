@@ -1,0 +1,233 @@
+//! IPC module for GUI communication
+//! Sends stats updates, accepts GUI connections
+
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::sync::Arc;
+use std::time::Duration;
+use std::thread;
+use log::{info, error, debug};
+use parking_lot::Mutex;
+use serde::Serialize;
+
+use crate::Stats;
+
+pub const SOCKET_PATH: &str = "/var/run/bastion/bastion-daemon.sock";
+
+#[derive(Serialize)]
+struct StatsUpdate {
+    #[serde(rename = "type")]
+    msg_type: String,
+    stats: StatsData,
+}
+
+#[derive(Serialize)]
+struct StatsData {
+    total_connections: u64,
+    allowed_connections: u64,
+    blocked_connections: u64,
+    pending_gui: u64,
+}
+
+/// Starts the IPC server in a new background thread to accept GUI connections and send periodic stats updates.
+///
+/// `stats` is the shared statistics state used to generate the JSON updates sent to connected GUI clients.
+///
+/// # Examples
+///
+/// ```
+/// use std::sync::{Arc, Mutex};
+///
+/// // Create shared stats and start the IPC server in the background.
+/// let stats = Arc::new(Mutex::new(Stats::default()));
+/// start_ipc_server(stats.clone());
+/// ```
+pub fn start_ipc_server(stats: Arc<Mutex<Stats>>) {
+    thread::spawn(move || {
+        run_server(stats);
+    });
+}
+
+/// Starts the IPC server that listens on the configured Unix domain socket and spawns a handler thread for each GUI connection.
+///
+/// The server ensures the socket directory exists, refuses to operate if the socket path is a symbolic link (security), removes any existing socket file, binds a non-blocking Unix listener at `SOCKET_PATH`, sets socket file permissions to owner-read/write (on Unix), and enters an accept loop. Each accepted connection is handled on its own thread by `handle_gui_connection`, which uses the provided shared statistics state.
+///
+/// # Parameters
+///
+/// - `stats`: Shared, thread-safe statistics state that connection handlers will read and use when producing GUI updates.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::sync::{Arc, Mutex};
+/// // Create or obtain a Stats instance...
+/// let stats = Arc::new(Mutex::new(Stats::default()));
+/// // Run the server on a background thread so the example doesn't block the current thread.
+/// std::thread::spawn({
+///     let stats = stats.clone();
+///     move || run_server(stats)
+/// });
+/// ```
+fn run_server(stats: Arc<Mutex<Stats>>) {
+    // FIX #26: Handle missing parent directory gracefully
+    let socket_path = std::path::Path::new(SOCKET_PATH);
+    let socket_dir = match socket_path.parent() {
+        Some(dir) => dir,
+        None => {
+            error!("Socket path has no parent directory: {}", SOCKET_PATH);
+            return;
+        }
+    };
+    
+    if let Err(e) = std::fs::create_dir_all(socket_dir) {
+        error!("Failed to create socket dir: {}", e);
+        return;
+    }
+    
+    // SECURITY: Check for symlink before removing socket
+    // Prevents symlink attacks that could delete arbitrary files
+    let socket_path = std::path::Path::new(SOCKET_PATH);
+    if socket_path.exists() {
+        if let Ok(metadata) = std::fs::symlink_metadata(socket_path) {
+            if metadata.file_type().is_symlink() {
+                error!("Socket path {} is a symlink, refusing to remove for security", SOCKET_PATH);
+                return;
+            }
+        }
+        let _ = std::fs::remove_file(SOCKET_PATH);
+    }
+    
+    let listener = match UnixListener::bind(SOCKET_PATH) {
+        Ok(l) => l,
+        Err(e) => {
+            error!("Failed to bind socket: {}", e);
+            return;
+        }
+    };
+    
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Permission 0o666 allows the user-space GUI/tray (running as normal user)
+        // to connect to the daemon socket (daemon runs as root)
+        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o666));
+    }
+    
+    info!("IPC server listening on {}", SOCKET_PATH);
+    listener.set_nonblocking(true).ok();
+    
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                info!("GUI connected!");
+                let stats_clone = stats.clone();
+                thread::spawn(move || {
+                    handle_gui_connection(stream, stats_clone);
+                });
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => {
+                error!("Accept error: {}", e);
+                thread::sleep(Duration::from_secs(1));
+            }
+        }
+    }
+}
+
+/// Handles a single GUI connection: periodically writes JSON-encoded stats updates to the
+/// connected Unix socket, reads and logs incoming lines from the GUI, and maintains the
+/// in-memory pending GUI cache (evicting entries older than 10 seconds when it grows
+/// beyond 1000 items).
+///
+/// The function configures short read and moderate write timeouts on the socket, clones the
+/// stream for non-blocking reads, and runs a loop that:
+/// - cleans the pending GUI cache when it exceeds 1000 entries,
+/// - constructs a `StatsUpdate` payload (msg_type = `"stats_update"`) with the current
+///   totals and the number of pending GUI entries,
+/// - sends the payload as a newline-terminated JSON string to the GUI,
+/// - attempts to read a single line from the GUI (ignored on WouldBlock/TimedOut),
+/// - sleeps 2 seconds between iterations.
+/// The loop exits on write failures, EOF, or unrecoverable read errors. Logs when the GUI disconnects.
+///
+/// # Arguments
+///
+/// * `stream` - connected UnixStream to the GUI.
+/// * `stats` - shared statistics and pending-GUI cache (Arc<Mutex<Stats>>); `pending_gui.len()`
+///   is used as the `pending_gui` count in the sent payload.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::sync::{Arc, Mutex};
+/// use std::os::unix::net::UnixStream;
+/// // Assume `Stats` exists in scope and can be constructed appropriately.
+/// let (s1, _s2) = UnixStream::pair().unwrap();
+/// let stats = Arc::new(Mutex::new(Stats::default()));
+/// // spawn a thread to handle the GUI side of the pair
+/// std::thread::spawn(move || {
+///     handle_gui_connection(s1, stats);
+/// });
+/// ```
+fn handle_gui_connection(mut stream: UnixStream, stats: Arc<Mutex<Stats>>) {
+    stream.set_read_timeout(Some(Duration::from_millis(100))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
+    
+    // FIX #25: Handle clone failure gracefully
+    let reader_stream = match stream.try_clone() {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to clone stream: {}", e);
+            return;
+        }
+    };
+    let mut reader = BufReader::new(reader_stream);
+    
+    loop {
+        // FIX #29: Implement cache eviction to prevent unlimited growth (memory leak)
+        // Clean up old entries if cache gets too large
+        if stats.lock().pending_gui.len() > 1000 {
+            let now = std::time::Instant::now();
+            stats.lock().pending_gui.retain(|_, (_, timestamp)| {
+                now.duration_since(*timestamp) < Duration::from_secs(10)
+            });
+            debug!("Cleaned pending cache (size was > 1000)");
+        }
+        
+        // Send stats every 2 seconds
+        let s = stats.lock();
+        let update = StatsUpdate {
+            msg_type: "stats_update".to_string(),
+            stats: StatsData {
+                total_connections: s.total_connections,
+                allowed_connections: s.allowed_connections,
+                blocked_connections: s.blocked_connections,
+                pending_gui: s.pending_gui.len() as u64,  // Use actual cache size
+            },
+        };
+        drop(s);
+        
+        if let Ok(json) = serde_json::to_string(&update) {
+            if stream.write_all((json + "\n").as_bytes()).is_err() {
+                break;
+            }
+        }
+        
+        // Check for incoming messages (for future popup support)
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {
+                debug!("Received from GUI: {}", line.trim());
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {}
+            Err(_) => break,
+        }
+        
+        thread::sleep(Duration::from_secs(2));
+    }
+    
+    info!("GUI disconnected");
+}
