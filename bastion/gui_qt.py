@@ -466,6 +466,87 @@ class FirewallDialog(QDialog):
 
 from .inbound_firewall import InboundFirewallDetector
 
+# IPC socket path for daemon communication
+DAEMON_SOCKET_PATH = "/var/run/bastion/bastion-daemon.sock"
+
+
+class DaemonStatsClient(threading.Thread):
+    """
+    Client for receiving live stats from daemon via Unix socket.
+    Runs in background thread and updates GUI via Qt signals.
+    """
+    def __init__(self, stats_callback):
+        super().__init__()
+        self.stats_callback = stats_callback
+        self.socket_path = DAEMON_SOCKET_PATH
+        self.running = True
+        self.daemon = True
+
+    def run(self):
+        """Connect to daemon and listen for stats updates"""
+        while self.running:
+            try:
+                if not os.path.exists(self.socket_path):
+                    logger.debug(f"Daemon socket not found at {self.socket_path}, retrying...")
+                    threading.Event().wait(2)
+                    continue
+
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                sock.settimeout(5)  # 5 second timeout for reads
+                try:
+                    sock.connect(self.socket_path)
+                    logger.info(f"Connected to daemon at {self.socket_path}")
+
+                    # Read stats updates line by line
+                    while self.running:
+                        try:
+                            data = sock.recv(4096)
+                            if not data:
+                                logger.warning("Daemon closed connection")
+                                break
+
+                            # Split by newlines in case multiple messages arrive
+                            messages = data.decode('utf-8').strip().split('\n')
+                            for msg in messages:
+                                if not msg:
+                                    continue
+                                try:
+                                    parsed = json.loads(msg)
+                                    if parsed.get('type') == 'stats_update':
+                                        stats = parsed.get('stats', {})
+                                        # Call callback with stats
+                                        self.stats_callback(stats)
+                                except json.JSONDecodeError as e:
+                                    logger.warning(f"Failed to parse stats message: {e}")
+
+                        except socket.timeout:
+                            # Timeout is normal - just continue
+                            continue
+                        except Exception as e:
+                            logger.error(f"Error receiving from daemon: {e}")
+                            break
+
+                except FileNotFoundError:
+                    logger.debug("Daemon socket not available yet")
+                    threading.Event().wait(2)
+                except ConnectionRefusedError:
+                    logger.debug("Daemon refused connection (not ready yet)")
+                    threading.Event().wait(2)
+                except Exception as e:
+                    logger.error(f"Socket error: {e}")
+                    threading.Event().wait(2)
+                finally:
+                    sock.close()
+
+            except Exception as e:
+                logger.error(f"Daemon stats client error: {e}")
+                threading.Event().wait(2)
+
+    def stop(self):
+        """Stop the stats client"""
+        self.running = False
+
+
 class DashboardWindow(QMainWindow):
     """
     Main Control Panel Dashboard with Sidebar.
@@ -476,21 +557,58 @@ class DashboardWindow(QMainWindow):
         self.config_path = Path("/etc/bastion/config.json")
         self.rules_path = Path("/etc/bastion/rules.json")
         self.log_path = Path("/var/log/bastion-daemon.log")
-        
+
         self.data_rules = {}
         self.data_config = {'mode': 'learning', 'timeout_seconds': 30}
         self.inbound_status = {}
-        
+
+        # Live stats from daemon (cached)
+        self.live_stats = {
+            'total_connections': 0,
+            'allowed_connections': 0,
+            'blocked_connections': 0,
+            'pending_gui': 0
+        }
+
         self.init_ui()
-        
+
         # Initial Data Load
         self.load_data()
         self.refresh_ui()
-        
-        # Auto Refresh
+
+        # Start daemon stats client for live updates
+        self.stats_client = DaemonStatsClient(self.on_stats_update)
+        self.stats_client.start()
+
+        # Auto Refresh (for status checks, rules, logs)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh_status)
         self.timer.start(3000)
+
+    def on_stats_update(self, stats):
+        """
+        Callback for live stats updates from daemon.
+        Called from background thread, so we use QTimer to update UI safely.
+        """
+        self.live_stats.update(stats)
+        logger.info(f"Received stats update: total={stats.get('total_connections', 0)}, "
+                   f"allowed={stats.get('allowed_connections', 0)}, "
+                   f"blocked={stats.get('blocked_connections', 0)}")
+        # Schedule UI update on main thread
+        QTimer.singleShot(0, self.update_stats_display)
+
+    def update_stats_display(self):
+        """Update the stats display with live data from daemon"""
+        try:
+            # Update stats labels with live data
+            total = self.live_stats.get('total_connections', 0)
+            blocked = self.live_stats.get('blocked_connections', 0)
+
+            self.stat_connections_label.setText(str(total))
+            self.stat_blocked_label.setText(str(blocked))
+            self.stat_rules_label.setText(str(len(self.data_rules)))
+        except Exception as e:
+            logger.error(f"Error updating stats display: {e}")
 
     # ... (rest of init/load methods same as before) ...
     def load_data(self):
@@ -958,37 +1076,8 @@ class DashboardWindow(QMainWindow):
             logger.error(f"Failed to check UFW status: {e}")
             self.lbl_inbound_title.setText("Unknown")
             
-        # 3. Update Stats (Approximate from rules and logs)
-        self.stat_rules_label.setText(str(len(self.data_rules)))
-        
-        try:
-            if self.log_path.exists():
-                if os.access(self.log_path, os.R_OK):
-                    # We can read it directly
-                    # SECURITY FIX: Use list arguments instead of shell=True to prevent command injection
-                    res = subprocess.run(['wc', '-l', str(self.log_path)], capture_output=True, text=True)
-                    total = res.stdout.strip().split()[0] if res.returncode == 0 else "0"
-                    self.stat_connections_label.setText(total)
-                    
-                    res = subprocess.run(['grep', '-c', 'decision: deny', str(self.log_path)],
-                                       capture_output=True, text=True)
-                    denied = res.stdout.strip() if res.returncode == 0 else "0"
-                    self.stat_blocked_label.setText(denied)
-                else:
-                    # Need elevated privileges
-                    cmd = ['pkexec', 'sh', '-c', f'wc -l "{self.log_path}" | cut -d" " -f1']
-                    res = subprocess.run(cmd, capture_output=True, text=True)
-                    total = res.stdout.strip() if res.returncode == 0 else "0"
-                    self.stat_connections_label.setText(total)
-                    
-                    cmd = ['pkexec', 'sh', '-c', f'grep -c "decision: deny" "{self.log_path}"']
-                    res = subprocess.run(cmd, capture_output=True, text=True)
-                    denied = res.stdout.strip() if res.returncode == 0 else "0"
-                    self.stat_blocked_label.setText(denied)
-        except Exception as e:
-            # Log the error but don't crash the GUI
-            import logging
-            logging.getLogger(__name__).error(f"Error updating statistics: {e}")
+        # 3. Update Stats - use live stats from daemon IPC
+        self.update_stats_display()
 
     def toggle_autostart(self):
         should_enable = self.chk_autostart.isChecked()
@@ -1102,31 +1191,28 @@ X-GNOME-Autostart-enabled=true
             self.table_rules.item(row, 0).setData(Qt.ItemDataRole.UserRole, key)
 
     def refresh_logs(self):
-        def load_logs():
-            try:
-                # Check if we can read the log file directly
-                if os.access(self.log_path, os.R_OK):
-                    # We can read it directly
-                    cmd = ['tail', '-n', '50', str(self.log_path)]
-                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-                    lines = res.stdout.strip().split('\n') if res.stdout else []
-                    logger.info(f"Successfully read {len(lines)} log lines directly")
-                else:
-                    # Need elevated privileges to read the log
-                    # Use pkexec with a shell command to properly handle the path
-                    cmd = ['pkexec', 'sh', '-c', f'tail -n 50 "{self.log_path}"']
-                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-                    lines = res.stdout.strip().split('\n') if res.stdout else []
-                    logger.info(f"Successfully read {len(lines)} log lines with pkexec")
-            except Exception as e:
-                lines = [f"Error reading logs: {e}"]
-                logger.error(f"Failed to read logs: {e}")
+        """Refresh logs from systemd journal"""
+        try:
+            # Read logs from systemd journal (daemon logs there, not to file)
+            # Users can read journal without special permissions
+            cmd = ['journalctl', '-u', 'bastion-firewall', '-n', '100', '--no-pager']
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
 
-            # Use QTimer.singleShot to ensure _populate_logs runs in main thread
-            QTimer.singleShot(0, lambda: self._populate_logs(lines))
+            if res.returncode == 0:
+                # Filter out empty lines and headers
+                lines = [line for line in res.stdout.strip().split('\n') if line.strip()
+                        and not line.startswith('--') and not line.startswith('Logs begin')]
+                logger.info(f"Successfully read {len(lines)} log lines from journal")
+            else:
+                lines = [f"Error reading journal: {res.stderr.strip()}"]
+                logger.error(f"Failed to read journal: {res.stderr}")
 
-        logger.info(f"Starting log refresh thread")
-        threading.Thread(target=load_logs, daemon=True).start()
+        except Exception as e:
+            lines = [f"Error reading logs: {e}"]
+            logger.error(f"Failed to read logs: {e}")
+
+        # Populate directly (journalctl is fast, no need for threading)
+        self._populate_logs(lines)
 
     def _populate_logs(self, lines):
         logger.info(f"Populating logs table with {len(lines)} lines")
@@ -1219,6 +1305,14 @@ X-GNOME-Autostart-enabled=true
         except Exception as e:
             from .notification import show_notification
             show_notification(self, "Error", f"Failed to save config: {e}")
+
+    def closeEvent(self, event):
+        """Handle window close - cleanup resources"""
+        # Stop the stats client thread
+        if hasattr(self, 'stats_client'):
+            self.stats_client.stop()
+        # Accept the close event
+        event.accept()
 
     def _run_privileged(self, cmd, success_message=None, error_hint="Operation failed. Check system logs."):
         """Run privileged commands with sanitized user feedback."""
