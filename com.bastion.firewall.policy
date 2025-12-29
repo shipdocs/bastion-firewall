@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<!--
+  PolicyKit policy definition for Bastion Firewall
+-->
+<policyconfig>
+  <vendor>Bastion Firewall</vendor>
+  <vendor_url>https://github.com/shipdocs/bastion-firewall</vendor_url>
+  <icon_name>security-high</icon_name>
+
+  <action id="com.bastion.firewall.manage-firewall">
+    <description>Manage Bastion Firewall</description>
+    <description xml:lang="en">Manage the Bastion Firewall service and rules</description>
+    <message>Authentication is required to manage the Bastion Firewall</message>
+    <message xml:lang="en">Authentication is required to manage the Bastion Firewall</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/bastion-daemon</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+  <action id="com.bastion.firewall.install-remove">
+    <description>Install or remove Bastion Firewall</description>
+    <description xml:lang="en">Install or remove the Bastion Firewall package</description>
+    <message>Authentication is required to install or remove Bastion Firewall</message>
+    <message xml:lang="en">Authentication is required to install or remove Bastion Firewall</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

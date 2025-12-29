@@ -113,6 +113,11 @@ mkdir -p debian/etc/xdg/autostart
 cp bastion-tray.desktop debian/etc/xdg/autostart/bastion-tray.desktop
 chmod 644 debian/etc/xdg/autostart/bastion-tray.desktop
 
+# Copy polkit policy file for software center authentication
+print_step "Copying polkit policy..."
+cp com.bastion.firewall.policy debian/usr/share/polkit-1/actions/
+chmod 644 debian/usr/share/polkit-1/actions/com.bastion.firewall.policy
+
 # Create AppStream metadata for Software Center
 print_step "Creating AppStream metadata..."
 cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
