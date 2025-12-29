@@ -65,7 +65,32 @@ temp/
 
 # Test cache
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Rust build artifacts
 target/
+Cargo.lock
+*.rlib
+
+# eBPF build artifacts
+*.o
+!bastion-rs/ebpf/src/*.o
 
 # Automated review artifacts
 latest_codeant_review.md
+all_codeant_reviews.md
+pr_full_details.json
+
+# Claude AI artifacts
+.claude/
+
+# Task tracking and planning
+tasks.md
+PLAN.md
+
+# GitHub issue drafts
+.github-issue-*.md
+
+# Build scripts (temporary/testing)
+build_deb_v2.sh
