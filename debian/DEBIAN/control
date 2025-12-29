@@ -1,30 +1,34 @@
 Package: bastion-firewall
-Version: 1.4.7
+Version: 2.0.0
 Section: net
 Priority: optional
-Architecture: all
-Installed-Size: 796
-Depends: python3 (>= 3.6), python3-pip, python3-pyqt6, python3-dev, build-essential, libnetfilter-queue-dev, iptables, ufw, python3-psutil, python3-gi, python3-gi-cairo, gir1.2-ayatanaappindicator3-0.1, libayatana-appindicator3-1, python3-bpfcc, linux-headers-generic
-Recommends: python3-scapy
+Architecture: amd64
+Installed-Size: 3644
+Depends: python3 (>= 3.10), python3-pyqt6, iptables, python3-psutil, python3-pystray, python3-pil, libnetfilter-queue1
+Recommends: linux-headers-generic
 Replaces: douane, bastion-daemon
 Conflicts: douane, bastion-daemon
 Maintainer: Martin <shipdocs@users.noreply.github.com>
-Description: Your Last Line of Defense - Application Firewall for Linux
- Bastion Firewall is an outbound application firewall built specifically for
- Zorin OS 18 (and compatible with all Debian-based distributions). Like a
- medieval bastion protecting a fortress, Bastion stands guard over your
- system's network connections.
+Description: High-Performance Application Firewall with eBPF
+ Bastion Firewall v2.0 is an advanced outbound application firewall built for
+ Zorin OS 18 and compatible Debian-based distributions. This version features
+ a high-performance Rust daemon with eBPF for kernel-level process tracking.
  .
- Features:
-  - Real-time packet interception using netfilter
-  - Beautiful GUI dialogs for permission requests
-  - Independent tray icon with visual status indicators
-  - Security hardened (5-phase implementation, score: 2/10 LOW RISK)
-  - Per-application, per-port rules
-  - UFW integration for complete firewall coverage
-  - Control panel for managing settings and rules
-  - Auto-start support with systemctl controls
+ Key Features:
+  - Rust daemon for memory-safe, high-performance packet processing
+  - eBPF process tracking with <1µs latency
+  - Solves timing issues with short-lived connections (curl, wget, etc.)
+  - /proc scanning fallback for maximum compatibility
+  - Beautiful Qt6 GUI with instant popups
+  - System tray icon with visual status
+  - Per-application rules with persistent storage
+  - Learning mode for easy initial setup
+  - UFW integration for inbound protection
+  - Bypass rules for system traffic stability
  .
- The installer will guide you through the setup process and can automatically
- configure UFW and start the firewall service.
+ The Rust daemon uses kernel-level eBPF hooks to capture process information
+ at connection creation time, eliminating the race condition that affects
+ traditional /proc-based identification methods.
+ .
+ Requires: Linux kernel 6.0+ with BTF support for eBPF (kernel 5.8+ minimum)
 Homepage: https://github.com/shipdocs/bastion-firewall

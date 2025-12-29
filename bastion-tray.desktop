@@ -1,19 +1,15 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Bastion Firewall Tray Icon
-GenericName=Firewall Tray Icon
-Comment=System tray icon for Bastion Firewall - shows status and provides quick controls
+Name=Bastion Firewall Tray
+GenericName=Firewall Tray
+Comment=GUI and tray icon for Bastion Firewall
 Exec=/usr/bin/bastion-gui
 Icon=security-high
 Terminal=false
-Categories=System;Security;Network;
-Keywords=firewall;security;network;tray;
+Categories=System;Security;
 StartupNotify=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=5
-X-KDE-autostart-after=panel
-Hidden=true
-NotShowIn=GNOME;KDE;XFCE;MATE;
-
+X-GNOME-Autostart-Delay=3
+Hidden=false
