@@ -1,8 +1,36 @@
 #!/bin/bash
 set -e
-if [ "$1" = "purge" ]; then
-    rm -rf /etc/bastion
-    rm -rf /var/log/bastion
-    rm -rf /var/lib/bastion
+
+echo "Cleaning up Bastion Firewall..."
+
+# Remove runtime directory
+if [ -d /var/run/bastion ]; then
+    rm -rf /var/run/bastion || true
 fi
-update-desktop-database || true
+
+# Purge configuration if requested
+if [ "$1" = "purge" ]; then
+    echo "Removing configuration and data files..."
+    rm -rf /etc/bastion || true
+    rm -rf /var/log/bastion || true
+    rm -rf /var/lib/bastion || true
+
+    # Remove user autostart entries
+    if [ -d /home ]; then
+        for user_home in /home/*; do
+            if [ -d "$user_home/.config/autostart" ]; then
+                rm -f "$user_home/.config/autostart/bastion-tray.desktop" || true
+            fi
+        done
+    fi
+fi
+
+# Reload systemd to pick up changes
+echo "Reloading systemd..."
+systemctl daemon-reload || true
+
+# Update desktop database
+echo "Updating desktop database..."
+update-desktop-database /usr/share/applications || true
+
+echo "Bastion Firewall cleanup completed"
