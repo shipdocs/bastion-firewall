@@ -12,7 +12,8 @@ Provides professional icons for different firewall states:
 import logging
 from pathlib import Path
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtSvg import QSvgRenderer
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,33 @@ class IconManager:
     }
     
     @classmethod
+    def _render_svg_to_icon(cls, svg_path, sizes=[16, 22, 24, 32, 48, 64, 128]):
+        """
+        Render SVG to QIcon with multiple sizes for proper tray display.
+        Qt6 system tray often has issues with raw SVG files.
+        """
+        try:
+            renderer = QSvgRenderer(str(svg_path))
+            if not renderer.isValid():
+                logger.warning(f"Invalid SVG file: {svg_path}")
+                return None
+
+            icon = QIcon()
+            for size in sizes:
+                pixmap = QPixmap(QSize(size, size))
+                pixmap.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(pixmap)
+                renderer.render(painter)
+                painter.end()
+                icon.addPixmap(pixmap)
+
+            logger.debug(f"Rendered SVG to icon with sizes: {sizes}")
+            return icon
+        except Exception as e:
+            logger.warning(f"Failed to render SVG {svg_path}: {e}")
+            return None
+
+    @classmethod
     def get_icon(cls, status='connected'):
         """
         Get icon for given status
@@ -60,30 +88,32 @@ class IconManager:
         if status in cls.STATUS_ICONS:
             icon_path = cls.STATUS_ICONS[status]
             if icon_path.exists():
-                try:
-                    icon = QIcon(str(icon_path))
-                    if not icon.isNull():
-                        logger.debug(f"Loaded status-specific icon from {icon_path}")
-                        return icon
-                    else:
-                        logger.warning(f"Status icon loaded but is null: {icon_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to load status icon {icon_path}: {e}")
+                # Render SVG to pixmap for reliable tray display
+                icon = cls._render_svg_to_icon(icon_path)
+                if icon and not icon.isNull():
+                    logger.debug(f"Loaded status-specific icon from {icon_path}")
+                    return icon
+                else:
+                    logger.warning(f"Status icon render failed: {icon_path}")
             else:
                 logger.debug(f"Status icon not found: {icon_path}")
 
-        # Fallback to generic custom icon (PNG preferred, then SVG)
-        for icon_path in [cls.BASTION_ICON_PNG, cls.BASTION_ICON_SVG]:
-            if icon_path.exists():
-                try:
-                    icon = QIcon(str(icon_path))
-                    if not icon.isNull():
-                        logger.debug(f"Loaded generic custom icon from {icon_path}")
-                        return icon
-                    else:
-                        logger.warning(f"Custom icon loaded but is null: {icon_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to load custom icon {icon_path}: {e}")
+        # Fallback to generic custom icon (PNG preferred for reliability)
+        if cls.BASTION_ICON_PNG.exists():
+            try:
+                icon = QIcon(str(cls.BASTION_ICON_PNG))
+                if not icon.isNull():
+                    logger.debug(f"Loaded PNG icon from {cls.BASTION_ICON_PNG}")
+                    return icon
+            except Exception as e:
+                logger.warning(f"Failed to load PNG icon: {e}")
+
+        # Try SVG fallback
+        if cls.BASTION_ICON_SVG.exists():
+            icon = cls._render_svg_to_icon(cls.BASTION_ICON_SVG)
+            if icon and not icon.isNull():
+                logger.debug(f"Loaded SVG icon from {cls.BASTION_ICON_SVG}")
+                return icon
 
         logger.warning(f"Custom icon files not found: {cls.BASTION_ICON_SVG}, {cls.BASTION_ICON_PNG}")
 
