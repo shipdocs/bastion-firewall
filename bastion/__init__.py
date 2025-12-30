@@ -1,4 +1,4 @@
 """
 Bastion Firewall Package
 """
-__version__ = '1.4.7'
+__version__ = '2.0.20'
