@@ -26,12 +26,18 @@ Bastion intercepts outbound connections and prompts you to allow or deny them pe
 - **Persistent Rules** - Per-application rules in `/etc/bastion/rules.json`
 - **Learning Mode** - Automatic rule discovery
 - **System Bypass** - Root and systemd traffic exempted for stability
+- **Status-Aware Icons** - Color-coded tray icons showing connection status, learning mode, and errors
 
 ### Advanced Features
 - Identifies short-lived connections (curl, wget) that timing-based methods miss
 - /proc scanning fallback for compatibility
 - Connection caching with TTL
 - UFW integration for inbound protection
+- **Rule Search & Filtering** - Quickly find rules by app name, path, port, or action
+- **Import/Export Rules** - Backup and restore your firewall rules
+- **Manual Rule Entry** - Add custom rules without waiting for prompts
+- **Inline Action Toggle** - Double-click rules to toggle allow/deny
+- **App Icons** - Visual identification in rules table
 
 ## Installation
 
@@ -146,6 +152,18 @@ Packet sent → iptables NFQUEUE
 │  - System tray management                   │
 └─────────────────────────────────────────────┘
 ```
+
+## Icon Design & Status Indicators
+
+Bastion Firewall uses a unified shield icon design with color-coded status variants for instant visual feedback:
+
+- **Connected (Green)** - Firewall is active and protecting your system
+- **Disconnected (Gray)** - Firewall is stopped or daemon is not running
+- **Learning Mode (Blue)** - Firewall is in learning mode, automatically discovering rules
+- **Error (Red)** - Firewall encountered an error
+- **Warning (Orange)** - Firewall needs attention
+
+The icon is installed to `/usr/share/icons/hicolor/scalable/apps/bastion-icon.svg` and follows the freedesktop.org icon theme specification.
 
 ## Uninstall
 
