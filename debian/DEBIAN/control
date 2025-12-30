@@ -4,7 +4,7 @@ Section: net
 Priority: optional
 Architecture: amd64
 Installed-Size: 3884
-Depends: python3 (>= 3.10), python3-pyqt6, iptables, python3-psutil, python3-pystray, python3-pil, libnetfilter-queue1
+Depends: python3 (>= 3.10), python3-pyqt6, python3-pyqt6.qtsvg, iptables, python3-psutil, python3-pystray, python3-pil, libnetfilter-queue1
 Recommends: linux-headers-generic
 Replaces: douane, bastion-daemon
 Conflicts: douane, bastion-daemon
