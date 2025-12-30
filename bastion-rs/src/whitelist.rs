@@ -83,6 +83,12 @@ pub fn should_auto_allow(app_path: &str, app_name: &str, dest_port: u16, dest_ip
         }
     }
 
+    // 1b. mDNS multicast (224.0.0.251:5353) - local network service discovery
+    // Used by Avahi, Chrome (Chromecast), printers, etc. Never leaves LAN.
+    if dest_ip == "224.0.0.251" && dest_port == 5353 {
+        return (true, "mDNS (local)");
+    }
+
     // 2. DNS traffic - auto-allow for trusted binaries OR unknown processes
     if dest_port == 53 {
         if SYSTEM_PATHS.contains(app_path) || app_path.starts_with("/usr/lib/systemd/") {
