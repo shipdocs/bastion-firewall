@@ -26,23 +26,40 @@ LOCK_FILE = f'/tmp/bastion-gui-{os.getuid()}.lock'
 def acquire_lock():
     """Try to acquire a lock file. Returns file handle if successful, None if already running."""
     try:
-        # Check if stale lock (process died without cleanup)
-        if os.path.exists(LOCK_FILE):
-            try:
-                with open(LOCK_FILE, 'r') as f:
-                    old_pid = int(f.read().strip())
-                # Check if process is still running
-                os.kill(old_pid, 0)  # Raises OSError if not running
-            except (ValueError, OSError):
-                # Stale lock or invalid PID - remove it
-                os.remove(LOCK_FILE)
+        # Open file for read/write, create if not exists
+        lock_fd = open(LOCK_FILE, 'a+')
+        lock_fd.seek(0)
 
-        lock_fd = open(LOCK_FILE, 'w')
-        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Try to get exclusive lock (non-blocking)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (IOError, OSError):
+            # Another process has the lock
+            lock_fd.close()
+            return None
+
+        # We have the lock - check if there's a stale PID
+        content = lock_fd.read().strip()
+        if content:
+            try:
+                old_pid = int(content)
+                # Check if it's our own PID (re-acquiring)
+                if old_pid == os.getpid():
+                    return lock_fd
+                # Check if process is still running
+                os.kill(old_pid, 0)
+                # Process exists - but we have the lock, so it must be stale
+            except (ValueError, OSError):
+                pass  # Stale or invalid PID
+
+        # Write our PID
+        lock_fd.seek(0)
+        lock_fd.truncate()
         lock_fd.write(str(os.getpid()))
         lock_fd.flush()
         return lock_fd
-    except (IOError, OSError):
+    except (IOError, OSError) as e:
+        print(f"[LOCK] Error acquiring lock: {e}")
         return None
 
 class BastionClient(QObject):
