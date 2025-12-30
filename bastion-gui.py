@@ -103,7 +103,10 @@ class BastionClient(QObject):
         self.action_restart.triggered.connect(lambda: self.run_service("restart"))
 
         self.tray_icon.setContextMenu(self.menu)
-        
+
+        # Connect tray icon activation (for GNOME/AppIndicator compatibility)
+        self.tray_icon.activated.connect(self.on_tray_activated)
+
         # Connect Timer
         self.connect_timer = QTimer()
         self.connect_timer.timeout.connect(self.try_connect)
@@ -160,6 +163,18 @@ class BastionClient(QObject):
                 
         # If all else fails, return a generic fallback (or keep empty which shows dots)
         return QIcon.fromTheme('system-help')
+
+    def on_tray_activated(self, reason):
+        """Handle tray icon activation (click)"""
+        # Show menu on any click for GNOME/AppIndicator compatibility
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:  # Left click
+            # Show context menu at cursor position
+            from PyQt6.QtGui import QCursor
+            self.menu.popup(QCursor.pos())
+        elif reason == QSystemTrayIcon.ActivationReason.Context:  # Right click
+            # Context menu should show automatically, but force it just in case
+            from PyQt6.QtGui import QCursor
+            self.menu.popup(QCursor.pos())
 
     def update_status(self, text, status='connected'):
         """Update tray icon and status text"""
