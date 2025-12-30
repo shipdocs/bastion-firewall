@@ -12,20 +12,39 @@ Provides professional icons for different firewall states:
 import logging
 from pathlib import Path
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
 
 logger = logging.getLogger(__name__)
 
 
 class IconManager:
     """Manages application icons"""
-    
+
     # Icon paths
     ICON_DIR = Path(__file__).parent / 'resources'
+
+    # Status-specific icon files (PNG preferred, SVG fallback)
+    STATUS_ICONS_PNG = {
+        'connected': ICON_DIR / 'bastion-icon-connected.png',
+        'disconnected': ICON_DIR / 'bastion-icon-disconnected.png',
+        'error': ICON_DIR / 'bastion-icon-error.png',
+        'learning': ICON_DIR / 'bastion-icon-learning.png',
+        'warning': ICON_DIR / 'bastion-icon-warning.png',
+    }
+
+    STATUS_ICONS_SVG = {
+        'connected': ICON_DIR / 'bastion-icon-connected.svg',
+        'disconnected': ICON_DIR / 'bastion-icon-disconnected.svg',
+        'error': ICON_DIR / 'bastion-icon-error.svg',
+        'learning': ICON_DIR / 'bastion-icon-learning.svg',
+        'warning': ICON_DIR / 'bastion-icon-warning.svg',
+    }
+
+    # Fallback icons (legacy)
     BASTION_ICON_PNG = ICON_DIR / 'bastion-icon.png'
     BASTION_ICON_SVG = ICON_DIR / 'bastion-icon.svg'
-    
-    # Status colors
+
+    # Status colors (for reference/fallback)
     COLORS = {
         'connected': '#98c379',    # Green
         'disconnected': '#5c6370', # Gray
@@ -37,7 +56,9 @@ class IconManager:
     @classmethod
     def get_icon(cls, status='connected'):
         """
-        Get icon for given status
+        Get icon for given status.
+
+        Uses direct QIcon() loading which handles both PNG and SVG natively.
 
         Args:
             status: 'connected', 'disconnected', 'error', 'learning', 'warning'
@@ -45,20 +66,42 @@ class IconManager:
         Returns:
             QIcon object
         """
-        # Try to load custom icon first (PNG preferred, then SVG)
+        # Try status-specific icons (SVG first - they have the colored variants)
+        if status in cls.STATUS_ICONS_SVG:
+            icon_path = cls.STATUS_ICONS_SVG[status]
+            if icon_path.exists():
+                try:
+                    icon = QIcon(str(icon_path))
+                    if not icon.isNull():
+                        logger.debug(f"Loaded status icon from {icon_path}")
+                        return icon
+                except Exception as e:
+                    logger.warning(f"Failed to load status icon: {e}")
+
+        # Try status-specific PNG
+        if status in cls.STATUS_ICONS_PNG:
+            icon_path = cls.STATUS_ICONS_PNG[status]
+            if icon_path.exists():
+                try:
+                    icon = QIcon(str(icon_path))
+                    if not icon.isNull():
+                        logger.debug(f"Loaded status PNG icon from {icon_path}")
+                        return icon
+                except Exception as e:
+                    logger.warning(f"Failed to load status PNG: {e}")
+
+        # Fallback to generic icon (PNG preferred, then SVG)
         for icon_path in [cls.BASTION_ICON_PNG, cls.BASTION_ICON_SVG]:
             if icon_path.exists():
                 try:
                     icon = QIcon(str(icon_path))
                     if not icon.isNull():
-                        logger.debug(f"Loaded custom icon from {icon_path}")
+                        logger.debug(f"Loaded generic icon from {icon_path}")
                         return icon
-                    else:
-                        logger.warning(f"Custom icon loaded but is null: {icon_path}")
                 except Exception as e:
-                    logger.warning(f"Failed to load custom icon {icon_path}: {e}")
+                    logger.warning(f"Failed to load icon {icon_path}: {e}")
 
-        logger.warning(f"Custom icon files not found: {cls.BASTION_ICON_SVG}, {cls.BASTION_ICON_PNG}")
+        logger.warning("Custom icon files not found")
 
         # Fallback to theme icons with status-specific colors
         fallback_icons = {

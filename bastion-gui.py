@@ -26,23 +26,40 @@ LOCK_FILE = f'/tmp/bastion-gui-{os.getuid()}.lock'
 def acquire_lock():
     """Try to acquire a lock file. Returns file handle if successful, None if already running."""
     try:
-        # Check if stale lock (process died without cleanup)
-        if os.path.exists(LOCK_FILE):
-            try:
-                with open(LOCK_FILE, 'r') as f:
-                    old_pid = int(f.read().strip())
-                # Check if process is still running
-                os.kill(old_pid, 0)  # Raises OSError if not running
-            except (ValueError, OSError):
-                # Stale lock or invalid PID - remove it
-                os.remove(LOCK_FILE)
+        # Open file for read/write, create if not exists
+        lock_fd = open(LOCK_FILE, 'a+')
+        lock_fd.seek(0)
 
-        lock_fd = open(LOCK_FILE, 'w')
-        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Try to get exclusive lock (non-blocking)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (IOError, OSError):
+            # Another process has the lock
+            lock_fd.close()
+            return None
+
+        # We have the lock - check if there's a stale PID
+        content = lock_fd.read().strip()
+        if content:
+            try:
+                old_pid = int(content)
+                # Check if it's our own PID (re-acquiring)
+                if old_pid == os.getpid():
+                    return lock_fd
+                # Check if process is still running
+                os.kill(old_pid, 0)
+                # Process exists - but we have the lock, so it must be stale
+            except (ValueError, OSError):
+                pass  # Stale or invalid PID
+
+        # Write our PID
+        lock_fd.seek(0)
+        lock_fd.truncate()
         lock_fd.write(str(os.getpid()))
         lock_fd.flush()
         return lock_fd
-    except (IOError, OSError):
+    except (IOError, OSError) as e:
+        print(f"[LOCK] Error acquiring lock: {e}")
         return None
 
 class BastionClient(QObject):
@@ -54,6 +71,7 @@ class BastionClient(QObject):
         self.notifier = None
         self.buffer = ""
         self.connected = False
+        self.learning_mode = False  # Track current learning mode state
 
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
@@ -100,13 +118,12 @@ class BastionClient(QObject):
         
         self.action_restart = self.menu.addAction("Restart Firewall")
         self.action_restart.triggered.connect(lambda: self.run_service("restart"))
-        
-        self.menu.addSeparator()
-        self.action_quit = self.menu.addAction("Quit Tray")
-        self.action_quit.triggered.connect(self.app.quit)
-        
+
         self.tray_icon.setContextMenu(self.menu)
-        
+
+        # Connect tray icon activation (for GNOME/AppIndicator compatibility)
+        self.tray_icon.activated.connect(self.on_tray_activated)
+
         # Connect Timer
         self.connect_timer = QTimer()
         self.connect_timer.timeout.connect(self.try_connect)
@@ -164,13 +181,25 @@ class BastionClient(QObject):
         # If all else fails, return a generic fallback (or keep empty which shows dots)
         return QIcon.fromTheme('system-help')
 
+    def on_tray_activated(self, reason):
+        """Handle tray icon activation (click)"""
+        # Show menu on any click for GNOME/AppIndicator compatibility
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:  # Left click
+            # Show context menu at cursor position
+            from PyQt6.QtGui import QCursor
+            self.menu.popup(QCursor.pos())
+        elif reason == QSystemTrayIcon.ActivationReason.Context:  # Right click
+            # Context menu should show automatically, but force it just in case
+            from PyQt6.QtGui import QCursor
+            self.menu.popup(QCursor.pos())
+
     def update_status(self, text, status='connected'):
         """Update tray icon and status text"""
         self.action_status.setText(f"Status: {text}")
         # Use IconManager for consistent, professional icons
         self.tray_icon.setIcon(IconManager.get_status_icon(
             connected=(status != 'disconnected'),
-            learning_mode=(status == 'learning'),
+            learning_mode=self.learning_mode,
             error=(status == 'error')
         ))
 
@@ -209,8 +238,14 @@ class BastionClient(QObject):
             if req['type'] == 'connection_request':
                 self.handle_connection_request(req)
             elif req['type'] == 'stats_update':
-                # Update stats in menu if needed
-                pass
+                # Extract learning_mode from stats and update icon if changed
+                stats = req.get('stats', {})
+                new_learning_mode = stats.get('learning_mode', False)
+                if new_learning_mode != self.learning_mode:
+                    self.learning_mode = new_learning_mode
+                    # Update icon to reflect new learning mode
+                    self.update_status("Connected" if self.connected else "Disconnected",
+                                      "connected" if self.connected else "disconnected")
             elif req['type'] == 'notification':
                 self.handle_notification(req)
         except json.JSONDecodeError:

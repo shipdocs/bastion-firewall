@@ -20,7 +20,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QLabel, QPushButton, QFrame, QStackedWidget,
                             QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar,
                             QSystemTrayIcon, QMenu, QMessageBox, QDialog, QCheckBox,
-                            QScrollArea, QAbstractItemView)
+                            QScrollArea, QAbstractItemView, QLineEdit, QRadioButton,
+                            QButtonGroup, QFileDialog)
 from .notification import show_notification
 from . import __version__
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QPoint
@@ -464,6 +465,133 @@ class FirewallDialog(QDialog):
         event.ignore()  # Ignore all close requests (clicking away, Alt+F4, etc.)
 
 
+class ManualRuleDialog(QDialog):
+    """
+    Dialog for manually adding a firewall rule.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.app_path = ""
+        self.port = ""
+        self.allow = True
+        self.init_ui()
+
+    def init_ui(self):
+        self.setWindowTitle("Add Manual Rule")
+        self.setFixedSize(500, 300)
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS["background"]};
+                border: 1px solid {COLORS["accent"]};
+            }}
+            QLabel {{
+                color: {COLORS["text_primary"]};
+            }}
+            QLineEdit {{
+                background-color: {COLORS["card"]};
+                border: 1px solid {COLORS["card_border"]};
+                border-radius: 4px;
+                padding: 8px;
+                color: {COLORS["text_primary"]};
+            }}
+        """)
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(25, 25, 25, 25)
+        layout.setSpacing(20)
+        self.setLayout(layout)
+
+        # Title
+        title = QLabel("Add Manual Firewall Rule")
+        title.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {COLORS['header']};")
+        layout.addWidget(title)
+
+        # Form fields
+        form_layout = QVBoxLayout()
+
+        # Application Path
+        path_label = QLabel("Application Path:")
+        path_label.setStyleSheet(f"font-size: 12px; color: {COLORS['text_secondary']};")
+        form_layout.addWidget(path_label)
+
+        self.path_input = QLineEdit()
+        self.path_input.setPlaceholderText("/usr/bin/example or /path/to/app")
+        form_layout.addWidget(self.path_input)
+
+        # Port
+        port_label = QLabel("Destination Port:")
+        port_label.setStyleSheet(f"font-size: 12px; color: {COLORS['text_secondary']};")
+        form_layout.addWidget(port_label)
+
+        self.port_input = QLineEdit()
+        self.port_input.setPlaceholderText("443 or * for any port")
+        form_layout.addWidget(self.port_input)
+
+        # Action
+        action_label = QLabel("Action:")
+        action_label.setStyleSheet(f"font-size: 12px; color: {COLORS['text_secondary']};")
+        form_layout.addWidget(action_label)
+
+        action_layout = QHBoxLayout()
+
+        # Use QRadioButton with QButtonGroup for proper mutual exclusivity
+        self.action_group = QButtonGroup(self)
+
+        self.radio_allow = QRadioButton("Allow")
+        self.radio_allow.setChecked(True)
+        self.radio_allow.setStyleSheet(f"font-size: 14px; color: {COLORS['success']};")
+        self.action_group.addButton(self.radio_allow)
+        action_layout.addWidget(self.radio_allow)
+
+        self.radio_deny = QRadioButton("Deny")
+        self.radio_deny.setStyleSheet(f"font-size: 14px; color: {COLORS['danger']};")
+        self.action_group.addButton(self.radio_deny)
+        action_layout.addWidget(self.radio_deny)
+        action_layout.addStretch()
+
+        form_layout.addLayout(action_layout)
+        layout.addLayout(form_layout)
+
+        # Buttons
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 8px 16px; border-radius: 4px;")
+        btn_cancel.clicked.connect(self.reject)
+        btn_box.addWidget(btn_cancel)
+
+        btn_add = QPushButton("Add Rule")
+        btn_add.setStyleSheet(f"background-color: {COLORS['accent']}; color: white; border: none; padding: 8px 16px; border-radius: 4px; font-weight: bold;")
+        btn_add.clicked.connect(self.validate_and_accept)
+        btn_box.addWidget(btn_add)
+
+        layout.addLayout(btn_box)
+
+    def validate_and_accept(self):
+        """Validate inputs and accept dialog"""
+        self.app_path = self.path_input.text().strip()
+        self.port = self.port_input.text().strip()
+        self.allow = self.radio_allow.isChecked()
+
+        # Validate
+        if not self.app_path:
+            QMessageBox.warning(self, "Validation Error", "Please enter an application path.")
+            return
+
+        if not self.port:
+            QMessageBox.warning(self, "Validation Error", "Please enter a destination port.")
+            return
+
+        # Validate port is numeric or *
+        if self.port != "*" and not self.port.isdigit():
+            QMessageBox.warning(self, "Validation Error", "Port must be a number or * for any port.")
+            return
+
+        self.accept()
+
+
 from .inbound_firewall import InboundFirewallDetector
 
 # IPC socket path for daemon communication
@@ -567,7 +695,8 @@ class DashboardWindow(QMainWindow):
             'total_connections': 0,
             'allowed_connections': 0,
             'blocked_connections': 0,
-            'pending_gui': 0
+            'pending_gui': 0,
+            'learning_mode': False
         }
 
         self.init_ui()
@@ -843,9 +972,57 @@ class DashboardWindow(QMainWindow):
     def create_rules_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        
+
         layout.addWidget(QLabel("Firewall Rules", objectName="page_title"))
-        
+
+        # Search and filter bar
+        search_filter_layout = QHBoxLayout()
+
+        # Search box
+        search_label = QLabel("Search:")
+        search_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        search_filter_layout.addWidget(search_label)
+
+        self.rules_search_box = QLineEdit()
+        self.rules_search_box.setPlaceholderText("Search rules...")
+        self.rules_search_box.setStyleSheet(f"""
+            background-color: {COLORS['card']};
+            border: 1px solid {COLORS['card_border']};
+            border-radius: 4px;
+            padding: 8px;
+            color: {COLORS['text_primary']};
+        """)
+        self.rules_search_box.textChanged.connect(self.filter_rules_table)
+        search_filter_layout.addWidget(self.rules_search_box, 1)
+
+        # Filter buttons
+        self.btn_filter_all = QPushButton("All")
+        self.btn_filter_all.setCheckable(True)
+        self.btn_filter_all.setChecked(True)
+        self.btn_filter_all.setObjectName("action_btn")
+        self.btn_filter_all.setStyleSheet(f"background-color: {COLORS['accent']}; color: white; border: none; padding: 6px 12px; border-radius: 4px;")
+        self.btn_filter_all.clicked.connect(lambda: self.set_rules_filter('all'))
+        search_filter_layout.addWidget(self.btn_filter_all)
+
+        self.btn_filter_allow = QPushButton("Allow")
+        self.btn_filter_allow.setCheckable(True)
+        self.btn_filter_allow.setObjectName("action_btn")
+        self.btn_filter_allow.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+        self.btn_filter_allow.clicked.connect(lambda: self.set_rules_filter('allow'))
+        search_filter_layout.addWidget(self.btn_filter_allow)
+
+        self.btn_filter_deny = QPushButton("Deny")
+        self.btn_filter_deny.setCheckable(True)
+        self.btn_filter_deny.setObjectName("action_btn")
+        self.btn_filter_deny.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+        self.btn_filter_deny.clicked.connect(lambda: self.set_rules_filter('deny'))
+        search_filter_layout.addWidget(self.btn_filter_deny)
+
+        # Store filter state
+        self.rules_filter_mode = 'all'  # 'all', 'allow', 'deny'
+
+        layout.addLayout(search_filter_layout)
+
         self.table_rules = QTableWidget()
         self.table_rules.setColumnCount(4)
         self.table_rules.setHorizontalHeaderLabels(["Application", "Path", "Destination", "Action"])
@@ -855,24 +1032,54 @@ class DashboardWindow(QMainWindow):
         self.table_rules.verticalHeader().setVisible(False)
         self.table_rules.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_rules.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        
+        # Enable double-click to toggle action
+        self.table_rules.cellDoubleClicked.connect(self.toggle_rule_action)
+
         layout.addWidget(self.table_rules)
-        
+
         btn_box = QHBoxLayout()
         btn_box.addStretch()
-        
+
+        btn_add_rule = QPushButton("Add Rule")
+        btn_add_rule.setObjectName("action_btn")
+        btn_add_rule.clicked.connect(self.show_manual_rule_dialog)
+        btn_box.addWidget(btn_add_rule)
+
+        btn_import = QPushButton("Import")
+        btn_import.setObjectName("action_btn")
+        btn_import.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']};")
+        btn_import.clicked.connect(self.import_rules)
+        btn_box.addWidget(btn_import)
+
+        btn_export = QPushButton("Export")
+        btn_export.setObjectName("action_btn")
+        btn_export.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']};")
+        btn_export.clicked.connect(self.export_rules)
+        btn_box.addWidget(btn_export)
+
+        btn_select_all = QPushButton("Select All")
+        btn_select_all.setObjectName("action_btn")
+        btn_select_all.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']};")
+        btn_select_all.clicked.connect(self.select_all_rules)
+        btn_box.addWidget(btn_select_all)
+
         btn_refresh = QPushButton("Refresh")
         btn_refresh.setObjectName("action_btn")
         btn_refresh.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']};")
         btn_refresh.clicked.connect(self.load_data)
         btn_refresh.clicked.connect(self.refresh_rules_table)
         btn_box.addWidget(btn_refresh)
-        
+
+        btn_delete_all = QPushButton("Delete All")
+        btn_delete_all.setObjectName("danger_btn")
+        btn_delete_all.clicked.connect(self.delete_all_rules)
+        btn_box.addWidget(btn_delete_all)
+
         btn_delete = QPushButton("Delete Selected")
         btn_delete.setObjectName("danger_btn")
         btn_delete.clicked.connect(self.delete_selected_rule)
         btn_box.addWidget(btn_delete)
-        
+
         layout.addLayout(btn_box)
         return page
 
@@ -1034,6 +1241,9 @@ class DashboardWindow(QMainWindow):
                 self.lbl_status_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['success']}; margin-top: 8px;")
 
                 desc = "Blocking unauthorized outbound connections"
+                # Add learning mode indicator
+                if self.live_stats.get('learning_mode', False):
+                    desc += " • Learning Mode"
                 if is_enabled:
                     desc += " • Autostart ON"
                 else:
@@ -1107,14 +1317,14 @@ class DashboardWindow(QMainWindow):
             autostart_dir = Path.home() / ".config/autostart"
             autostart_dir.mkdir(parents=True, exist_ok=True)
             desktop_file = autostart_dir / "bastion-tray.desktop"
-            
+
             if enable:
                 content = """[Desktop Entry]
 Type=Application
 Name=Bastion Firewall Tray Icon
 Comment=System tray icon for Bastion Firewall
 Exec=/usr/bin/bastion-gui
-Icon=security-high
+Icon=bastion-icon
 Terminal=false
 Categories=System;Security;Network;
 Hidden=false
@@ -1122,7 +1332,7 @@ X-GNOME-Autostart-enabled=true
 """
                 with open(desktop_file, "w") as f:
                     f.write(content)
-                
+
                 # Make executable just in case
                 desktop_file.chmod(0o755)
             else:
@@ -1158,12 +1368,12 @@ X-GNOME-Autostart-enabled=true
 
     def refresh_rules_table(self):
         self.table_rules.setRowCount(0)
-        
+
         # self.data_rules is dict: "app_path:port": allow_bool
         for key, allow in self.data_rules.items():
             row = self.table_rules.rowCount()
             self.table_rules.insertRow(row)
-            
+
             # Parse key (format: /path/to/app:port)
             try:
                 parts = key.rsplit(':', 1)
@@ -1177,18 +1387,160 @@ X-GNOME-Autostart-enabled=true
                 app_name = key
 
             action = "ALLOW" if allow else "DENY"
-            
-            self.table_rules.setItem(row, 0, QTableWidgetItem(app_name))
+
+            # Application name with icon
+            app_icon = self.get_app_icon(path)
+            app_item = QTableWidgetItem(app_name)
+            if not app_icon.isNull():
+                app_item.setIcon(app_icon)
+            self.table_rules.setItem(row, 0, app_item)
+
             self.table_rules.setItem(row, 1, QTableWidgetItem(path))
             self.table_rules.setItem(row, 2, QTableWidgetItem(port))
-            
+
             item_act = QTableWidgetItem(action)
             item_act.setForeground(QColor(COLORS['success'] if allow else COLORS['danger']))
             item_act.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
             self.table_rules.setItem(row, 3, item_act)
-            
-            # Store key in user data for deletion using setData(Qt.UserRole, ...) on first item
+
+            # Store key and allow status in user data for filtering and deletion
             self.table_rules.item(row, 0).setData(Qt.ItemDataRole.UserRole, key)
+            # Store the allow status in the action item for filtering
+            self.table_rules.item(row, 3).setData(Qt.ItemDataRole.UserRole, allow)
+
+        # Apply current filter
+        self.filter_rules_table()
+
+    def get_app_icon(self, app_path: str) -> QIcon:
+        """Get icon for an application based on its path"""
+        # Extract app name from path
+        app_name = os.path.basename(app_path).lower()
+
+        # Try common icon names for popular applications
+        icon_mappings = {
+            'firefox': 'firefox',
+            'chromium': 'chromium-browser',
+            'chrome': 'google-chrome',
+            'google-chrome': 'google-chrome',
+            'opera': 'opera',
+            'edge': 'microsoft-edge',
+            'brave': 'brave',
+            'vlc': 'vlc',
+            'thunderbird': 'thunderbird',
+            'code': 'vscode',
+            'code-oss': 'vscode',
+            'atom': 'atom',
+            'subl': 'sublime-text',
+            'sublime_text': 'sublime-text',
+            'vim': 'vim',
+            'nvim': 'neovim',
+            'nano': 'text-x-generic',
+            'gedit': 'gedit',
+            'kate': 'kate',
+            'mousepad': 'mousepad',
+            'geany': 'geany',
+            'kwrite': 'kwrite',
+            'libreoffice': 'libreoffice-startcenter',
+            'soffice': 'libreoffice-startcenter',
+            'writer': 'libreoffice-writer',
+            'calc': 'libreoffice-calc',
+            'impress': 'libreoffice-impress',
+            'draw': 'libreoffice-draw',
+            'math': 'libreoffice-math',
+            'base': 'libreoffice-base',
+            'gimp': 'gimp',
+            'inkscape': 'inkscape',
+            'blender': 'blender',
+            'krita': 'krita',
+            'obs': 'obs-studio',
+            'ffmpeg': 'video-x-generic',
+            'vlc': 'vlc',
+            'mpv': 'mpv',
+            'mplayer': 'video-x-generic',
+            'totem': 'totem',
+            'rhythmbox': 'rhythmbox',
+            'spotify': 'spotify',
+            'discord': 'discord',
+            'telegram': 'telegram',
+            'signal': 'signal-desktop',
+            'slack': 'slack',
+            'teams': 'teams-for-linux',
+            'zoom': 'zoom',
+            'skype': 'skype-for-linux',
+            'jitsi': 'jitsi',
+            'thunderbird': 'thunderbird',
+            'evolution': 'evolution',
+            'geary': 'geary',
+            'kmail': 'kmail',
+            'claws-mail': 'claws-mail',
+            'sylpheed': 'sylpheed',
+            'mutt': 'email',
+            'transmission': 'transmission',
+            'transmission-gtk': 'transmission',
+            'qbittorrent': 'qbittorrent',
+            'deluge': 'deluge',
+            'kget': 'kget',
+            'wget': 'text-x-generic',
+            'curl': 'text-x-generic',
+            'python': 'text-x-python',
+            'python3': 'text-x-python',
+            'python2': 'text-x-python',
+            'ruby': 'text-x-ruby',
+            'perl': 'text-x-perl',
+            'php': 'text-x-php',
+            'node': 'nodejs',
+            'npm': 'nodejs',
+            'yarn': 'nodejs',
+            'java': 'text-x-java',
+            'javaw': 'text-x-java',
+            'bash': 'text-x-shellscript',
+            'sh': 'text-x-shellscript',
+            'zsh': 'text-x-shellscript',
+            'fish': 'text-x-shellscript',
+            'dash': 'text-x-shellscript',
+            'ssh': 'utilities-terminal',
+            'scp': 'utilities-terminal',
+            'rsync': 'utilities-terminal',
+            'systemctl': 'utilities-terminal',
+            'journalctl': 'utilities-terminal',
+            'systemd': 'utilities-terminal',
+            'docker': 'docker',
+            'podman': 'podman',
+            'flatpak': 'flatpak',
+            'snap': 'snap',
+            'apt': 'system-package-manager',
+            'apt-get': 'system-package-manager',
+            'dpkg': 'system-package-manager',
+            'yum': 'system-package-manager',
+            'dnf': 'system-package-manager',
+            'pacman': 'system-package-manager',
+            'zypper': 'system-package-manager',
+            'pip': 'text-x-python',
+            'pip3': 'text-x-python',
+            'pip2': 'text-x-python',
+            'pipx': 'text-x-python',
+            'gem': 'text-x-ruby',
+            'cpan': 'text-x-perl',
+            'pecl': 'text-x-php',
+            'pear': 'text-x-php',
+            'composer': 'text-x-php',
+            'npm': 'nodejs',
+            'yarn': 'nodejs',
+        }
+
+        # Check for exact match first
+        if app_name in icon_mappings:
+            icon = QIcon.fromTheme(icon_mappings[app_name])
+            if not icon.isNull():
+                return icon
+
+        # Try app name directly as icon name
+        icon = QIcon.fromTheme(app_name)
+        if not icon.isNull():
+            return icon
+
+        # Fallback to generic application icon
+        return QIcon.fromTheme('application-x-executable')
 
     def refresh_logs(self):
         """Refresh logs from systemd journal"""
@@ -1274,6 +1626,154 @@ X-GNOME-Autostart-enabled=true
         self.save_rules_to_disk()
         self.refresh_rules_table()
 
+    def show_manual_rule_dialog(self):
+        """Show the manual rule entry dialog"""
+        dialog = ManualRuleDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Create the rule key
+            key = f"{dialog.app_path}:{dialog.port}"
+            self.data_rules[key] = dialog.allow
+            self.save_rules_to_disk()
+            self.refresh_rules_table()
+            from .notification import show_notification
+            show_notification(self, "Success", f"Rule added: {dialog.app_path}:{dialog.port} - {'ALLOW' if dialog.allow else 'DENY'}")
+
+    def toggle_rule_action(self, row, column):
+        """Toggle the action (ALLOW/DENY) for a rule when double-clicked"""
+        # Get the rule key from the first column
+        item = self.table_rules.item(row, 0)
+        if not item:
+            return
+
+        key = item.data(Qt.ItemDataRole.UserRole)
+        if not key or key not in self.data_rules:
+            return
+
+        # Toggle the action
+        current_allow = self.data_rules[key]
+        new_allow = not current_allow
+        self.data_rules[key] = new_allow
+
+        # Save and refresh
+        self.save_rules_to_disk()
+        self.refresh_rules_table()
+
+        # Show notification
+        from .notification import show_notification
+        action_text = "ALLOW" if new_allow else "DENY"
+        show_notification(self, "Rule Updated", f"Rule changed to {action_text}")
+
+    def export_rules(self):
+        """Export rules to a JSON file"""
+        if not self.data_rules:
+            QMessageBox.information(self, "Export Rules", "No rules to export.")
+            return
+
+        # Open file dialog for saving
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Rules",
+            str(Path.home() / "bastion-rules.json"),
+            "JSON Files (*.json);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            # Write rules to file
+            with open(file_path, 'w') as f:
+                json.dump(self.data_rules, f, indent=2)
+
+            from .notification import show_notification
+            show_notification(self, "Success", f"Exported {len(self.data_rules)} rules to {file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Failed to export rules:\n{e}")
+
+    def import_rules(self):
+        """Import rules from a JSON file"""
+        # Open file dialog for opening
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Rules",
+            str(Path.home()),
+            "JSON Files (*.json);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            # Read rules from file
+            with open(file_path, 'r') as f:
+                imported_rules = json.load(f)
+
+            # Validate that it's a dictionary
+            if not isinstance(imported_rules, dict):
+                QMessageBox.warning(self, "Import Error", "Invalid rules file format. Expected a dictionary.")
+                return
+
+            # Ask user how to merge
+            reply = QMessageBox.question(
+                self,
+                "Import Rules",
+                f"Import {len(imported_rules)} rules?\n\n"
+                "Click 'Yes' to merge with existing rules (add new, update existing).\n"
+                "Click 'No' to replace all existing rules.\n"
+                "Click 'Cancel' to abort.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel
+            )
+
+            if reply == QMessageBox.StandardButton.Cancel:
+                return
+            elif reply == QMessageBox.StandardButton.Yes:
+                # Merge: update existing rules, add new ones
+                self.data_rules.update(imported_rules)
+            else:  # No
+                # Replace all rules
+                self.data_rules = imported_rules
+
+            # Save and refresh
+            self.save_rules_to_disk()
+            self.refresh_rules_table()
+
+            from .notification import show_notification
+            show_notification(self, "Success", f"Imported {len(imported_rules)} rules")
+
+        except json.JSONDecodeError:
+            QMessageBox.critical(self, "Import Error", "Failed to parse JSON file.")
+        except Exception as e:
+            QMessageBox.critical(self, "Import Error", f"Failed to import rules:\n{e}")
+
+    def select_all_rules(self):
+        """Select all visible (non-hidden) rows in the rules table"""
+        self.table_rules.clearSelection()
+        for row in range(self.table_rules.rowCount()):
+            if not self.table_rules.isRowHidden(row):
+                self.table_rules.selectRow(row)
+
+    def delete_all_rules(self):
+        """Delete all rules with confirmation"""
+        if not self.data_rules:
+            QMessageBox.information(self, "Delete All Rules", "No rules to delete.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete All",
+            f"Are you sure you want to delete ALL {len(self.data_rules)} rules?\n\n"
+            "This action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self.data_rules.clear()
+            self.save_rules_to_disk()
+            self.refresh_rules_table()
+
+            from .notification import show_notification
+            show_notification(self, "Success", "All rules deleted")
+
     def save_rules_to_disk(self):
         try:
             with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
@@ -1287,6 +1787,59 @@ X-GNOME-Autostart-enabled=true
         except Exception as e:
             from .notification import show_notification
             show_notification(self, "Error", f"Failed to save rules: {e}")
+
+    def set_rules_filter(self, mode):
+        """Set the filter mode for rules table"""
+        self.rules_filter_mode = mode
+
+        # Update button styles
+        if mode == 'all':
+            self.btn_filter_all.setStyleSheet(f"background-color: {COLORS['accent']}; color: white; border: none; padding: 6px 12px; border-radius: 4px;")
+            self.btn_filter_allow.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+            self.btn_filter_deny.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+        elif mode == 'allow':
+            self.btn_filter_all.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+            self.btn_filter_allow.setStyleSheet(f"background-color: {COLORS['success']}; color: white; border: none; padding: 6px 12px; border-radius: 4px;")
+            self.btn_filter_deny.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+        elif mode == 'deny':
+            self.btn_filter_all.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+            self.btn_filter_allow.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+            self.btn_filter_deny.setStyleSheet(f"background-color: {COLORS['danger']}; color: white; border: none; padding: 6px 12px; border-radius: 4px;")
+
+        # Apply filter
+        self.filter_rules_table()
+
+    def filter_rules_table(self):
+        """Filter the rules table based on search text and filter mode"""
+        search_text = self.rules_search_box.text().lower()
+        filter_mode = self.rules_filter_mode
+
+        for row in range(self.table_rules.rowCount()):
+            # Get values from all columns
+            app_name = self.table_rules.item(row, 0).text().lower()
+            path = self.table_rules.item(row, 1).text().lower()
+            port = self.table_rules.item(row, 2).text().lower()
+            action = self.table_rules.item(row, 3).text().lower()
+
+            # Get allow status from UserRole
+            allow = self.table_rules.item(row, 3).data(Qt.ItemDataRole.UserRole)
+
+            # Check if row matches search text
+            matches_search = (search_text == "" or
+                            search_text in app_name or
+                            search_text in path or
+                            search_text in port or
+                            search_text in action)
+
+            # Check if row matches filter mode
+            matches_filter = True
+            if filter_mode == 'allow':
+                matches_filter = allow
+            elif filter_mode == 'deny':
+                matches_filter = not allow
+
+            # Show/hide row based on filters
+            self.table_rules.setRowHidden(row, not (matches_search and matches_filter))
 
     def save_config(self):
         self.data_config['mode'] = 'learning' if self.chk_learning.isChecked() else 'enforcement'
