@@ -14,13 +14,6 @@ from pathlib import Path
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor
 from PyQt6.QtCore import Qt, QSize
 
-# QtSvg might not be installed
-try:
-    from PyQt6.QtSvg import QSvgRenderer
-    HAS_SVG_SUPPORT = True
-except ImportError:
-    HAS_SVG_SUPPORT = False
-
 logger = logging.getLogger(__name__)
 
 
@@ -61,47 +54,11 @@ class IconManager:
     }
     
     @classmethod
-    def _render_svg_to_icon(cls, svg_path, sizes=[16, 22, 24, 32, 48, 64, 128]):
-        """
-        Render SVG to QIcon with multiple sizes for proper tray display.
-        Qt6 system tray often has issues with raw SVG files.
-        """
-        if not HAS_SVG_SUPPORT:
-            logger.debug("QtSvg not available, trying direct QIcon load")
-            # Try loading SVG directly (works on some systems)
-            try:
-                icon = QIcon(str(svg_path))
-                if not icon.isNull():
-                    return icon
-            except Exception:
-                pass
-            return None
-
-        try:
-            renderer = QSvgRenderer(str(svg_path))
-            if not renderer.isValid():
-                logger.warning(f"Invalid SVG file: {svg_path}")
-                return None
-
-            icon = QIcon()
-            for size in sizes:
-                pixmap = QPixmap(QSize(size, size))
-                pixmap.fill(Qt.GlobalColor.transparent)
-                painter = QPainter(pixmap)
-                renderer.render(painter)
-                painter.end()
-                icon.addPixmap(pixmap)
-
-            logger.debug(f"Rendered SVG to icon with sizes: {sizes}")
-            return icon
-        except Exception as e:
-            logger.warning(f"Failed to render SVG {svg_path}: {e}")
-            return None
-
-    @classmethod
     def get_icon(cls, status='connected'):
         """
-        Get icon for given status
+        Get icon for given status.
+
+        Uses direct QIcon() loading which handles both PNG and SVG natively.
 
         Args:
             status: 'connected', 'disconnected', 'error', 'learning', 'warning'
@@ -109,7 +66,19 @@ class IconManager:
         Returns:
             QIcon object
         """
-        # Try PNG first (most reliable for system tray)
+        # Try status-specific icons (SVG first - they have the colored variants)
+        if status in cls.STATUS_ICONS_SVG:
+            icon_path = cls.STATUS_ICONS_SVG[status]
+            if icon_path.exists():
+                try:
+                    icon = QIcon(str(icon_path))
+                    if not icon.isNull():
+                        logger.debug(f"Loaded status icon from {icon_path}")
+                        return icon
+                except Exception as e:
+                    logger.warning(f"Failed to load status icon: {e}")
+
+        # Try status-specific PNG
         if status in cls.STATUS_ICONS_PNG:
             icon_path = cls.STATUS_ICONS_PNG[status]
             if icon_path.exists():
@@ -121,33 +90,18 @@ class IconManager:
                 except Exception as e:
                     logger.warning(f"Failed to load status PNG: {e}")
 
-        # Try SVG with rendering
-        if status in cls.STATUS_ICONS_SVG:
-            icon_path = cls.STATUS_ICONS_SVG[status]
+        # Fallback to generic icon (PNG preferred, then SVG)
+        for icon_path in [cls.BASTION_ICON_PNG, cls.BASTION_ICON_SVG]:
             if icon_path.exists():
-                icon = cls._render_svg_to_icon(icon_path)
-                if icon and not icon.isNull():
-                    logger.debug(f"Loaded status SVG icon from {icon_path}")
-                    return icon
+                try:
+                    icon = QIcon(str(icon_path))
+                    if not icon.isNull():
+                        logger.debug(f"Loaded generic icon from {icon_path}")
+                        return icon
+                except Exception as e:
+                    logger.warning(f"Failed to load icon {icon_path}: {e}")
 
-        # Fallback to generic PNG (this worked before)
-        if cls.BASTION_ICON_PNG.exists():
-            try:
-                icon = QIcon(str(cls.BASTION_ICON_PNG))
-                if not icon.isNull():
-                    logger.debug(f"Loaded generic PNG icon from {cls.BASTION_ICON_PNG}")
-                    return icon
-            except Exception as e:
-                logger.warning(f"Failed to load PNG icon: {e}")
-
-        # Try generic SVG fallback
-        if cls.BASTION_ICON_SVG.exists():
-            icon = cls._render_svg_to_icon(cls.BASTION_ICON_SVG)
-            if icon and not icon.isNull():
-                logger.debug(f"Loaded generic SVG icon from {cls.BASTION_ICON_SVG}")
-                return icon
-
-        logger.warning(f"Custom icon files not found")
+        logger.warning("Custom icon files not found")
 
         # Fallback to theme icons with status-specific colors
         fallback_icons = {
