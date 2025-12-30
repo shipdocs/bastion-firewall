@@ -36,6 +36,7 @@ pub struct Stats {
     pub total_connections: u64,
     pub allowed_connections: u64,
     pub blocked_connections: u64,
+    pub learning_mode: bool,
 }
 
 #[derive(Serialize)]
@@ -69,6 +70,7 @@ struct StatsData {
     total_connections: u64,
     allowed_connections: u64,
     blocked_connections: u64,
+    learning_mode: bool,
 }
 
 /// User decision for an unknown connection
@@ -349,21 +351,25 @@ fn main() -> anyhow::Result<()> {
     info!("║         With Popup Support!           ║");
     info!("╚════════════════════════════════════════╝");
     
-    let config = ConfigManager::new();
+    let config = Arc::new(ConfigManager::new());
     let learning_mode = config.is_learning_mode();
     let rules = Arc::new(RuleManager::new());
-    let stats = Arc::new(Mutex::new(Stats::default()));
-    
+    let stats = Arc::new(Mutex::new(Stats {
+        learning_mode,
+        ..Stats::default()
+    }));
+
     info!("Mode: {}", if learning_mode { "Learning" } else { "Enforcement" });
-    
+
     // Shared GUI state
     let gui_state = Arc::new(Mutex::new(GuiState::new()));
-    
+
     // Start socket server for GUI connections
     let gui_state_server = gui_state.clone();
     let stats_server = stats.clone();
+    let config_server = config.clone();
     thread::spawn(move || {
-        run_socket_server(gui_state_server, stats_server);
+        run_socket_server(gui_state_server, stats_server, config_server);
     });
     
     // Open NFQUEUE
@@ -473,7 +479,11 @@ fn main() -> anyhow::Result<()> {
 /// std::thread::sleep(Duration::from_millis(100));
 /// let _ = UnixStream::connect(crate::SOCKET_PATH).expect("connect to socket");
 /// ```
-fn run_socket_server(gui_state: Arc<Mutex<GuiState>>, stats: Arc<Mutex<Stats>>) {
+fn run_socket_server(
+    gui_state: Arc<Mutex<GuiState>>,
+    stats: Arc<Mutex<Stats>>,
+    config: Arc<ConfigManager>
+) {
     // FIX #26: Handle missing parent directory gracefully
     // Create socket directory
     let socket_path = std::path::Path::new(SOCKET_PATH);
@@ -522,8 +532,9 @@ fn run_socket_server(gui_state: Arc<Mutex<GuiState>>, stats: Arc<Mutex<Stats>>) 
                 // Spawn a thread to send stats updates every 2 seconds
                 let stats_clone = stats.clone();
                 let gui_state_clone = gui_state.clone();
+                let config_clone = config.clone();
                 thread::spawn(move || {
-                    send_stats_updates(s, stats_clone, gui_state_clone);
+                    send_stats_updates(s, stats_clone, gui_state_clone, config_clone);
                 });
             }
             Err(e) => {
@@ -543,10 +554,12 @@ fn run_socket_server(gui_state: Arc<Mutex<GuiState>>, stats: Arc<Mutex<Stats>>) 
 /// * `stream` - The Unix socket stream connected to the GUI client
 /// * `stats` - Shared statistics state
 /// * `gui_state` - Shared GUI state to detect disconnections
+/// * `config` - Configuration manager to get current learning mode
 fn send_stats_updates(
     mut stream: UnixStream,
     stats: Arc<Mutex<Stats>>,
-    gui_state: Arc<Mutex<GuiState>>
+    gui_state: Arc<Mutex<GuiState>>,
+    config: Arc<ConfigManager>
 ) {
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
 
@@ -559,12 +572,14 @@ fn send_stats_updates(
 
         // Send stats update
         let s = stats.lock().clone();
+        let learning_mode = config.is_learning_mode();
         let update = StatsUpdate {
             msg_type: "stats_update".to_string(),
             stats: StatsData {
                 total_connections: s.total_connections,
                 allowed_connections: s.allowed_connections,
                 blocked_connections: s.blocked_connections,
+                learning_mode,
             },
         };
         drop(s);

@@ -113,6 +113,20 @@ mkdir -p debian/etc/xdg/autostart
 cp bastion-tray.desktop debian/etc/xdg/autostart/bastion-tray.desktop
 chmod 644 debian/etc/xdg/autostart/bastion-tray.desktop
 
+# Install application icon to system hicolor icon theme
+# This allows desktop files to reference Icon=bastion-icon
+print_step "Installing application icon..."
+mkdir -p debian/usr/share/icons/hicolor/scalable/apps
+cp bastion/resources/bastion-icon.svg debian/usr/share/icons/hicolor/scalable/apps/bastion-icon.svg
+chmod 644 debian/usr/share/icons/hicolor/scalable/apps/bastion-icon.svg
+
+# Also install 128x128 PNG for better compatibility
+mkdir -p debian/usr/share/icons/hicolor/128x128/apps
+if [ -f bastion/resources/bastion-icon.png ]; then
+    cp bastion/resources/bastion-icon.png debian/usr/share/icons/hicolor/128x128/apps/bastion-icon.png
+    chmod 644 debian/usr/share/icons/hicolor/128x128/apps/bastion-icon.png
+fi
+
 # Copy polkit policy file for software center authentication
 print_step "Copying polkit policy..."
 cp com.bastion.firewall.policy debian/usr/share/polkit-1/actions/
@@ -148,7 +162,7 @@ cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
     </ul>
   </description>
   <launchable type="desktop-id">com.bastion.firewall.desktop</launchable>
-  <icon type="stock">security-high</icon>
+  <icon type="stock">bastion-icon</icon>
   <url type="homepage">https://github.com/shipdocs/bastion-firewall</url>
   <url type="bugtracker">https://github.com/shipdocs/bastion-firewall/issues</url>
   <url type="help">https://github.com/shipdocs/bastion-firewall/blob/master/README.md</url>

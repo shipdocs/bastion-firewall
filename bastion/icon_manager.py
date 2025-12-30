@@ -19,13 +19,24 @@ logger = logging.getLogger(__name__)
 
 class IconManager:
     """Manages application icons"""
-    
+
     # Icon paths
     ICON_DIR = Path(__file__).parent / 'resources'
+
+    # Status-specific icon files
+    STATUS_ICONS = {
+        'connected': ICON_DIR / 'bastion-icon-connected.svg',
+        'disconnected': ICON_DIR / 'bastion-icon-disconnected.svg',
+        'error': ICON_DIR / 'bastion-icon-error.svg',
+        'learning': ICON_DIR / 'bastion-icon-learning.svg',
+        'warning': ICON_DIR / 'bastion-icon-warning.svg',
+    }
+
+    # Fallback icons (legacy)
     BASTION_ICON_PNG = ICON_DIR / 'bastion-icon.png'
     BASTION_ICON_SVG = ICON_DIR / 'bastion-icon.svg'
-    
-    # Status colors
+
+    # Status colors (for reference/fallback)
     COLORS = {
         'connected': '#98c379',    # Green
         'disconnected': '#5c6370', # Gray
@@ -45,13 +56,29 @@ class IconManager:
         Returns:
             QIcon object
         """
-        # Try to load custom icon first (PNG preferred, then SVG)
+        # Try to load status-specific icon first
+        if status in cls.STATUS_ICONS:
+            icon_path = cls.STATUS_ICONS[status]
+            if icon_path.exists():
+                try:
+                    icon = QIcon(str(icon_path))
+                    if not icon.isNull():
+                        logger.debug(f"Loaded status-specific icon from {icon_path}")
+                        return icon
+                    else:
+                        logger.warning(f"Status icon loaded but is null: {icon_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to load status icon {icon_path}: {e}")
+            else:
+                logger.debug(f"Status icon not found: {icon_path}")
+
+        # Fallback to generic custom icon (PNG preferred, then SVG)
         for icon_path in [cls.BASTION_ICON_PNG, cls.BASTION_ICON_SVG]:
             if icon_path.exists():
                 try:
                     icon = QIcon(str(icon_path))
                     if not icon.isNull():
-                        logger.debug(f"Loaded custom icon from {icon_path}")
+                        logger.debug(f"Loaded generic custom icon from {icon_path}")
                         return icon
                     else:
                         logger.warning(f"Custom icon loaded but is null: {icon_path}")

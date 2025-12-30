@@ -54,6 +54,7 @@ class BastionClient(QObject):
         self.notifier = None
         self.buffer = ""
         self.connected = False
+        self.learning_mode = False  # Track current learning mode state
 
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
@@ -100,11 +101,7 @@ class BastionClient(QObject):
         
         self.action_restart = self.menu.addAction("Restart Firewall")
         self.action_restart.triggered.connect(lambda: self.run_service("restart"))
-        
-        self.menu.addSeparator()
-        self.action_quit = self.menu.addAction("Quit Tray")
-        self.action_quit.triggered.connect(self.app.quit)
-        
+
         self.tray_icon.setContextMenu(self.menu)
         
         # Connect Timer
@@ -170,7 +167,7 @@ class BastionClient(QObject):
         # Use IconManager for consistent, professional icons
         self.tray_icon.setIcon(IconManager.get_status_icon(
             connected=(status != 'disconnected'),
-            learning_mode=(status == 'learning'),
+            learning_mode=self.learning_mode,
             error=(status == 'error')
         ))
 
@@ -209,8 +206,14 @@ class BastionClient(QObject):
             if req['type'] == 'connection_request':
                 self.handle_connection_request(req)
             elif req['type'] == 'stats_update':
-                # Update stats in menu if needed
-                pass
+                # Extract learning_mode from stats and update icon if changed
+                stats = req.get('stats', {})
+                new_learning_mode = stats.get('learning_mode', False)
+                if new_learning_mode != self.learning_mode:
+                    self.learning_mode = new_learning_mode
+                    # Update icon to reflect new learning mode
+                    self.update_status("Connected" if self.connected else "Disconnected",
+                                      "connected" if self.connected else "disconnected")
             elif req['type'] == 'notification':
                 self.handle_notification(req)
         except json.JSONDecodeError:
