@@ -4,34 +4,22 @@ set -e
 # Usage: ./release_tool.sh 1.4.8
 if [ -z "$1" ]; then
     echo "Usage: $0 <new_version>"
-    echo "Example: $0 1.4.8"
+    echo "Example: $0 2.0.22"
     exit 1
 fi
 
 NEW_VERSION="$1"
-CURRENT_VERSION=$(grep "version=" setup.py | cut -d'"' -f2)
+CURRENT_VERSION=$(cat VERSION 2>/dev/null | tr -d '[:space:]' || echo "unknown")
 
 echo "============================================================"
 echo "Preparing Release: $CURRENT_VERSION -> $NEW_VERSION"
 echo "============================================================"
 
-# 1. Update Version Numbers
-echo "[1/6] Updating version numbers..."
+# 1. Update VERSION file (single source of truth)
+echo "[1/6] Updating VERSION file..."
+echo "$NEW_VERSION" > VERSION
 
-# setup.py
-sed -i "s/version=\"$CURRENT_VERSION\"/version=\"$NEW_VERSION\"/" setup.py
-# bastion.spec
-sed -i "s/Version:        $CURRENT_VERSION/Version:        $NEW_VERSION/" bastion.spec
-# debian/control
-sed -i "s/Version: $CURRENT_VERSION/Version: $NEW_VERSION/" debian/DEBIAN/control
-# __init__.py
-sed -i "s/__version__ = '$CURRENT_VERSION'/__version__ = '$NEW_VERSION'/" bastion/__init__.py
-# build_deb.sh
-sed -i "s/VERSION=\"$CURRENT_VERSION\"/VERSION=\"$NEW_VERSION\"/" build_deb.sh
-# build_rpm.sh
-sed -i "s/VERSION=\"$CURRENT_VERSION\"/VERSION=\"$NEW_VERSION\"/" build_rpm.sh
-
-# 2. Build Packages Locally
+# 2. Build Packages (build_deb.sh syncs version to all files automatically)
 echo "[2/6] Building packages locally..."
 ./build_deb.sh
 ./build_rpm.sh
