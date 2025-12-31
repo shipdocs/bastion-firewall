@@ -5,6 +5,23 @@ All notable changes to Bastion Firewall will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.23] - 2025-12-31
+
+### Features
+- **Wildcard Port Rules** (Issue #13): Allow/deny an application on ALL ports with a single rule
+  - New "Apply to all ports" checkbox in firewall popup dialog
+  - Support for `*` port in manual rule entry
+  - Rules stored as `app_path:*` in JSON format
+  - Specific port rules take precedence over wildcard rules (security-first design)
+  - Ideal for applications like Zoom, Slack, Teams that use multiple ports
+
+### Tests
+- Added 10 comprehensive tests for wildcard rule functionality
+  - Core wildcard matching
+  - Precedence (specific overrides wildcard)
+  - JSON serialization/deserialization
+  - Persistence across restarts
+
 ## [2.0.22] - 2025-12-31
 
 ### Build System

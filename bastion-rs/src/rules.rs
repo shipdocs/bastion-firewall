@@ -96,16 +96,24 @@ impl RuleManager {
                                     continue;
                                 }
                                 
-                                // Parse "path:port" format
+                                // Parse "path:port" format (port can be * for wildcard)
                                 if let Some(colon_pos) = key.rfind(':') {
                                     let app_path = &key[..colon_pos];
                                     let port_str = &key[colon_pos + 1..];
-                                    
-                                    if let Ok(port) = port_str.parse::<u16>() {
-                                        if let serde_json::Value::Bool(allow) = value {
-                                            rules.insert((app_path.to_string(), port), allow);
-                                            debug!("Loaded rule: {} port {} -> {}", app_path, port, if allow { "allow" } else { "deny" });
-                                        }
+
+                                    // Handle wildcard port (stored as 0 internally)
+                                    let port = if port_str == "*" {
+                                        0u16  // Wildcard marker
+                                    } else if let Ok(p) = port_str.parse::<u16>() {
+                                        p
+                                    } else {
+                                        continue;  // Invalid port format
+                                    };
+
+                                    if let serde_json::Value::Bool(allow) = value {
+                                        rules.insert((app_path.to_string(), port), allow);
+                                        let port_display = if port == 0 { "*".to_string() } else { port.to_string() };
+                                        debug!("Loaded rule: {} port {} -> {}", app_path, port_display, if allow { "allow" } else { "deny" });
                                     }
                                 }
                             }
@@ -126,24 +134,33 @@ impl RuleManager {
     
     /// Determine whether a specific application path and port combination is allowed.
     ///
+    /// Checks rules in precedence order (issue #13):
+    /// 1. Specific port rule (app_path:port) - highest priority
+    /// 2. Wildcard port rule (app_path:*) - fallback for all ports
+    ///
     /// Returns `Some(true)` if the combination is allowed, `Some(false)` if explicitly denied, or `None` if no rule exists for the given app and port.
     ///
     /// # Examples
     ///
     /// ```
     /// let mgr = RuleManager::new();
-    /// mgr.add_rule("/usr/bin/ssh", Some(22), true);
+    /// mgr.add_rule("/usr/bin/ssh", Some(22), true, false);
     /// assert_eq!(mgr.get_decision("/usr/bin/ssh", 22), Some(true));
     /// assert_eq!(mgr.get_decision("/usr/bin/ssh", 23), None);
     /// ```
     pub fn get_decision(&self, app_path: &str, port: u16) -> Option<bool> {
         let rules = self.rules.read();
-        
-        // Try exact match (app + specific port)
+
+        // 1. Try exact match (app + specific port) - highest priority
         if let Some(&allow) = rules.get(&(app_path.to_string(), port)) {
             return Some(allow);
         }
-        
+
+        // 2. Try wildcard match (app + any port, stored as port 0)
+        if let Some(&allow) = rules.get(&(app_path.to_string(), 0)) {
+            return Some(allow);
+        }
+
         None
     }
     
@@ -152,18 +169,26 @@ impl RuleManager {
     /// When `port` is `Some(p)`, inserts or updates the rule mapping `(app_path, p) -> allow` and writes
     /// the current rules to the rules file. When `port` is `None`, the function is a no-op.
     ///
+    /// If `all_ports` is true, creates a wildcard rule (port 0) that applies to all ports (issue #13).
+    ///
     /// # Examples
     ///
     /// ```
     /// let manager = RuleManager::new();
-    /// manager.add_rule("/usr/bin/example", Some(8080), true);
+    /// manager.add_rule("/usr/bin/example", Some(8080), true, false);
     /// assert_eq!(manager.get_decision("/usr/bin/example", 8080), Some(true));
+    ///
+    /// // Wildcard rule
+    /// manager.add_rule("/usr/bin/zoom", Some(8801), true, true);
+    /// assert_eq!(manager.get_decision("/usr/bin/zoom", 9999), Some(true));  // Any port matches
     /// ```
-    pub fn add_rule(&self, app_path: &str, port: Option<u16>, allow: bool) {
+    pub fn add_rule(&self, app_path: &str, port: Option<u16>, allow: bool, all_ports: bool) {
         if let Some(p) = port {
+            // Use port 0 as wildcard marker when all_ports is true
+            let stored_port = if all_ports { 0 } else { p };
             {
                 let mut rules = self.rules.write();
-                rules.insert((app_path.to_string(), p), allow);
+                rules.insert((app_path.to_string(), stored_port), allow);
             }
             self.save_rules();
         }
@@ -208,7 +233,9 @@ impl RuleManager {
         map.insert("services".to_string(), serde_json::json!({}));
 
         for ((path, port), &allow) in rules.iter() {
-            let key = format!("{}:{}", path, port);
+            // Convert port 0 back to * for JSON serialization (issue #13)
+            let port_str = if *port == 0 { "*".to_string() } else { port.to_string() };
+            let key = format!("{}:{}", path, port_str);
             map.insert(key, serde_json::Value::Bool(allow));
         }
 

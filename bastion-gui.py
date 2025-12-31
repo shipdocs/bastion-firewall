@@ -286,12 +286,14 @@ class BastionClient(QObject):
         def on_dialog_finished():
             decision = (dialog.decision == 'allow')
             permanent = dialog.permanent
+            all_ports = dialog.all_ports  # Wildcard port support (issue #13)
 
             # Send response with decision_id
             if self.connected and self.sock:
                 resp = json.dumps({
                     'allow': decision,
                     'permanent': permanent,
+                    'all_ports': all_ports,
                     'decision_id': decision_id
                 }) + '\n'
                 try:

@@ -224,14 +224,15 @@ class FirewallDialog(QDialog):
         self.learning_mode = learning_mode
         self.decision = "deny"  # Default
         self.permanent = False
+        self.all_ports = False  # Wildcard port support (issue #13)
         self.time_remaining = timeout
-        
+
         self.init_ui()
         self.start_timer()
         
     def init_ui(self):
         self.setWindowTitle("Bastion Firewall - Connection Request")
-        self.setFixedSize(500, 450)
+        self.setFixedSize(500, 480)  # Increased height for all_ports checkbox
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {COLORS["background"]};
@@ -353,7 +354,25 @@ class FirewallDialog(QDialog):
         btn_grid.addLayout(row_deny)
         
         layout.addLayout(btn_grid)
-        
+
+        # "Apply to all ports" checkbox (issue #13)
+        self.chk_all_ports = QCheckBox("Apply to all ports (less secure)")
+        self.chk_all_ports.setToolTip(
+            "When enabled, this rule will apply to ALL destination ports for this application, "
+            f"not just port {self.conn_info.get('dest_port')}. Use for apps with dynamic ports (Zoom, games, etc)."
+        )
+        self.chk_all_ports.setStyleSheet(f"""
+            QCheckBox {{
+                color: {COLORS['text_secondary']};
+                font-size: 12px;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+            }}
+        """)
+        layout.addWidget(self.chk_all_ports)
+
         # Timer
         if self.timeout > 0:
             self.progress = QProgressBar()
@@ -448,10 +467,10 @@ class FirewallDialog(QDialog):
             return
         self.progress.setValue(current - 1)
         
-    def allow_once(self): self.decision = "allow"; self.permanent = False; self.accept()
-    def allow_always(self): self.decision = "allow"; self.permanent = True; self.accept()
-    def deny_once(self): self.decision = "deny"; self.permanent = False; self.reject()
-    def deny_always(self): self.decision = "deny"; self.permanent = True; self.reject()
+    def allow_once(self): self.decision = "allow"; self.permanent = False; self.all_ports = False; self.accept()
+    def allow_always(self): self.decision = "allow"; self.permanent = True; self.all_ports = self.chk_all_ports.isChecked(); self.accept()
+    def deny_once(self): self.decision = "deny"; self.permanent = False; self.all_ports = False; self.reject()
+    def deny_always(self): self.decision = "deny"; self.permanent = True; self.all_ports = self.chk_all_ports.isChecked(); self.reject()
         
     def keyPressEvent(self, event):
         if event.key() in [Qt.Key.Key_Return, Qt.Key.Key_Enter]: self.allow_once()
@@ -475,6 +494,7 @@ class ManualRuleDialog(QDialog):
         self.app_path = ""
         self.port = ""
         self.allow = True
+        self.all_ports = False  # Set True when port is "*"
         self.init_ui()
 
     def init_ui(self):
@@ -588,6 +608,9 @@ class ManualRuleDialog(QDialog):
         if self.port != "*" and not self.port.isdigit():
             QMessageBox.warning(self, "Validation Error", "Port must be a number or * for any port.")
             return
+
+        # Set all_ports flag for wildcard rules (issue #13)
+        self.all_ports = (self.port == "*")
 
         self.accept()
 
@@ -1374,7 +1397,7 @@ X-GNOME-Autostart-enabled=true
             row = self.table_rules.rowCount()
             self.table_rules.insertRow(row)
 
-            # Parse key (format: /path/to/app:port)
+            # Parse key (format: /path/to/app:port or /path/to/app:* for wildcards)
             try:
                 parts = key.rsplit(':', 1)
                 path = parts[0]
@@ -1388,6 +1411,9 @@ X-GNOME-Autostart-enabled=true
 
             action = "ALLOW" if allow else "DENY"
 
+            # Display wildcard ports more clearly (issue #13)
+            port_display = "* (All Ports)" if port == "*" else port
+
             # Application name with icon
             app_icon = self.get_app_icon(path)
             app_item = QTableWidgetItem(app_name)
@@ -1396,7 +1422,7 @@ X-GNOME-Autostart-enabled=true
             self.table_rules.setItem(row, 0, app_item)
 
             self.table_rules.setItem(row, 1, QTableWidgetItem(path))
-            self.table_rules.setItem(row, 2, QTableWidgetItem(port))
+            self.table_rules.setItem(row, 2, QTableWidgetItem(port_display))
 
             item_act = QTableWidgetItem(action)
             item_act.setForeground(QColor(COLORS['success'] if allow else COLORS['danger']))

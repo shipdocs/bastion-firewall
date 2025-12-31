@@ -33,6 +33,7 @@ Bastion intercepts outbound connections and prompts you to allow or deny them pe
 - /proc scanning fallback for compatibility
 - Connection caching with TTL
 - UFW integration for inbound protection
+- **Wildcard Port Rules** - Apply rules to all ports for an application (e.g., Zoom, Slack)
 - **Rule Search & Filtering** - Quickly find rules by app name, path, port, or action
 - **Import/Export Rules** - Backup and restore your firewall rules
 - **Manual Rule Entry** - Add custom rules without waiting for prompts
