@@ -1,8 +1,6 @@
 #!/bin/bash
 set -e
 
-VERSION="2.0.21"
-
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
@@ -12,13 +10,37 @@ print_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 print_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-echo "Building Bastion Firewall v${VERSION}..."
-echo ""
-
 if [ ! -d "bastion-rs" ]; then
     print_error "Must run from project root directory"
     exit 1
 fi
+
+# Read version from single source of truth
+if [ ! -f "VERSION" ]; then
+    print_error "VERSION file not found"
+    exit 1
+fi
+VERSION=$(cat VERSION | tr -d '[:space:]')
+
+print_step "Syncing version ${VERSION} across all files..."
+
+# Update bastion/__init__.py
+sed -i "s/__version__ = .*/__version__ = '${VERSION}'/" bastion/__init__.py
+
+# Update setup.py
+sed -i "s/version=\"[^\"]*\"/version=\"${VERSION}\"/" setup.py
+
+# Update debian/DEBIAN/control
+sed -i "s/^Version: .*/Version: ${VERSION}/" debian/DEBIAN/control
+
+# Update bastion-rs/Cargo.toml (keep in sync)
+sed -i "0,/^version = /s/^version = .*/version = \"${VERSION}\"/" bastion-rs/Cargo.toml
+
+print_info "Version synced to ${VERSION}"
+echo ""
+
+echo "Building Bastion Firewall v${VERSION}..."
+echo ""
 
 print_step "Cleaning previous build..."
 rm -rf debian/usr/bin/*

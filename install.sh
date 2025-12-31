@@ -43,7 +43,14 @@ else
     echo ""
 fi
 
-echo "Installing Bastion Firewall v2.0.0..."
+# Read version from VERSION file if available
+if [ -f "VERSION" ]; then
+    INSTALL_VERSION=$(cat VERSION | tr -d '[:space:]')
+else
+    INSTALL_VERSION="latest"
+fi
+
+echo "Installing Bastion Firewall v${INSTALL_VERSION}..."
 echo ""
 
 # Install the package and dependencies
