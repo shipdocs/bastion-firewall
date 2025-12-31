@@ -5,6 +5,20 @@ All notable changes to Bastion Firewall will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.24] - 2025-12-31
+
+### Features
+- **Hybrid Inbound Firewall Protection** (Issue #27): Automatic inbound protection
+  - Detects existing firewalls: UFW, firewalld, nftables, iptables
+  - Adds minimal INPUT rules if no other firewall is detected
+  - Allows: localhost, established connections, ICMP ping
+  - Blocks: all other unsolicited inbound connections
+  - GUI shows accurate inbound status (Protected/Exposed) with firewall type
+  - New `inbound_protection` config option (default: true)
+  - Rules tagged with `BASTION_INBOUND` for easy identification
+  - Automatic cleanup on uninstall (removes only Bastion's rules)
+  - Docker detection with appropriate warnings
+
 ## [2.0.23] - 2025-12-31
 
 ### Features
