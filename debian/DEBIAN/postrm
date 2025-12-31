@@ -3,7 +3,7 @@ set -e
 
 echo "Cleaning up Bastion Firewall..."
 
-# Remove runtime directory
+# Remove runtime directory (includes inbound-active state file)
 if [ -d /var/run/bastion ]; then
     rm -rf /var/run/bastion || true
 fi

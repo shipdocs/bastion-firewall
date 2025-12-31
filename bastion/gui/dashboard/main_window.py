@@ -511,23 +511,28 @@ class DashboardWindow(QMainWindow):
         scroll_layout.addWidget(card_boot)
         scroll_layout.addSpacing(20)
 
-        # 3. Inbound Firewall (UFW)
+        # 3. Inbound Firewall
         card_ufw = QFrame(objectName="card")
         cl_ufw = QVBoxLayout(card_ufw)
         cl_ufw.setContentsMargins(30, 30, 30, 30)
 
-        cl_ufw.addWidget(QLabel("Inbound Firewall (UFW)", objectName="h2"))
+        cl_ufw.addWidget(QLabel("Inbound Firewall", objectName="h2"))
+
+        lbl_ufw_desc = QLabel("Block unauthorized incoming connections. Uses UFW if available, or Bastion's built-in protection.")
+        lbl_ufw_desc.setStyleSheet(f"color: {COLORS['text_secondary']}; margin-bottom: 10px;")
+        cl_ufw.addWidget(lbl_ufw_desc)
 
         self.lbl_ufw_status = QLabel("Checking...")
         self.lbl_ufw_status.setStyleSheet("font-size: 16px; margin-bottom: 10px;")
         cl_ufw.addWidget(self.lbl_ufw_status)
 
+        # Row 1: Enable/Disable buttons
         ufw_btns = QHBoxLayout()
-        self.btn_ufw_enable = QPushButton("Enable / Install UFW")
+        self.btn_ufw_enable = QPushButton("Setup Protection")
         self.btn_ufw_enable.setObjectName("action_btn")
         self.btn_ufw_enable.clicked.connect(self.enable_ufw)
 
-        self.btn_ufw_disable = QPushButton("Disable UFW")
+        self.btn_ufw_disable = QPushButton("Disable Protection")
         self.btn_ufw_disable.setObjectName("danger_btn")
         self.btn_ufw_disable.clicked.connect(self.disable_ufw)
 
@@ -535,6 +540,32 @@ class DashboardWindow(QMainWindow):
         ufw_btns.addWidget(self.btn_ufw_disable)
         ufw_btns.addStretch()
         cl_ufw.addLayout(ufw_btns)
+
+        # Row 2: Port management
+        cl_ufw.addSpacing(15)
+        lbl_ports = QLabel("Port Management")
+        lbl_ports.setStyleSheet(f"font-weight: bold; color: {COLORS['text_primary']}; margin-top: 10px;")
+        cl_ufw.addWidget(lbl_ports)
+
+        lbl_ports_desc = QLabel("Need to open a port for SSH, a web server, or other services?")
+        lbl_ports_desc.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        cl_ufw.addWidget(lbl_ports_desc)
+
+        port_btns = QHBoxLayout()
+
+        btn_open_port = QPushButton("Quick Open Port...")
+        btn_open_port.setObjectName("action_btn")
+        btn_open_port.clicked.connect(self.quick_open_port)
+        port_btns.addWidget(btn_open_port)
+
+        btn_gufw = QPushButton("Advanced (gufw)...")
+        btn_gufw.setObjectName("action_btn")
+        btn_gufw.setStyleSheet(f"background-color: {COLORS['sidebar']};")
+        btn_gufw.clicked.connect(self.launch_gufw)
+        port_btns.addWidget(btn_gufw)
+
+        port_btns.addStretch()
+        cl_ufw.addLayout(port_btns)
 
         scroll_layout.addWidget(card_ufw)
 
@@ -602,10 +633,11 @@ class DashboardWindow(QMainWindow):
                 fw_name = self.inbound_status.get('firewall', 'Unknown')
                 self.lbl_inbound_desc.setText(f"Blocking unauthorized inbound • {fw_name}")
                 self.lbl_ufw_status.setText(f"Status: <b>Active</b> using {fw_name}")
-                # Show disable button only for UFW (we can control it)
-                is_ufw = self.inbound_status.get('type') == 'ufw'
+                # Show disable button for UFW and Bastion (we can control these)
+                fw_type = self.inbound_status.get('type', 'none')
+                can_disable = fw_type in ('ufw', 'bastion')
                 self.btn_ufw_enable.setVisible(False)
-                self.btn_ufw_disable.setVisible(is_ufw)
+                self.btn_ufw_disable.setVisible(can_disable)
             else:
                 self.lbl_inbound_title.setText("Exposed")
                 self.lbl_inbound_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['warning']}; margin-top: 8px;")
@@ -698,13 +730,128 @@ X-GNOME-Autostart-enabled=true
             show_notification(self, "Action Failed", msg)
         self.refresh_ui()
 
-    def disable_ufw(self):
-        if QMessageBox.question(self, "Confirm", "Disable Inbound Protection (UFW)?\nYour computer will be exposed to inbound connections.") != QMessageBox.StandardButton.Yes:
+    def disable_inbound(self):
+        """Disable inbound protection (works with UFW or Bastion's iptables)."""
+        if QMessageBox.question(self, "Confirm", "Disable Inbound Protection?\nYour computer will be exposed to incoming connections.") != QMessageBox.StandardButton.Yes:
             return
 
-        if self._run_privileged(['pkexec', 'ufw', 'disable'], success_message="UFW disabled.", error_hint="Failed to disable UFW."):
-            pass
+        fw_type = self.inbound_status.get('type', 'none')
+
+        if fw_type == 'ufw':
+            self._run_privileged(['pkexec', 'ufw', 'disable'], success_message="UFW disabled.", error_hint="Failed to disable UFW.")
+        elif fw_type == 'bastion':
+            success, msg = InboundFirewallDetector.remove_bastion_rules()
+            if success:
+                show_notification(self, "Protection Disabled", msg)
+            else:
+                show_notification(self, "Error", msg)
+        else:
+            show_notification(self, "Info", "No manageable inbound protection is active.")
+
         self.refresh_ui()
+
+    # Keep old name for compatibility
+    def disable_ufw(self):
+        self.disable_inbound()
+
+    def quick_open_port(self):
+        """Show dialog to quickly open a port (works with UFW or Bastion's iptables)."""
+        from PyQt6.QtWidgets import QDialog, QFormLayout, QSpinBox, QComboBox, QDialogButtonBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Open Port")
+        dialog.setMinimumWidth(300)
+
+        layout = QFormLayout(dialog)
+
+        # Port number
+        spin_port = QSpinBox()
+        spin_port.setRange(1, 65535)
+        spin_port.setValue(22)
+        layout.addRow("Port:", spin_port)
+
+        # Protocol
+        combo_proto = QComboBox()
+        combo_proto.addItems(["tcp", "udp", "both"])
+        layout.addRow("Protocol:", combo_proto)
+
+        # Common presets
+        lbl_presets = QLabel("Common: SSH=22, HTTP=80, HTTPS=443")
+        lbl_presets.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 11px;")
+        layout.addRow("", lbl_presets)
+
+        # Buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            port = spin_port.value()
+            proto = combo_proto.currentText()
+
+            # Use unified API that works with both UFW and Bastion's iptables
+            success, msg = InboundFirewallDetector.open_port(port, proto)
+            if success:
+                show_notification(self, "Port Opened", msg)
+            else:
+                show_notification(self, "Failed", msg)
+
+            self.refresh_ui()
+
+    def _launch_gufw_process(self):
+        """Launch gufw with proper display handling for Wayland."""
+        import os
+        # On Wayland, gufw needs display environment passed to root
+        is_wayland = os.environ.get('XDG_SESSION_TYPE') == 'wayland'
+        if is_wayland:
+            # Enable root access to display
+            subprocess.run(['xhost', '+si:localuser:root'], capture_output=True)
+            # Build environment string to pass through pkexec
+            display = os.environ.get('DISPLAY', ':0')
+            wayland_display = os.environ.get('WAYLAND_DISPLAY', '')
+            xdg_runtime = os.environ.get('XDG_RUNTIME_DIR', '')
+            # Use pkexec with env to pass display variables
+            cmd = ['pkexec', 'env',
+                   f'DISPLAY={display}',
+                   f'WAYLAND_DISPLAY={wayland_display}',
+                   f'XDG_RUNTIME_DIR={xdg_runtime}',
+                   'gufw']
+            subprocess.Popen(cmd, start_new_session=True)
+        else:
+            subprocess.Popen(['gufw'], start_new_session=True)
+
+    def launch_gufw(self):
+        """Launch the gufw GUI for advanced firewall configuration."""
+        import shutil
+
+        # Check if gufw is installed
+        if shutil.which('gufw'):
+            try:
+                self._launch_gufw_process()
+            except Exception as e:
+                show_notification(self, "Error", f"Failed to launch gufw: {e}")
+        else:
+            # Offer to install gufw
+            reply = QMessageBox.question(
+                self,
+                "Install gufw?",
+                "gufw (Graphical Uncomplicated Firewall) is not installed.\n\n"
+                "Would you like to install it now?\n\n"
+                "gufw provides a full GUI for managing inbound firewall rules.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                if self._run_privileged(
+                    ['pkexec', 'apt-get', 'install', '-y', 'gufw'],
+                    success_message="gufw installed! Launching...",
+                    error_hint="Failed to install gufw"
+                ):
+                    # Try to launch after install
+                    try:
+                        self._launch_gufw_process()
+                    except Exception:
+                        pass
 
     def refresh_rules_table(self):
         self.table_rules.setRowCount(0)

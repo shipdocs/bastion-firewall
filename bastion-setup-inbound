@@ -7,6 +7,7 @@ set -e
 
 BASTION_COMMENT="BASTION_INBOUND"
 CONFIG_FILE="/etc/bastion/config.json"
+STATE_FILE="/var/run/bastion/inbound-active"
 
 log() {
     echo "bastion-setup-inbound: $1"
@@ -41,21 +42,37 @@ check_firewalld() {
     fi
 }
 
-# Check if nftables has input chain configured
+# Check if nftables has actual DROP/REJECT rules in input chain
 check_nftables() {
     if command -v nft &>/dev/null; then
-        if nft list ruleset 2>/dev/null | grep -qi "chain input"; then
-            log "nftables input chain detected - skipping Bastion inbound rules"
+        # Look for actual blocking rules, not just empty chains
+        # iptables-nft creates chains but they may be empty when UFW is disabled
+        if nft list ruleset 2>/dev/null | grep -E "chain input|chain INPUT" | grep -qi "drop\|reject" 2>/dev/null; then
+            log "nftables input chain with blocking rules detected - skipping Bastion inbound rules"
+            exit 0
+        fi
+        # Also check for explicit drop policy
+        if nft list ruleset 2>/dev/null | grep -E "chain input|chain INPUT" -A5 | grep -qi "policy drop" 2>/dev/null; then
+            log "nftables input chain with drop policy detected - skipping Bastion inbound rules"
             exit 0
         fi
     fi
+    return 0
 }
 
-# Check for existing iptables INPUT rules (non-Bastion)
+# Check for existing iptables INPUT rules that actually block traffic
 check_iptables_rules() {
-    INPUT_RULES=$(iptables -L INPUT -n 2>/dev/null | grep -v "^Chain\|^target\|^$\|$BASTION_COMMENT" | wc -l)
-    if [ "$INPUT_RULES" -gt 0 ]; then
-        log "Existing iptables INPUT rules detected ($INPUT_RULES rules) - skipping"
+    # Look for DROP or REJECT rules in INPUT chain (not just ACCEPT or chain jumps)
+    BLOCKING_RULES=$(iptables -L INPUT -n 2>/dev/null | grep -E "DROP|REJECT" | grep -v "$BASTION_COMMENT" | wc -l || echo "0")
+    if [ "$BLOCKING_RULES" -gt 0 ]; then
+        log "Existing iptables INPUT blocking rules detected ($BLOCKING_RULES rules) - skipping"
+        exit 0
+    fi
+
+    # Also check INPUT chain policy
+    INPUT_POLICY=$(iptables -L INPUT -n 2>/dev/null | head -1 | grep -oE '\(policy [A-Z]+\)' | grep -oE 'DROP|REJECT' || true)
+    if [ -n "$INPUT_POLICY" ]; then
+        log "iptables INPUT chain has $INPUT_POLICY policy - skipping"
         exit 0
     fi
 }
@@ -63,6 +80,10 @@ check_iptables_rules() {
 # Check if our rules are already in place
 check_existing_bastion_rules() {
     if iptables -L INPUT -n 2>/dev/null | grep -q "$BASTION_COMMENT"; then
+        # Ensure state file exists (may be missing after reboot)
+        mkdir -p /var/run/bastion
+        echo "active" > "$STATE_FILE"
+        chmod 644 "$STATE_FILE"
         log "Bastion inbound rules already configured"
         exit 0
     fi
@@ -85,6 +106,11 @@ setup_rules() {
         ip6tables -A INPUT -p icmpv6 -m comment --comment "$BASTION_COMMENT" -j ACCEPT 2>/dev/null || true
         ip6tables -A INPUT -m comment --comment "$BASTION_COMMENT" -j DROP 2>/dev/null || true
     fi
+
+    # Create state file so GUI can detect protection without root
+    mkdir -p /var/run/bastion
+    echo "active" > "$STATE_FILE"
+    chmod 644 "$STATE_FILE"
 
     log "Bastion inbound protection enabled"
     log "  Allowing: localhost, established connections, ICMP ping"

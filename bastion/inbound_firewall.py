@@ -20,6 +20,8 @@ class InboundFirewallDetector:
 
     # Our comment marker for iptables rules
     BASTION_COMMENT = "BASTION_INBOUND"
+    # State file that indicates Bastion's rules are active (readable by regular users)
+    STATE_FILE = "/var/run/bastion/inbound-active"
 
     @staticmethod
     def _run_cmd(cmd: list, timeout: int = 5) -> tuple:
@@ -113,24 +115,34 @@ class InboundFirewallDetector:
 
     @classmethod
     def _detect_iptables_input(cls) -> dict:
-        """Detect if iptables INPUT chain has rules (non-Bastion)."""
+        """Detect if iptables INPUT chain has actual blocking rules."""
         rc, stdout, _ = cls._run_cmd(['iptables', '-L', 'INPUT', '-n'])
         if rc != 0:
-            return {'has_rules': False, 'has_bastion': False, 'count': 0}
+            return {'has_rules': False, 'has_bastion': False, 'blocking_count': 0}
 
         lines = stdout.strip().split('\n')
         # Skip header lines: "Chain INPUT..." and "target prot..."
         rules = [l for l in lines[2:] if l.strip()]
 
-        # Count non-Bastion rules
+        # Count Bastion's rules
         bastion_count = sum(1 for l in rules if cls.BASTION_COMMENT in l)
-        other_count = len(rules) - bastion_count
+
+        # Count actual blocking rules (DROP/REJECT) that aren't Bastion's
+        # Chain jumps (LIBVIRT_INP, ufw-*) don't count as actual protection
+        blocking_rules = [l for l in rules
+                        if ('DROP' in l or 'REJECT' in l)
+                        and cls.BASTION_COMMENT not in l]
+
+        # Also check if policy is DROP/REJECT
+        policy_line = lines[0] if lines else ''
+        has_drop_policy = 'policy DROP' in policy_line or 'policy REJECT' in policy_line
 
         return {
-            'has_rules': other_count > 0,
+            'has_rules': len(blocking_rules) > 0 or has_drop_policy,
             'has_bastion': bastion_count > 0,
-            'count': other_count,
-            'bastion_count': bastion_count
+            'blocking_count': len(blocking_rules),
+            'bastion_count': bastion_count,
+            'has_drop_policy': has_drop_policy
         }
 
     @classmethod
@@ -138,6 +150,19 @@ class InboundFirewallDetector:
         """Detect if Docker is installed and running."""
         rc, stdout, _ = cls._run_cmd(['systemctl', 'is-active', 'docker'])
         return rc == 0 and stdout.strip() == 'active'
+
+    @classmethod
+    def _detect_bastion_state_file(cls) -> bool:
+        """Check if Bastion's inbound protection state file exists.
+
+        This is used because regular users can't read iptables rules.
+        The state file is created by bastion-setup-inbound when rules are added.
+        """
+        try:
+            with open(cls.STATE_FILE, 'r') as f:
+                return f.read().strip() == 'active'
+        except (IOError, PermissionError):
+            return False
 
     @classmethod
     def detect_firewall(cls) -> dict:
@@ -200,20 +225,25 @@ class InboundFirewallDetector:
             })
             return result
 
-        # Priority 4: Check iptables INPUT rules
+        # Priority 4: Check iptables INPUT blocking rules (not just chain jumps)
         iptables = cls._detect_iptables_input()
         if iptables.get('has_rules'):
+            count = iptables.get('blocking_count', 0)
+            msg = f'iptables has {count} blocking INPUT rules configured.'
+            if iptables.get('has_drop_policy'):
+                msg = 'iptables INPUT chain has DROP policy.'
             result.update({
                 'type': 'iptables',
                 'active': True,
                 'status': 'active',
                 'firewall': 'iptables',
-                'message': f'iptables has {iptables["count"]} INPUT rules configured.'
+                'message': msg
             })
             return result
 
         # Priority 5: Check if Bastion's own rules are present
-        if iptables.get('has_bastion'):
+        # First check state file (works without root), then iptables output
+        if cls._detect_bastion_state_file() or iptables.get('has_bastion'):
             result.update({
                 'type': 'bastion',
                 'active': True,
@@ -371,3 +401,165 @@ class InboundFirewallDetector:
             return (True, "Bastion inbound rules removed.")
         except Exception as e:
             return (False, f"Failed to remove rules: {e}")
+
+    @classmethod
+    def open_port(cls, port: int, protocol: str = 'tcp') -> tuple:
+        """
+        Open a port for inbound connections.
+        Works with both UFW (if active) and Bastion's iptables rules.
+
+        Args:
+            port: Port number (1-65535)
+            protocol: 'tcp', 'udp', or 'both'
+
+        Returns:
+            tuple: (success: bool, message: str)
+        """
+        if not 1 <= port <= 65535:
+            return (False, f"Invalid port number: {port}")
+
+        if protocol not in ('tcp', 'udp', 'both'):
+            return (False, f"Invalid protocol: {protocol}")
+
+        # Detect current firewall type
+        status = cls.detect_firewall()
+        fw_type = status.get('type', 'none')
+
+        if fw_type == 'ufw':
+            return cls._open_port_ufw(port, protocol)
+        elif fw_type == 'bastion':
+            return cls._open_port_iptables(port, protocol)
+        elif fw_type == 'iptables':
+            return cls._open_port_iptables(port, protocol)
+        else:
+            return (False, "No inbound firewall is active. Enable protection first.")
+
+    @classmethod
+    def _open_port_ufw(cls, port: int, protocol: str) -> tuple:
+        """Open port using UFW."""
+        try:
+            if protocol == 'both':
+                rc1, _, err1 = cls._run_cmd(['pkexec', 'ufw', 'allow', f'{port}/tcp'])
+                rc2, _, err2 = cls._run_cmd(['pkexec', 'ufw', 'allow', f'{port}/udp'])
+                if rc1 == 0 and rc2 == 0:
+                    return (True, f"Port {port} (TCP+UDP) opened via UFW.")
+                return (False, f"Failed to open port: {err1 or err2}")
+            else:
+                rc, _, err = cls._run_cmd(['pkexec', 'ufw', 'allow', f'{port}/{protocol}'])
+                if rc == 0:
+                    return (True, f"Port {port}/{protocol} opened via UFW.")
+                return (False, f"Failed to open port: {err}")
+        except Exception as e:
+            return (False, f"UFW error: {e}")
+
+    @classmethod
+    def _open_port_iptables(cls, port: int, protocol: str) -> tuple:
+        """Open port using iptables (for Bastion's basic protection)."""
+        try:
+            # We need to insert ACCEPT rules BEFORE the DROP rule
+            # Find the DROP rule position
+            rc, stdout, _ = cls._run_cmd(['iptables', '-L', 'INPUT', '-n', '--line-numbers'])
+            if rc != 0:
+                return (False, "Failed to read iptables rules")
+
+            # Find the DROP rule with BASTION_INBOUND comment
+            drop_line = None
+            for line in stdout.strip().split('\n'):
+                if 'DROP' in line and cls.BASTION_COMMENT in line:
+                    parts = line.split()
+                    if parts and parts[0].isdigit():
+                        drop_line = int(parts[0])
+                        break
+
+            if drop_line is None:
+                return (False, "Bastion DROP rule not found. Is inbound protection active?")
+
+            # Insert ACCEPT rule before DROP
+            protocols = ['tcp', 'udp'] if protocol == 'both' else [protocol]
+            comment = f"{cls.BASTION_COMMENT}_PORT"
+
+            for proto in protocols:
+                cmd = [
+                    'pkexec', 'iptables', '-I', 'INPUT', str(drop_line),
+                    '-p', proto, '--dport', str(port),
+                    '-m', 'comment', '--comment', comment,
+                    '-j', 'ACCEPT'
+                ]
+                rc, _, err = cls._run_cmd(cmd)
+                if rc != 0:
+                    return (False, f"Failed to add rule: {err}")
+                # Increment drop_line for next insertion
+                drop_line += 1
+
+            proto_str = "TCP+UDP" if protocol == 'both' else protocol.upper()
+            return (True, f"Port {port} ({proto_str}) opened via iptables.")
+        except Exception as e:
+            return (False, f"iptables error: {e}")
+
+    @classmethod
+    def close_port(cls, port: int, protocol: str = 'tcp') -> tuple:
+        """
+        Close a previously opened port.
+
+        Args:
+            port: Port number (1-65535)
+            protocol: 'tcp', 'udp', or 'both'
+
+        Returns:
+            tuple: (success: bool, message: str)
+        """
+        status = cls.detect_firewall()
+        fw_type = status.get('type', 'none')
+
+        if fw_type == 'ufw':
+            return cls._close_port_ufw(port, protocol)
+        elif fw_type in ('bastion', 'iptables'):
+            return cls._close_port_iptables(port, protocol)
+        else:
+            return (False, "No inbound firewall is active.")
+
+    @classmethod
+    def _close_port_ufw(cls, port: int, protocol: str) -> tuple:
+        """Close port using UFW."""
+        try:
+            if protocol == 'both':
+                cls._run_cmd(['pkexec', 'ufw', 'delete', 'allow', f'{port}/tcp'])
+                cls._run_cmd(['pkexec', 'ufw', 'delete', 'allow', f'{port}/udp'])
+                return (True, f"Port {port} (TCP+UDP) closed via UFW.")
+            else:
+                rc, _, err = cls._run_cmd(['pkexec', 'ufw', 'delete', 'allow', f'{port}/{protocol}'])
+                if rc == 0:
+                    return (True, f"Port {port}/{protocol} closed via UFW.")
+                return (False, f"Failed to close port: {err}")
+        except Exception as e:
+            return (False, f"UFW error: {e}")
+
+    @classmethod
+    def _close_port_iptables(cls, port: int, protocol: str) -> tuple:
+        """Close port by removing iptables ACCEPT rule."""
+        try:
+            protocols = ['tcp', 'udp'] if protocol == 'both' else [protocol]
+
+            for proto in protocols:
+                # Find and delete rules matching port and protocol
+                while True:
+                    rc, stdout, _ = cls._run_cmd(['iptables', '-L', 'INPUT', '-n', '--line-numbers'])
+                    if rc != 0:
+                        break
+
+                    found = False
+                    for line in stdout.strip().split('\n'):
+                        if (f'dpt:{port}' in line and proto in line and
+                            f'{cls.BASTION_COMMENT}_PORT' in line):
+                            parts = line.split()
+                            if parts and parts[0].isdigit():
+                                cls._run_cmd(['pkexec', 'iptables', '-D', 'INPUT', parts[0]])
+                                found = True
+                                break
+                    if not found:
+                        break
+
+            proto_str = "TCP+UDP" if protocol == 'both' else protocol.upper()
+            return (True, f"Port {port} ({proto_str}) closed.")
+        except Exception as e:
+            return (False, f"iptables error: {e}")

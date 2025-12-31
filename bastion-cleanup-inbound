@@ -1,0 +1,40 @@
+#!/bin/bash
+# Bastion Firewall - Inbound Protection Cleanup
+# Removes only Bastion's INPUT rules (tagged with BASTION_INBOUND comment)
+# Called by systemd service on stop.
+
+BASTION_COMMENT="BASTION_INBOUND"
+STATE_FILE="/var/run/bastion/inbound-active"
+
+log() {
+    echo "bastion-cleanup-inbound: $1"
+}
+
+cleanup_rules() {
+    local iptables_cmd="$1"
+    
+    # Get current rules with line numbers
+    rules=$($iptables_cmd -L INPUT -n --line-numbers 2>/dev/null | grep "$BASTION_COMMENT" | awk '{print $1}' | sort -rn)
+    
+    if [ -z "$rules" ]; then
+        return 0
+    fi
+    
+    # Delete in reverse order to maintain line numbers
+    for num in $rules; do
+        $iptables_cmd -D INPUT $num 2>/dev/null
+    done
+}
+
+# Clean IPv4 rules
+cleanup_rules "iptables"
+
+# Clean IPv6 rules
+cleanup_rules "ip6tables"
+
+# Remove state file
+rm -f "$STATE_FILE"
+
+log "Bastion inbound rules removed"
+exit 0
+
