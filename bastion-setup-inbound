@@ -1,0 +1,104 @@
+#!/bin/bash
+# Bastion Firewall - Inbound Protection Setup
+# This script sets up minimal INPUT chain rules if no other firewall is detected.
+# Called by systemd service at startup.
+
+set -e
+
+BASTION_COMMENT="BASTION_INBOUND"
+CONFIG_FILE="/etc/bastion/config.json"
+
+log() {
+    echo "bastion-setup-inbound: $1"
+}
+
+# Check if inbound protection is disabled in config
+check_config() {
+    if [ -f "$CONFIG_FILE" ]; then
+        INBOUND_ENABLED=$(grep -o '"inbound_protection"[[:space:]]*:[[:space:]]*\(true\|false\)' "$CONFIG_FILE" 2>/dev/null | grep -o '\(true\|false\)' || echo "true")
+        if [ "$INBOUND_ENABLED" = "false" ]; then
+            log "Inbound protection disabled in config"
+            exit 0
+        fi
+    fi
+}
+
+# Check if UFW is active
+check_ufw() {
+    if command -v ufw &>/dev/null; then
+        if ufw status 2>/dev/null | grep -q "Status: active"; then
+            log "UFW is active - skipping Bastion inbound rules"
+            exit 0
+        fi
+    fi
+}
+
+# Check if firewalld is active
+check_firewalld() {
+    if systemctl is-active firewalld &>/dev/null; then
+        log "firewalld is active - skipping Bastion inbound rules"
+        exit 0
+    fi
+}
+
+# Check if nftables has input chain configured
+check_nftables() {
+    if command -v nft &>/dev/null; then
+        if nft list ruleset 2>/dev/null | grep -qi "chain input"; then
+            log "nftables input chain detected - skipping Bastion inbound rules"
+            exit 0
+        fi
+    fi
+}
+
+# Check for existing iptables INPUT rules (non-Bastion)
+check_iptables_rules() {
+    INPUT_RULES=$(iptables -L INPUT -n 2>/dev/null | grep -v "^Chain\|^target\|^$\|$BASTION_COMMENT" | wc -l)
+    if [ "$INPUT_RULES" -gt 0 ]; then
+        log "Existing iptables INPUT rules detected ($INPUT_RULES rules) - skipping"
+        exit 0
+    fi
+}
+
+# Check if our rules are already in place
+check_existing_bastion_rules() {
+    if iptables -L INPUT -n 2>/dev/null | grep -q "$BASTION_COMMENT"; then
+        log "Bastion inbound rules already configured"
+        exit 0
+    fi
+}
+
+# Set up minimal INPUT rules
+setup_rules() {
+    log "Setting up minimal inbound protection..."
+
+    # IPv4 rules
+    iptables -A INPUT -i lo -m comment --comment "$BASTION_COMMENT" -j ACCEPT
+    iptables -A INPUT -m state --state ESTABLISHED,RELATED -m comment --comment "$BASTION_COMMENT" -j ACCEPT
+    iptables -A INPUT -p icmp --icmp-type echo-request -m comment --comment "$BASTION_COMMENT" -j ACCEPT
+    iptables -A INPUT -m comment --comment "$BASTION_COMMENT" -j DROP
+
+    # IPv6 rules (if ip6tables available)
+    if command -v ip6tables &>/dev/null; then
+        ip6tables -A INPUT -i lo -m comment --comment "$BASTION_COMMENT" -j ACCEPT 2>/dev/null || true
+        ip6tables -A INPUT -m state --state ESTABLISHED,RELATED -m comment --comment "$BASTION_COMMENT" -j ACCEPT 2>/dev/null || true
+        ip6tables -A INPUT -p icmpv6 -m comment --comment "$BASTION_COMMENT" -j ACCEPT 2>/dev/null || true
+        ip6tables -A INPUT -m comment --comment "$BASTION_COMMENT" -j DROP 2>/dev/null || true
+    fi
+
+    log "Bastion inbound protection enabled"
+    log "  Allowing: localhost, established connections, ICMP ping"
+    log "  Blocking: all other unsolicited inbound connections"
+}
+
+# Main
+check_config
+check_ufw
+check_firewalld
+check_nftables
+check_iptables_rules
+check_existing_bastion_rules
+setup_rules
+
+exit 0
+

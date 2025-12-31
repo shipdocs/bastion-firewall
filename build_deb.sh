@@ -82,6 +82,7 @@ cp bastion_control_panel.py debian/usr/bin/bastion-control-panel
 cp bastion-launch-gui.sh debian/usr/bin/bastion-launch
 cp bastion-reload-rules debian/usr/bin/bastion-reload-rules
 cp bastion-reload-config debian/usr/bin/bastion-reload-config
+cp bastion-setup-inbound debian/usr/bin/bastion-setup-inbound
 chmod +x debian/usr/bin/*
 
 print_step "Copying Python modules..."

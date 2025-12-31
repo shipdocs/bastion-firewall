@@ -47,16 +47,38 @@ class InboundFirewallDetector:
         if rc != 0:
             return {'installed': False, 'active': False}
 
-        # Check UFW status (requires root, but returns partial info anyway)
+        # Method 1: Read /etc/ufw/ufw.conf (readable by regular users)
+        # This is the most reliable way without requiring root
+        try:
+            with open('/etc/ufw/ufw.conf', 'r') as f:
+                content = f.read()
+                if 'ENABLED=yes' in content:
+                    return {'installed': True, 'active': True}
+                elif 'ENABLED=no' in content:
+                    return {'installed': True, 'active': False}
+        except (IOError, PermissionError):
+            pass  # Fall through to other methods
+
+        # Method 2: Try with sudo (non-interactive, requires passwordless sudo)
+        rc, stdout, _ = cls._run_cmd(['sudo', '-n', 'ufw', 'status'])
+        if rc == 0:
+            if 'Status: active' in stdout:
+                return {'installed': True, 'active': True, 'output': stdout}
+            elif 'Status: inactive' in stdout:
+                return {'installed': True, 'active': False}
+
+        # Method 3: Try without sudo (may work on some systems)
         rc, stdout, _ = cls._run_cmd(['ufw', 'status'])
-        if rc == 0 and 'Status: active' in stdout:
-            return {'installed': True, 'active': True, 'output': stdout}
+        if rc == 0:
+            if 'Status: active' in stdout:
+                return {'installed': True, 'active': True, 'output': stdout}
+            elif 'Status: inactive' in stdout:
+                return {'installed': True, 'active': False}
 
-        # Also check systemd service
-        rc, stdout, _ = cls._run_cmd(['systemctl', 'is-active', 'ufw'])
-        if rc == 0 and stdout.strip() == 'active':
-            return {'installed': True, 'active': True}
+        # Note: We do NOT check systemctl is-active ufw because UFW's
+        # systemd service stays "active" even when firewall is disabled.
 
+        # If we can't determine status, assume inactive (safer default)
         return {'installed': True, 'active': False}
 
     @classmethod
