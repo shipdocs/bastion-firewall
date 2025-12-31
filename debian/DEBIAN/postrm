@@ -8,6 +8,44 @@ if [ -d /var/run/bastion ]; then
     rm -rf /var/run/bastion || true
 fi
 
+# Remove iptables rules added by Bastion
+echo "Removing iptables rules..."
+
+# Remove OUTPUT chain rules (BASTION_BYPASS)
+while iptables -L OUTPUT -n --line-numbers 2>/dev/null | grep -q "BASTION_BYPASS"; do
+    RULE_NUM=$(iptables -L OUTPUT -n --line-numbers 2>/dev/null | grep "BASTION_BYPASS" | head -1 | awk '{print $1}')
+    if [ -n "$RULE_NUM" ]; then
+        iptables -D OUTPUT "$RULE_NUM" 2>/dev/null || true
+    else
+        break
+    fi
+done
+
+# Remove INPUT chain rules (BASTION_INBOUND) - IPv4
+while iptables -L INPUT -n --line-numbers 2>/dev/null | grep -q "BASTION_INBOUND"; do
+    RULE_NUM=$(iptables -L INPUT -n --line-numbers 2>/dev/null | grep "BASTION_INBOUND" | head -1 | awk '{print $1}')
+    if [ -n "$RULE_NUM" ]; then
+        iptables -D INPUT "$RULE_NUM" 2>/dev/null || true
+    else
+        break
+    fi
+done
+
+# Remove INPUT chain rules (BASTION_INBOUND) - IPv6
+while ip6tables -L INPUT -n --line-numbers 2>/dev/null | grep -q "BASTION_INBOUND"; do
+    RULE_NUM=$(ip6tables -L INPUT -n --line-numbers 2>/dev/null | grep "BASTION_INBOUND" | head -1 | awk '{print $1}')
+    if [ -n "$RULE_NUM" ]; then
+        ip6tables -D INPUT "$RULE_NUM" 2>/dev/null || true
+    else
+        break
+    fi
+done
+
+# Remove NFQUEUE rule from OUTPUT
+iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || true
+
+echo "iptables rules cleaned up"
+
 # Purge configuration if requested
 if [ "$1" = "purge" ]; then
     echo "Removing configuration and data files..."

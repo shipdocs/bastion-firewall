@@ -593,26 +593,30 @@ class DashboardWindow(QMainWindow):
             logger.error(f"Failed to check bastion firewall status: {e}")
             self.lbl_status_title.setText("Error")
 
-        # 2. Inbound (UFW)
+        # 2. Inbound firewall status
         try:
             self.inbound_status = InboundFirewallDetector.detect_firewall()
-            if self.inbound_status.get('status') == 'active':
+            if self.inbound_status.get('active'):
                 self.lbl_inbound_title.setText("Protected")
                 self.lbl_inbound_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['success']}; margin-top: 8px;")
-                fw_name = self.inbound_status.get('firewall', 'UFW')
+                fw_name = self.inbound_status.get('firewall', 'Unknown')
                 self.lbl_inbound_desc.setText(f"Blocking unauthorized inbound • {fw_name}")
                 self.lbl_ufw_status.setText(f"Status: <b>Active</b> using {fw_name}")
+                # Show disable button only for UFW (we can control it)
+                is_ufw = self.inbound_status.get('type') == 'ufw'
                 self.btn_ufw_enable.setVisible(False)
-                self.btn_ufw_disable.setVisible(True)
+                self.btn_ufw_disable.setVisible(is_ufw)
             else:
                 self.lbl_inbound_title.setText("Exposed")
                 self.lbl_inbound_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {COLORS['warning']}; margin-top: 8px;")
-                self.lbl_inbound_desc.setText("Inbound traffic is not filtered")
-                self.lbl_ufw_status.setText("Status: <b>Inactive</b>. Enable UFW to block inbound threats.")
+                msg = self.inbound_status.get('message', 'Inbound traffic is not filtered')
+                self.lbl_inbound_desc.setText(msg[:60] + "..." if len(msg) > 60 else msg)
+                rec = self.inbound_status.get('recommendation', 'Click "Setup Protection" to enable.')
+                self.lbl_ufw_status.setText(f"Status: <b>Inactive</b>. {rec}")
                 self.btn_ufw_enable.setVisible(True)
                 self.btn_ufw_disable.setVisible(False)
-        except (subprocess.SubprocessError, OSError) as e:
-            logger.error(f"Failed to check UFW status: {e}")
+        except Exception as e:
+            logger.error(f"Failed to check inbound firewall status: {e}")
             self.lbl_inbound_title.setText("Unknown")
 
         # 3. Update Stats

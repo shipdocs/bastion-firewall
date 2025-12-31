@@ -16,7 +16,8 @@ class ConfigManager:
         'timeout_seconds': 30,
         'allow_localhost': True,
         'allow_lan': False,
-        'log_decisions': True
+        'log_decisions': True,
+        'inbound_protection': True  # Enable minimal INPUT rules if no other firewall detected
     }
     
     CONFIG_PATH = Path('/etc/bastion/config.json')
@@ -48,7 +49,7 @@ class ConfigManager:
         validated['timeout_seconds'] = timeout
         
         # Validate boolean flags
-        for key in ['cache_decisions', 'allow_localhost', 'allow_lan', 'log_decisions']:
+        for key in ['cache_decisions', 'allow_localhost', 'allow_lan', 'log_decisions', 'inbound_protection']:
             value = config.get(key, cls.DEFAULT_CONFIG.get(key, False))
             validated[key] = bool(value)
         
