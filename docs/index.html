@@ -52,8 +52,8 @@
                 </p>
 
                 <div style="background: linear-gradient(135deg, #1a3a5f 0%, #2d5a8a 100%); padding: 15px 25px; border-radius: 8px; margin: 20px auto; max-width: 700px; border-left: 4px solid #4a9eff;">
-                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 5px;">🎉 v2.0.23 Released!</div>
-                    <div style="font-size: 13px; opacity: 0.95;">NEW: Wildcard port rules - allow/deny an app on ALL ports with one rule! Plus Rust daemon + eBPF kernel hooks, 98% success rate for short-lived connections, <1µs process lookup.</div>
+                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 5px;">🎉 v2.0.25 Released!</div>
+                    <div style="font-size: 13px; opacity: 0.95;">NEW: Inbound firewall protection (UFW integration), mDNS auto-allow, wildcard port rules. Rust daemon + eBPF kernel hooks with 98% success rate for short-lived connections.</div>
                 </div>
 
                 <!-- Dynamic Release Cards -->
@@ -179,6 +179,16 @@
                     <div class="feature-icon">🌐</div>
                     <h3>Wildcard Port Rules</h3>
                     <p>Allow or deny an application on ALL ports with a single rule - perfect for Zoom, Slack, Teams</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>Inbound Protection</h3>
+                    <p>Automatic inbound firewall via UFW integration or standalone INPUT rules - blocks unsolicited connections</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📡</div>
+                    <h3>mDNS Auto-Allow</h3>
+                    <p>No popups for local network discovery - .local hostnames just work out of the box</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🎯</div>
@@ -456,7 +466,7 @@ sudo apt-get install -f</code></pre>
             <div class="footer-content">
                 <div class="footer-section">
                     <h4>🏰 Bastion Firewall</h4>
-                    <p>Your Last Line of Defense - Rust + eBPF v2.0.23</p>
+                    <p>Your Last Line of Defense - Rust + eBPF v2.0.25</p>
                 </div>
                 <div class="footer-section">
                     <h4>Links</h4>

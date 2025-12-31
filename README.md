@@ -32,7 +32,8 @@ Bastion intercepts outbound connections and prompts you to allow or deny them pe
 - Identifies short-lived connections (curl, wget) that timing-based methods miss
 - /proc scanning fallback for compatibility
 - Connection caching with TTL
-- UFW integration for inbound protection
+- **Inbound Firewall Protection** - Automatic UFW integration or standalone INPUT rules
+- **mDNS Auto-Allow** - No popups for local network discovery (.local hostnames)
 - **Wildcard Port Rules** - Apply rules to all ports for an application (e.g., Zoom, Slack)
 - **Rule Search & Filtering** - Quickly find rules by app name, path, port, or action
 - **Import/Export Rules** - Backup and restore your firewall rules

@@ -5,6 +5,17 @@ All notable changes to Bastion Firewall will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.25] - 2025-12-31
+
+### Features
+- **mDNS Auto-Allow**: Automatically allows mDNS multicast traffic (224.0.0.251:5353) for `.local` hostname resolution
+  - No more popups for Avahi/mDNS discovery
+  - Improves out-of-box experience for local network browsing
+
+### Improvements
+- **Branch Cleanup**: Consolidated all feature branches into master
+- **Version Management**: All components now use single-source VERSION file
+
 ## [2.0.24] - 2025-12-31
 
 ### Features
