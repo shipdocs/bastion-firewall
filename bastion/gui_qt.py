@@ -745,7 +745,8 @@ class DashboardWindow(QMainWindow):
         self.live_stats.update(stats)
         logger.info(f"Received stats update: total={stats.get('total_connections', 0)}, "
                    f"allowed={stats.get('allowed_connections', 0)}, "
-                   f"blocked={stats.get('blocked_connections', 0)}")
+                   f"blocked={stats.get('blocked_connections', 0)}, "
+                   f"learning_mode={stats.get('learning_mode', 'NOT_SET')}")
         # Schedule UI update on main thread
         QTimer.singleShot(0, self.update_stats_display)
 

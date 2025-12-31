@@ -1,4 +1,4 @@
-//! Service whitelist - auto-allow essential system services
+//! Service whitelist - auto-allow essential system services and trusted apps
 
 use std::collections::HashSet;
 use once_cell::sync::Lazy;
@@ -39,6 +39,11 @@ static SYSTEM_PATHS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     s.insert("/usr/libexec/packagekitd");
     s
 });
+
+// NOTE: We intentionally do NOT auto-allow apps by name alone.
+// This would be a security risk as comm names can be spoofed.
+// Instead, we show a popup on first connection and let the user decide.
+// The decision is then saved as a persistent rule (@name:appname:port).
 
 /// Category of an application
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -89,6 +94,12 @@ pub fn should_auto_allow(app_path: &str, app_name: &str, dest_port: u16, dest_ip
         return (true, "mDNS (local)");
     }
 
+    // 1c. SSDP/UPnP multicast (239.255.255.250:1900) - local network discovery
+    // Used by printers, smart home devices, media servers, etc. Never leaves LAN.
+    if dest_ip == "239.255.255.250" && dest_port == 1900 {
+        return (true, "SSDP (local)");
+    }
+
     // 2. DNS traffic - auto-allow for trusted binaries OR unknown processes
     if dest_port == 53 {
         if SYSTEM_PATHS.contains(app_path) || app_path.starts_with("/usr/lib/systemd/") {
@@ -129,11 +140,13 @@ pub fn should_auto_allow(app_path: &str, app_name: &str, dest_port: u16, dest_ip
         return (true, "System service");
     }
 
-    // 6. Check path prefixes
+    // 6. Check path prefixes for systemd
     if app_path.starts_with("/usr/lib/systemd/") {
         return (true, "Systemd service");
     }
 
+    // All other connections require user approval via popup
+    // This is intentional - the user should see and approve each app at least once
     (false, "")
 }
 

@@ -26,11 +26,13 @@ pub struct SocketKey {
 }
 
 // Value structure for our socket map
+// Now includes comm name to identify process even after it exits
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct SocketInfo {
     pub pid: u32,
     pub timestamp: u64,  // For TTL/expiry
+    pub comm: [u8; 16],  // Process name captured at connection time (bpf_get_current_comm)
 }
 
 // Map to store socket information
@@ -190,19 +192,26 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
         dst_ip_v6: [0u8; 16],
     };
     
+    // Capture process name at connection time - critical for short-lived processes
+    let comm = match unsafe { aya_ebpf::helpers::bpf_get_current_comm() } {
+        Ok(c) => c,
+        Err(_) => [0u8; 16],
+    };
+
     let info = SocketInfo {
         pid,
         timestamp: unsafe { aya_ebpf::helpers::bpf_ktime_get_ns() },
+        comm,
     };
-    
+
     unsafe {
         if let Err(_) = SOCKET_MAP.insert(&key, &info, 0) {
             warn!(&ctx, "Failed to insert TCP connection info");
         }
     }
-    
+
     info!(&ctx, "TCPv4 connect: PID {} -> {}:{}", pid, dst_ip, dst_port);
-    
+
     Ok(())
 }
 
@@ -302,19 +311,26 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
         dst_ip_v6: [0u8; 16],
     };
     
+    // Capture process name at connection time - critical for short-lived processes
+    let comm = match unsafe { aya_ebpf::helpers::bpf_get_current_comm() } {
+        Ok(c) => c,
+        Err(_) => [0u8; 16],
+    };
+
     let info = SocketInfo {
         pid,
         timestamp: unsafe { aya_ebpf::helpers::bpf_ktime_get_ns() },
+        comm,
     };
-    
+
     unsafe {
         if let Err(_) = SOCKET_MAP.insert(&key, &info, 0) {
             warn!(&ctx, "Failed to insert UDP connection info");
         }
     }
-    
+
     info!(&ctx, "UDPv4 sendmsg: PID {} -> {}:{}", pid, dst_ip, dst_port);
-    
+
     Ok(())
 }
 
@@ -410,24 +426,31 @@ fn try_tcp_v6_connect(ctx: KProbe) -> Result<(), i32> {
         dst_ip_v6,
     };
     
+    // Capture process name at connection time - critical for short-lived processes
+    let comm = match unsafe { aya_ebpf::helpers::bpf_get_current_comm() } {
+        Ok(c) => c,
+        Err(_) => [0u8; 16],
+    };
+
     let info = SocketInfo {
         pid,
         timestamp: unsafe { aya_ebpf::helpers::bpf_ktime_get_ns() },
+        comm,
     };
-    
+
     unsafe {
         if let Err(_) = SOCKET_MAP.insert(&key, &info, 0) {
             warn!(&ctx, "Failed to insert TCPv6 connection info");
         }
     }
-    
+
     info!(&ctx, "TCPv6 connect: PID {} -> [{}]:{}", pid,
           dst_ip_v6[0], dst_ip_v6[1], dst_ip_v6[2], dst_ip_v6[3],
           dst_ip_v6[4], dst_ip_v6[5], dst_ip_v6[6], dst_ip_v6[7],
           dst_ip_v6[8], dst_ip_v6[9], dst_ip_v6[10], dst_ip_v6[11],
           dst_ip_v6[12], dst_ip_v6[13], dst_ip_v6[14], dst_ip_v6[15],
           dst_port);
-    
+
     Ok(())
 }
 
@@ -493,24 +516,31 @@ fn try_udpv6_sendmsg(ctx: KProbe) -> Result<(), i32> {
         dst_ip_v6,
     };
     
+    // Capture process name at connection time - critical for short-lived processes
+    let comm = match unsafe { aya_ebpf::helpers::bpf_get_current_comm() } {
+        Ok(c) => c,
+        Err(_) => [0u8; 16],
+    };
+
     let info = SocketInfo {
         pid,
         timestamp: unsafe { aya_ebpf::helpers::bpf_ktime_get_ns() },
+        comm,
     };
-    
+
     unsafe {
         if let Err(_) = SOCKET_MAP.insert(&key, &info, 0) {
             warn!(&ctx, "Failed to insert UDPv6 connection info");
         }
     }
-    
+
     info!(&ctx, "UDPv6 sendmsg: PID {} -> [{}]:{}", pid,
           dst_ip_v6[0], dst_ip_v6[1], dst_ip_v6[2], dst_ip_v6[3],
           dst_ip_v6[4], dst_ip_v6[5], dst_ip_v6[6], dst_ip_v6[7],
           dst_ip_v6[8], dst_ip_v6[9], dst_ip_v6[10], dst_ip_v6[11],
           dst_ip_v6[12], dst_ip_v6[13], dst_ip_v6[14], dst_ip_v6[15],
           dst_port);
-    
+
     Ok(())
 }
 

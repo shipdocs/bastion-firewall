@@ -83,6 +83,13 @@ struct UnknownDecision {
     timestamp: std::time::Instant,
 }
 
+/// Cached session decision (for apps that don't have persistent rules yet)
+#[derive(Clone)]
+struct SessionDecision {
+    allow: bool,
+    timestamp: std::time::Instant,
+}
+
 /// Shared state for GUI connection (we're the SERVER, GUI connects to us)
 struct GuiState {
     stream: Option<UnixStream>,
@@ -91,6 +98,9 @@ struct GuiState {
     // Cache user decisions for "unknown" apps to prevent popup spam
     // Key: "dest_ip:dest_port", Value: (allow_bool, timestamp)
     unknown_decisions: HashMap<String, UnknownDecision>,
+    // Session decision cache: remembers user decisions for this session
+    // Key: "app_name:port" or "app_path:port", Value: allow/deny + timestamp
+    session_decisions: HashMap<String, SessionDecision>,
 }
 
 impl GuiState {
@@ -110,7 +120,27 @@ impl GuiState {
             reader: None,
             pending_cache: HashMap::new(),
             unknown_decisions: HashMap::new(),
+            session_decisions: HashMap::new(),
         }
+    }
+
+    /// Check if we have a cached session decision for this app+port
+    fn get_session_decision(&self, cache_key: &str) -> Option<bool> {
+        if let Some(decision) = self.session_decisions.get(cache_key) {
+            // Session decisions last for 1 hour
+            if decision.timestamp.elapsed() < Duration::from_secs(3600) {
+                return Some(decision.allow);
+            }
+        }
+        None
+    }
+
+    /// Cache a session decision for this app+port
+    fn cache_session_decision(&mut self, cache_key: &str, allow: bool) {
+        self.session_decisions.insert(cache_key.to_string(), SessionDecision {
+            allow,
+            timestamp: std::time::Instant::now(),
+        });
     }
     
     /// Sets up and stores a GUI connection from the given `UnixStream`.
@@ -224,16 +254,20 @@ impl GuiState {
         }
         
         // Dedup: don't spam same request
-        // Use app_name if app_path is empty, and include dest_ip for better dedup
+        // Key by app+port only (not destination IP) to reduce popup spam
+        // This means one popup per app+port, not per app+destination
         let cache_key = if request.app_path.is_empty() || request.app_path == "unknown" {
-            format!("{}:{}:{}", request.app_name, request.dest_ip, request.dest_port)
+            // For unknown paths, use app_name:port
+            format!("@name:{}:{}", request.app_name, request.dest_port)
         } else {
-            format!("{}:{}:{}", request.app_path, request.dest_ip, request.dest_port)
+            // For known paths, use path:port
+            format!("{}:{}", request.app_path, request.dest_port)
         };
 
         if let Some(time) = self.pending_cache.get(&cache_key) {
-            if time.elapsed() < Duration::from_secs(5) {
-                debug!("Dedup: already asked for {}", cache_key);
+            // Extend dedup window to 30 seconds to cover typical browsing sessions
+            if time.elapsed() < Duration::from_secs(30) {
+                debug!("Dedup: already asked for {} (waiting for response)", cache_key);
                 return None;
             }
         }
@@ -388,8 +422,9 @@ fn main() -> anyhow::Result<()> {
         loop {
             thread::sleep(Duration::from_secs(30));
             let s = stats_clone.lock();
-            info!("Stats: {} total, {} allowed, {} blocked",
-                s.total_connections, s.allowed_connections, s.blocked_connections);
+            let mode = if s.learning_mode { "learning" } else { "enforcement" };
+            info!("Stats: {} total, {} allowed, {} blocked ({})",
+                s.total_connections, s.allowed_connections, s.blocked_connections, mode);
         }
     });
 
@@ -732,21 +767,30 @@ fn process_packet(
         }
     }
 
-    // No rule found - ask user
-    let request = ConnectionRequest {
-        msg_type: "connection_request".to_string(),
-        app_name: app_name.clone(),
-        app_path: app_path.clone(),
-        app_category: "unknown".to_string(),
-        dest_ip: dst_ip_str.clone(),
-        dest_port: dst_port,
-        protocol: protocol_str.to_string(),
+    // No rule found - check session cache first, then ask user
+    // Build cache key (same format as dedup key)
+    let session_cache_key = if app_path.is_empty() || app_path == "unknown" {
+        format!("@name:{}:{}", app_name, dst_port)
+    } else {
+        format!("{}:{}", app_path, dst_port)
     };
 
     // Try to get GUI decision (blocking with timeout)
     let mut gui = gui_state.lock();
 
-    // For unknown apps, check if we have a recent cached decision to prevent popup spam
+    // Check session decision cache first (covers all apps, not just unknown)
+    if let Some(cached_allow) = gui.get_session_decision(&session_cache_key) {
+        drop(gui);
+        return if cached_allow {
+            debug!("[SESSION:ALLOW] app=\"{}\" dst=\"{}:{}\"", app_name, dst_ip, dst_port);
+            Verdict::Accept
+        } else {
+            debug!("[SESSION:BLOCK] app=\"{}\" dst=\"{}:{}\"", app_name, dst_ip, dst_port);
+            Verdict::Drop
+        };
+    }
+
+    // For unknown apps, also check the legacy destination-based cache
     if app_name == "unknown" || app_path == "unknown" {
         if let Some(cached_decision) = gui.check_unknown_decision(&dst_ip_str, dst_port) {
             drop(gui);
@@ -760,13 +804,25 @@ fn process_packet(
         }
     }
 
+    let request = ConnectionRequest {
+        msg_type: "connection_request".to_string(),
+        app_name: app_name.clone(),
+        app_path: app_path.clone(),
+        app_category: "unknown".to_string(),
+        dest_ip: dst_ip_str.clone(),
+        dest_port: dst_port,
+        protocol: protocol_str.to_string(),
+    };
+
     if gui.is_connected() {
         if let Some(response) = gui.ask_gui(&request) {
-            // For unknown apps, cache the decision to prevent popup spam
+            // Always cache the session decision (reduces popups for same app+port)
+            gui.cache_session_decision(&session_cache_key, response.allow);
+            debug!("[SESSION] Cached decision for {} (allow: {})", session_cache_key, response.allow);
+
+            // For unknown apps, also cache by destination
             if app_name == "unknown" || app_path == "unknown" {
                 gui.cache_unknown_decision(&dst_ip_str, dst_port, response.allow);
-                debug!("[CACHE] Stored decision for unknown app -> {}:{} (allow: {})",
-                    dst_ip_str, dst_port, response.allow);
             }
 
             if response.permanent && app_name != "unknown" && !app_name.is_empty() {
@@ -786,6 +842,7 @@ fn process_packet(
                 warn!("[SECURITY] Cannot create permanent rule for unidentified process");
             }
 
+            drop(gui);
             return if response.allow {
                 info!("[USER:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
                 Verdict::Accept

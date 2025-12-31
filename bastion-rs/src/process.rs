@@ -383,28 +383,32 @@ impl ProcessCache {
         protocol: &str,
     ) -> Option<ProcessInfo> {
         // FIRST: Try eBPF lookup (kernel-level tracking, most accurate)
-        // Retry with backoff to handle race condition where kprobe fires just after packet arrives
+        // Now uses lookup_process_info which returns both PID and comm name captured at connection time
         if self.ebpf.is_some() {
-            for attempt in 0..3 {
-                // Scope the ebpf borrow to avoid conflicts with get_process_info_by_pid
-                let pid_opt = {
-                    let ebpf = self.ebpf.as_mut().unwrap();
-                    ebpf.lookup_pid(src_port, dest_ip, dest_port)
-                };
+            // Get both PID and comm from eBPF (comm is captured at connection time, survives process exit)
+            let ebpf_result = {
+                let ebpf = self.ebpf.as_mut().unwrap();
+                ebpf.lookup_process_info(src_port, dest_ip, dest_port)
+            };
 
-                if let Some(pid) = pid_opt {
-                    // Got PID from eBPF, now resolve to process info
-                    if let Some(info) = self.get_process_info_by_pid(pid) {
-                        debug!("eBPF match (attempt {}): {} ({}) PID={}", attempt + 1, info.name, info.exe_path, pid);
-                        return Some(info);
-                    }
+            if let Some((pid, ebpf_comm)) = ebpf_result {
+                // Try to get full process info from /proc (includes exe path)
+                if let Some(info) = self.get_process_info_by_pid(pid) {
+                    debug!("eBPF match: {} ({}) PID={}", info.name, info.exe_path, pid);
+                    return Some(info);
                 }
 
-                // Only retry if not the last attempt
-                if attempt < 2 {
-                    // Exponential backoff: 15ms, 30ms, 60ms (max 105ms total - imperceptible to user)
-                    let delay_ms = 15 * (2_u64.pow(attempt as u32));
-                    std::thread::sleep(Duration::from_millis(delay_ms));
+                // Process exited but we have the comm name from eBPF!
+                // This is the key improvement - we can still identify short-lived processes
+                if !ebpf_comm.is_empty() {
+                    info!("eBPF match (process exited): {} PID={} - using cached comm name", ebpf_comm, pid);
+                    return Some(ProcessInfo {
+                        pid,
+                        name: ebpf_comm.clone(),
+                        // Try to find exe path from a similar process with same name
+                        exe_path: self.find_exe_by_name(&ebpf_comm).unwrap_or_default(),
+                        uid: 0, // Unknown since process exited
+                    });
                 }
             }
         }
@@ -554,6 +558,43 @@ impl ProcessCache {
     /// assert!(result.is_none());
     /// ```
     pub fn get_by_destination(&self, _dest_ip: &str, _dest_port: u16) -> Option<ProcessInfo> {
+        None
+    }
+
+    /// Find the executable path for a process by its name.
+    /// Searches the inode_to_process cache for a process with matching name.
+    /// This is used as a fallback when the original process has exited but we have its name from eBPF.
+    fn find_exe_by_name(&self, name: &str) -> Option<String> {
+        // Look for any process with the same name that has a valid exe path
+        for info in self.inode_to_process.values() {
+            if info.name == name && !info.exe_path.is_empty() {
+                return Some(info.exe_path.clone());
+            }
+        }
+
+        // Also try scanning /proc for a matching process
+        if let Ok(entries) = fs::read_dir("/proc") {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(pid_str) = path.file_name().and_then(|n| n.to_str()) {
+                    if pid_str.chars().all(|c| c.is_ascii_digit()) {
+                        // Check if this process has the same name
+                        if let Ok(comm) = fs::read_to_string(format!("{}/comm", path.display())) {
+                            if comm.trim() == name {
+                                // Found a matching process, get its exe path
+                                if let Ok(exe) = fs::read_link(format!("{}/exe", path.display())) {
+                                    let exe_str = exe.to_string_lossy().to_string();
+                                    if !exe_str.is_empty() && !exe_str.contains("(deleted)") {
+                                        return Some(exe_str);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         None
     }
 }

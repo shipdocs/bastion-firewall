@@ -37,9 +37,18 @@ unsafe impl Pod for SocketKey {}
 pub struct SocketInfo {
     pub pid: u32,
     pub timestamp: u64,
+    pub comm: [u8; 16],  // Process name captured at connection time
 }
 
 unsafe impl Pod for SocketInfo {}
+
+impl SocketInfo {
+    /// Returns the process name as a string, trimming null bytes
+    pub fn comm_str(&self) -> String {
+        let end = self.comm.iter().position(|&b| b == 0).unwrap_or(16);
+        String::from_utf8_lossy(&self.comm[..end]).to_string()
+    }
+}
 
 pub struct EbpfManager {
     bpf: Option<aya::Ebpf>,
@@ -335,6 +344,58 @@ impl EbpfManager {
             debug!("eBPF SOCKET_MAP is empty - no processes captured yet");
         } else if !match_found {
             debug!("eBPF lookup: checked {} entries, no match for {}:{}", entry_count, dst_ip, dst_port);
+        }
+
+        None
+    }
+
+    /// Lookup process info (PID and comm name) from eBPF map.
+    /// Returns (pid, comm_name) if found, None otherwise.
+    /// The comm name is captured at connection time, so it's available even if the process has exited.
+    pub fn lookup_process_info(&mut self, src_port: u16, dst_ip: &str, dst_port: u16) -> Option<(u32, String)> {
+        // Determine IP version and convert to appropriate format
+        let (ip_version, dst_ip_v4, dst_ip_v6) = if dst_ip.contains(':') {
+            match Ipv6Addr::from_str(dst_ip) {
+                Ok(ip) => (6u8, 0u32, ip.octets()),
+                Err(_) => return None,
+            }
+        } else {
+            match dst_ip.parse::<Ipv4Addr>() {
+                Ok(ip) => (4u8, u32::from_be_bytes(ip.octets()), [0u8; 16]),
+                Err(_) => return None,
+            }
+        };
+
+        // If eBPF is not loaded, return None
+        if self.bpf.is_none() {
+            return None;
+        }
+
+        let bpf = self.bpf.as_ref().unwrap();
+        let socket_map: HashMap<_, SocketKey, SocketInfo> = match bpf.map("SOCKET_MAP") {
+            Some(map) => match HashMap::try_from(map) {
+                Ok(m) => m,
+                Err(_) => return None,
+            },
+            None => return None,
+        };
+
+        // Iterate through all entries to find matching dst_ip:dst_port
+        for result in socket_map.iter() {
+            if let Ok((key, info)) = result {
+                let matches = match key.ip_version {
+                    4 => key.ip_version == ip_version && key.dst_ip_v4 == dst_ip_v4 && key.dst_port == dst_port,
+                    6 => key.ip_version == ip_version && key.dst_ip_v6 == dst_ip_v6 && key.dst_port == dst_port,
+                    _ => false,
+                };
+
+                if matches {
+                    let pid = info.pid;
+                    let comm = info.comm_str();
+                    info!("✓ eBPF match: Found PID {} ({}) for {}:{}", pid, comm, dst_ip, dst_port);
+                    return Some((pid, comm));
+                }
+            }
         }
 
         None
