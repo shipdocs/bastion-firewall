@@ -8,11 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.0.25] - 2025-12-31
 
 ### Features
+- **DNS Hostname Tracking** (Issues #25, #26): eBPF-based DNS query tracking for hostname correlation
+  - Shows destination hostname in firewall popups (e.g., "google.com" instead of just IP)
+  - Tracks DNS queries at kernel level to correlate IPs with hostnames
+  - Helps identify what unknown processes are connecting to
 - **mDNS Auto-Allow**: Automatically allows mDNS multicast traffic (224.0.0.251:5353) for `.local` hostname resolution
   - No more popups for Avahi/mDNS discovery
   - Improves out-of-box experience for local network browsing
 
 ### Improvements
+- **Learning Mode Indicator**: Stats logging now shows "(learning)" suffix when in learning mode
+- **GUI Stats Display**: Control panel shows learning mode state with stats updates
 - **Branch Cleanup**: Consolidated all feature branches into master
 - **Version Management**: All components now use single-source VERSION file
 
