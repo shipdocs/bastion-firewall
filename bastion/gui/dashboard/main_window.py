@@ -710,7 +710,7 @@ X-GNOME-Autostart-enabled=true
             row = self.table_rules.rowCount()
             self.table_rules.insertRow(row)
 
-            # Parse key (format: /path/to/app:port)
+            # Parse key (format: /path/to/app:port or /path/to/app:* for wildcards)
             try:
                 parts = key.rsplit(':', 1)
                 path = parts[0]
@@ -724,9 +724,12 @@ X-GNOME-Autostart-enabled=true
 
             action = "ALLOW" if allow else "DENY"
 
+            # Display wildcard ports more clearly (issue #13)
+            port_display = "* (All Ports)" if port == "*" else port
+
             self.table_rules.setItem(row, 0, QTableWidgetItem(app_name))
             self.table_rules.setItem(row, 1, QTableWidgetItem(path))
-            self.table_rules.setItem(row, 2, QTableWidgetItem(port))
+            self.table_rules.setItem(row, 2, QTableWidgetItem(port_display))
 
             item_act = QTableWidgetItem(action)
             item_act.setForeground(QColor(COLORS['success'] if allow else COLORS['danger']))

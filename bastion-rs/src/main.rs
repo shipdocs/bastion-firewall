@@ -56,6 +56,9 @@ struct GuiResponse {
     allow: bool,
     #[serde(default)]
     permanent: bool,
+    /// When true, create a wildcard rule for all ports (issue #13)
+    #[serde(default)]
+    all_ports: bool,
 }
 
 #[derive(Serialize)]
@@ -775,8 +778,10 @@ fn process_packet(
                     warn!("[SECURITY] Creating name-based rule (no path): {} -> port {}", app_name, dst_port);
                     name_based_key
                 };
-                rules.add_rule(&rule_key, Some(dst_port), response.allow);
-                info!("[RULE] Created permanent rule: {} -> port {}", rule_key, dst_port);
+                // Pass all_ports flag for wildcard rules (issue #13)
+                rules.add_rule(&rule_key, Some(dst_port), response.allow, response.all_ports);
+                let port_display = if response.all_ports { "*".to_string() } else { dst_port.to_string() };
+                info!("[RULE] Created permanent rule: {} -> port {}", rule_key, port_display);
             } else if response.permanent {
                 warn!("[SECURITY] Cannot create permanent rule for unidentified process");
             }

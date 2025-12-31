@@ -80,14 +80,33 @@ class RuleManager:
         self.load_rules()
 
     def get_decision(self, app_path: str, dest_port: int) -> Optional[bool]:
-        """Get cached decision for application and port"""
-        key = f"{app_path}:{dest_port}"
+        """Get cached decision for application and port.
+
+        Checks rules in precedence order (issue #13):
+        1. Specific port rule (app_path:port) - highest priority
+        2. Wildcard port rule (app_path:*) - fallback for all ports
+        """
         with self._lock:
-            return self._rules.get(key)
-            
-    def add_rule(self, app_path: str, dest_port: int, allow: bool) -> None:
-        """Add a permanent rule"""
-        key = f"{app_path}:{dest_port}"
+            # 1. Try exact match (app + specific port) - highest priority
+            key = f"{app_path}:{dest_port}"
+            if key in self._rules:
+                return self._rules[key]
+
+            # 2. Try wildcard match (app + any port)
+            wildcard_key = f"{app_path}:*"
+            if wildcard_key in self._rules:
+                return self._rules[wildcard_key]
+
+            return None
+
+    def add_rule(self, app_path: str, dest_port: int, allow: bool, all_ports: bool = False) -> None:
+        """Add a permanent rule.
+
+        If all_ports is True, creates a wildcard rule (app_path:*) that applies to all ports (issue #13).
+        """
+        # Use * as port for wildcard rules
+        port_str = "*" if all_ports else str(dest_port)
+        key = f"{app_path}:{port_str}"
         with self._lock:
             self._rules[key] = allow
             self.save_rules()
