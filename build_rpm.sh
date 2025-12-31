@@ -1,7 +1,14 @@
 #!/bin/bash
 set -e
 
-VERSION="1.4.7"
+# Read version from single source of truth
+if [ -f "VERSION" ]; then
+    VERSION=$(cat VERSION | tr -d '[:space:]')
+else
+    echo "Warning: VERSION file not found, using fallback"
+    VERSION="2.0.21"
+fi
+
 NAME="bastion-firewall"
 BUILD_DIR="rpmbuild"
 
