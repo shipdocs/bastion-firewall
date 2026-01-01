@@ -98,3 +98,6 @@ build_deb_v2.sh
 
 # Git commit template
 .gitmessage
+
+# AI guidance docs (local only)
+CLAUDE.md
