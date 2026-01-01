@@ -389,8 +389,8 @@ fn main() -> anyhow::Result<()> {
     info!("╚════════════════════════════════════════╝");
     
     let config = Arc::new(ConfigManager::new());
-    let learning_mode = config.is_learning_mode();
     let rules = Arc::new(RuleManager::new());
+    let learning_mode = config.is_learning_mode();
     let stats = Arc::new(Mutex::new(Stats {
         learning_mode,
         ..Stats::default()
@@ -428,9 +428,10 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    // SIGHUP handler - clear pending cache when rules are modified
+    // SIGHUP handler - reload config, clear pending cache, reload rules
     let gui_state_sighup = gui_state.clone();
     let rules_sighup = rules.clone();
+    let config_sighup = config.clone();
     thread::spawn(move || {
         let mut signals = match Signals::new(&[SIGHUP]) {
             Ok(s) => s,
@@ -442,10 +443,12 @@ fn main() -> anyhow::Result<()> {
 
         for sig in signals.forever() {
             if sig == SIGHUP {
-                info!("Received SIGHUP - clearing pending cache and reloading rules");
+                info!("Received SIGHUP - reloading config and rules");
+                config_sighup.load();
                 gui_state_sighup.lock().pending_cache.clear();
                 rules_sighup.reload();
-                info!("Cache cleared and rules reloaded");
+                let mode = if config_sighup.is_learning_mode() { "learning" } else { "enforcement" };
+                info!("Config reloaded: mode={}, rules reloaded, cache cleared", mode);
             }
         }
     });
@@ -470,7 +473,7 @@ fn main() -> anyhow::Result<()> {
             payload, 
             &rules, 
             &process_cache, 
-            learning_mode,
+            &config,
             &gui_state,
         );
         
@@ -682,9 +685,11 @@ fn process_packet(
     payload: &[u8],
     rules: &RuleManager,
     process_cache: &Mutex<ProcessCache>,
-    learning_mode: bool,
+    config: &Arc<ConfigManager>,
     gui_state: &Arc<Mutex<GuiState>>,
 ) -> Verdict {
+    // Check learning mode dynamically from config
+    let learning_mode = config.is_learning_mode();
     // Parse IP header
     let ip_header = match Ipv4HeaderSlice::from_slice(payload) {
         Ok(h) => h,
