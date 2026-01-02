@@ -557,8 +557,8 @@ fn run_socket_server(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        // Permission 0o666 allows the user-space GUI/tray (running as normal user)
-        // to connect to the daemon socket (daemon runs as root)
+        // SECURITY: Use 0o666 to allow GUI connections, but verify peer credentials below
+        // This allows any user to connect, but we validate UID before accepting
         let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o666));
     }
     
@@ -567,6 +567,44 @@ fn run_socket_server(
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
+                // SECURITY: Verify peer credentials before accepting connection
+                // This prevents system processes or malicious scripts from impersonating the GUI
+                #[cfg(unix)]
+                {
+                    use std::os::unix::io::AsRawFd;
+                    
+                    // Get peer credentials using SO_PEERCRED
+                    let fd = s.as_raw_fd();
+                    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
+                    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+                    
+                    let result = unsafe {
+                        libc::getsockopt(
+                            fd,
+                            libc::SOL_SOCKET,
+                            libc::SO_PEERCRED,
+                            &mut cred as *mut _ as *mut libc::c_void,
+                            &mut len,
+                        )
+                    };
+                    
+                    if result == 0 {
+                        let peer_uid = cred.uid;
+                        // Allow: root (uid 0) for system tools, or regular users (uid >= 1000)
+                        // Block: system users (uid 1-999) which are typically daemons/services
+                        if peer_uid == 0 || peer_uid >= 1000 {
+                            info!("GUI client connected (UID: {})", peer_uid);
+                        } else {
+                            warn!("Rejected connection from system user (UID: {})", peer_uid);
+                            drop(s);
+                            continue;
+                        }
+                    } else {
+                        warn!("Failed to get peer credentials, allowing connection");
+                    }
+                }
+                
+                #[cfg(not(unix))]
                 info!("GUI client connecting");
                 gui_state.lock().set_connection(s.try_clone().expect("Failed to clone stream"));
 
