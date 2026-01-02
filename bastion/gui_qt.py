@@ -21,9 +21,10 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar,
                             QSystemTrayIcon, QMenu, QMessageBox, QDialog, QCheckBox,
                             QScrollArea, QAbstractItemView, QLineEdit, QRadioButton,
-                            QButtonGroup, QFileDialog)
+                            QButtonGroup, QFileDialog, QComboBox)
 from .notification import show_notification
 from . import __version__
+from .log_parser import LogParser
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QPoint
 from PyQt6.QtGui import QIcon, QFont, QColor, QAction, QPixmap, QGuiApplication
 
@@ -713,6 +714,10 @@ class DashboardWindow(QMainWindow):
         self.data_config = {'mode': 'learning', 'timeout_seconds': 30}
         self.inbound_status = {}
 
+        # Log filtering state
+        self.parsed_logs = []
+        self.logs_action_filter = 'all'  # 'all', 'allow', 'block'
+
         # Live stats from daemon (cached)
         self.live_stats = {
             'total_connections': 0,
@@ -1110,32 +1115,103 @@ class DashboardWindow(QMainWindow):
     def create_logs_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.addWidget(QLabel("Connection Logs (Last 50 Lines)", objectName="page_title"))
-        
+        layout.addWidget(QLabel("Connection Logs", objectName="page_title"))
+
+        # Filter bar
+        filter_layout = QHBoxLayout()
+
+        # Search box
+        search_label = QLabel("Search:")
+        search_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        filter_layout.addWidget(search_label)
+
+        self.logs_search_box = QLineEdit()
+        self.logs_search_box.setPlaceholderText("Search by app, IP, port...")
+        self.logs_search_box.setStyleSheet(f"""
+            background-color: {COLORS['card']};
+            border: 1px solid {COLORS['card_border']};
+            border-radius: 4px;
+            padding: 8px;
+            color: {COLORS['text_primary']};
+        """)
+        self.logs_search_box.textChanged.connect(self.filter_logs_table)
+        filter_layout.addWidget(self.logs_search_box, 1)
+
+        # Event type dropdown
+        self.logs_event_filter = QComboBox()
+        self.logs_event_filter.addItems(["All Events", "Popups", "Rules", "User Decisions",
+                                     "Learning Mode", "Blocks", "Auto-allow"])
+        self.logs_event_filter.setStyleSheet(f"""
+            background-color: {COLORS['card']};
+            border: 1px solid {COLORS['card_border']};
+            border-radius: 4px;
+            padding: 8px;
+            color: {COLORS['text_primary']};
+        """)
+        self.logs_event_filter.currentTextChanged.connect(self.filter_logs_table)
+        filter_layout.addWidget(self.logs_event_filter)
+
+        # Action filter buttons
+        self.btn_logs_all = QPushButton("All")
+        self.btn_logs_all.setCheckable(True)
+        self.btn_logs_all.setChecked(True)
+        self.btn_logs_all.setObjectName("action_btn")
+        self.btn_logs_all.setStyleSheet(f"background-color: {COLORS['accent']}; color: white; border: none; padding: 6px 12px; border-radius: 4px;")
+        self.btn_logs_all.clicked.connect(lambda: self.set_logs_action_filter('all'))
+        filter_layout.addWidget(self.btn_logs_all)
+
+        self.btn_logs_allow = QPushButton("Allow")
+        self.btn_logs_allow.setCheckable(True)
+        self.btn_logs_allow.setObjectName("action_btn")
+        self.btn_logs_allow.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+        self.btn_logs_allow.clicked.connect(lambda: self.set_logs_action_filter('allow'))
+        filter_layout.addWidget(self.btn_logs_allow)
+
+        self.btn_logs_block = QPushButton("Block")
+        self.btn_logs_block.setCheckable(True)
+        self.btn_logs_block.setObjectName("action_btn")
+        self.btn_logs_block.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+        self.btn_logs_block.clicked.connect(lambda: self.set_logs_action_filter('block'))
+        filter_layout.addWidget(self.btn_logs_block)
+
+        # Clear filters button
+        btn_clear = QPushButton("Clear Filters")
+        btn_clear.setObjectName("action_btn")
+        btn_clear.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+        btn_clear.clicked.connect(self.clear_log_filters)
+        filter_layout.addWidget(btn_clear)
+
+        layout.addLayout(filter_layout)
+
+        # Multi-column logs table
         self.table_logs = QTableWidget()
-        self.table_logs.setColumnCount(1)
-        self.table_logs.horizontalHeader().setVisible(False)
+        self.table_logs.setColumnCount(6)
+        self.table_logs.setHorizontalHeaderLabels(["Time", "Type", "Action", "App", "Destination", "Protocol"])
         self.table_logs.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table_logs.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_logs.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_logs.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.table_logs.verticalHeader().setVisible(False)
-        
-        # Enable selection and copy
-        self.table_logs.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.table_logs.setTextElideMode(Qt.TextElideMode.ElideNone)
-        
-        # Monospace font for logs
-        font = QFont("Monospace")
-        font.setStyleHint(QFont.StyleHint.TypeWriter)
-        self.table_logs.setFont(font)
-        
+        self.table_logs.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table_logs.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table_logs.setSortingEnabled(True)
+
         layout.addWidget(self.table_logs)
-        
+
+        # Buttons
         btn_box = QHBoxLayout()
         btn_refresh = QPushButton("Refresh Logs")
         btn_refresh.setObjectName("action_btn")
         btn_refresh.clicked.connect(self.refresh_logs)
         btn_box.addWidget(btn_refresh)
+
+        btn_export = QPushButton("Export Logs")
+        btn_export.setObjectName("action_btn")
+        btn_export.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']};")
+        btn_export.clicked.connect(self.export_logs)
+        btn_box.addWidget(btn_export)
+
         btn_box.addStretch()
-        
         layout.addLayout(btn_box)
         return page
 
@@ -1719,11 +1795,11 @@ X-GNOME-Autostart-enabled=true
         return QIcon.fromTheme('application-x-executable')
 
     def refresh_logs(self):
-        """Refresh logs from systemd journal"""
+        """Refresh and parse logs from systemd journal"""
         try:
             # Read logs from systemd journal (daemon logs there, not to file)
             # Users can read journal without special permissions
-            cmd = ['journalctl', '-u', 'bastion-firewall', '-n', '100', '--no-pager']
+            cmd = ['journalctl', '-u', 'bastion-firewall', '-n', '500', '--no-pager']
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
 
             if res.returncode == 0:
@@ -1739,21 +1815,55 @@ X-GNOME-Autostart-enabled=true
             lines = [f"Error reading logs: {e}"]
             logger.error(f"Failed to read logs: {e}")
 
-        # Populate directly (journalctl is fast, no need for threading)
-        self._populate_logs(lines)
+        # Parse logs into structured entries
+        self.parsed_logs = LogParser.parse_lines(lines)
+        logger.info(f"Parsed {len(self.parsed_logs)} log entries from {len(lines)} lines")
 
-    def _populate_logs(self, lines):
-        logger.info(f"Populating logs table with {len(lines)} lines")
+        # Populate table
+        self._populate_logs_table()
+
+    def _populate_logs_table(self):
+        """Populate logs table with parsed entries"""
         self.table_logs.setRowCount(0)
-        for line in reversed(lines):  # Newest first
-            if not line.strip():
-                continue
+        self.table_logs.setSortingEnabled(False)  # Disable sorting while populating
+
+        for entry in reversed(self.parsed_logs):
             row = self.table_logs.rowCount()
             self.table_logs.insertRow(row)
-            item = QTableWidgetItem(line)
-            item.setForeground(QColor(COLORS['text_primary']))
-            self.table_logs.setItem(row, 0, item)
-            
+
+            # Time
+            time_item = QTableWidgetItem(entry.timestamp)
+            time_item.setForeground(QColor(COLORS['text_secondary']))
+            self.table_logs.setItem(row, 0, time_item)
+
+            # Type (color-coded)
+            type_display = LogParser.get_event_type_display(entry.event_type)
+            type_item = QTableWidgetItem(type_display)
+            type_item.setForeground(self._get_log_type_color(entry.event_type))
+            self.table_logs.setItem(row, 1, type_item)
+
+            # Action
+            if entry.action:
+                action_item = QTableWidgetItem(entry.action)
+                action_item.setForeground(QColor(COLORS['success'] if entry.action == 'ALLOW' else COLORS['danger']))
+                action_item.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+                self.table_logs.setItem(row, 2, action_item)
+            else:
+                self.table_logs.setItem(row, 2, QTableWidgetItem("-"))
+
+            # App
+            app_item = QTableWidgetItem(entry.app_name)
+            self.table_logs.setItem(row, 3, app_item)
+
+            # Destination
+            dest = f"{entry.dest_ip}:{entry.dest_port}"
+            dest_item = QTableWidgetItem(dest)
+            self.table_logs.setItem(row, 4, dest_item)
+
+            # Protocol
+            proto_item = QTableWidgetItem(entry.protocol)
+            self.table_logs.setItem(row, 5, proto_item)
+
         if self.table_logs.rowCount() == 0:
             logger.warning("No log entries to display")
             self.table_logs.insertRow(0)
@@ -1762,9 +1872,143 @@ X-GNOME-Autostart-enabled=true
             self.table_logs.setItem(0, 0, item)
         else:
             logger.info(f"Successfully populated {self.table_logs.rowCount()} log entries")
+
+        # Apply current filters
+        self.filter_logs_table()
+
+        # Re-enable sorting
+        self.table_logs.setSortingEnabled(True)
+
         # Force UI update
         self.table_logs.viewport().update()
         self.table_logs.update()
+
+    def _get_log_type_color(self, event_type: str) -> QColor:
+        """Get color for log event type"""
+        color_map = {
+            'POPUP': QColor(COLORS['accent']),
+            'RULE': QColor(COLORS['text_primary']),
+            'USER': QColor(COLORS['success']),
+            'SESSION': QColor(COLORS['warning']),
+            'CACHED': QColor(COLORS['text_secondary']),
+            'LEARN': QColor(COLORS['accent']),
+            'BLOCK': QColor(COLORS['danger']),
+            'AUTO': QColor(COLORS['text_secondary'])
+        }
+        return color_map.get(event_type, QColor(COLORS['text_primary']))
+
+    def filter_logs_table(self):
+        """Filter logs based on search text and filter options"""
+        search_text = self.logs_search_box.text().lower()
+        event_filter = self.logs_event_filter.currentText()
+        action_filter = self.logs_action_filter
+
+        for row in range(self.table_logs.rowCount()):
+            # Get values
+            app_name = self.table_logs.item(row, 3).text().lower()
+            dest = self.table_logs.item(row, 4).text().lower()
+            event_type = self.table_logs.item(row, 1).text()
+            action = self.table_logs.item(row, 2).text()
+
+            # Check search match
+            matches_search = (search_text == "" or
+                            search_text in app_name or
+                            search_text in dest)
+
+            # Check event type match
+            matches_event = self._event_matches_filter(event_type, event_filter)
+
+            # Check action match
+            matches_action = (action_filter == 'all' or
+                             (action_filter == 'allow' and action == 'ALLOW') or
+                             (action_filter == 'block' and action == 'BLOCK'))
+
+            # Show/hide row based on filters
+            self.table_logs.setRowHidden(row, not (matches_search and matches_event and matches_action))
+
+    def _event_matches_filter(self, event_type: str, filter_text: str) -> bool:
+        """Check if event type matches the selected filter"""
+        if filter_text == "All Events":
+            return True
+        elif filter_text == "Popups":
+            return event_type == "Popup"
+        elif filter_text == "Rules":
+            return event_type == "Rule"
+        elif filter_text == "User Decisions":
+            return event_type == "User Decision"
+        elif filter_text == "Learning Mode":
+            return event_type == "Learning Mode"
+        elif filter_text == "Blocks":
+            return event_type == "Blocked"
+        elif filter_text == "Auto-allow":
+            return event_type == "Auto-allow"
+        return True
+
+    def set_logs_action_filter(self, mode):
+        """Set action filter mode"""
+        self.logs_action_filter = mode
+
+        # Update button styles
+        if mode == 'all':
+            self.btn_logs_all.setStyleSheet(f"background-color: {COLORS['accent']}; color: white; border: none; padding: 6px 12px; border-radius: 4px;")
+            self.btn_logs_allow.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+            self.btn_logs_block.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+        elif mode == 'allow':
+            self.btn_logs_all.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+            self.btn_logs_allow.setStyleSheet(f"background-color: {COLORS['success']}; color: white; border: none; padding: 6px 12px; border-radius: 4px;")
+            self.btn_logs_block.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+        elif mode == 'block':
+            self.btn_logs_all.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px 12px; border-radius: 4px;")
+            self.btn_logs_allow.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; border: none; padding: 6px 12px; border-radius: 4px;")
+            self.btn_logs_block.setStyleSheet(f"background-color: {COLORS['danger']}; color: white; border: none; padding: 6px 12px; border-radius: 4px;")
+
+        # Apply filter
+        self.filter_logs_table()
+
+    def clear_log_filters(self):
+        """Clear all log filters"""
+        self.logs_search_box.clear()
+        self.logs_event_filter.setCurrentIndex(0)
+        self.set_logs_action_filter('all')
+
+    def export_logs(self):
+        """Export visible logs to CSV file"""
+        if self.table_logs.rowCount() == 0:
+            QMessageBox.information(self, "Export Logs", "No log entries to export.")
+            return
+
+        # Open file dialog for saving
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Logs",
+            str(Path.home() / "bastion-logs.csv"),
+            "CSV Files (*.csv);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            # Write visible (non-hidden) rows to CSV
+            import csv
+            with open(file_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                # Write header
+                writer.writerow(["Time", "Type", "Action", "App", "Destination", "Protocol"])
+
+                # Write visible rows
+                for row in range(self.table_logs.rowCount()):
+                    if not self.table_logs.isRowHidden(row):
+                        row_data = []
+                        for col in range(self.table_logs.columnCount()):
+                            item = self.table_logs.item(row, col)
+                            row_data.append(item.text() if item else "")
+                        writer.writerow(row_data)
+
+            from .notification import show_notification
+            show_notification(self, "Success", f"Exported logs to {file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Failed to export logs:\n{e}")
 
     def toggle_firewall(self):
         is_active = "Stop" in self.btn_toggle.text()
