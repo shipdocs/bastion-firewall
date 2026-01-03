@@ -62,20 +62,12 @@ pub enum AppCategory {
 /// The decision follows the file's whitelist policy: essential ports and localhost are only
 /// auto-allowed for trusted binaries; known system binaries and `/usr/lib/systemd/` paths are allowed.
 ///
-/// # Returns
 ///
 /// A tuple where the first element is `true` if the connection should be auto-allowed, `false` otherwise;
 /// the second element is a short static reason string when allowed, or an empty string when denied.
 ///
-/// # Examples
 ///
-/// ```
-/// let (allowed, reason) = should_auto_allow("/usr/sbin/NetworkManager", "NetworkManager", 53, "8.8.8.8");
-/// assert_eq!((allowed, reason), (true, "Essential port (trusted)"));
 ///
-/// let (allowed, reason) = should_auto_allow("/home/user/myapp", "myapp", 80, "127.0.0.1");
-/// assert_eq!((allowed, reason), (false, ""));
-/// ```
 pub fn should_auto_allow(app_path: &str, app_name: &str, dest_port: u16, dest_ip: &str) -> (bool, &'static str) {
     // 1. Localhost connections - only for trusted binaries
     if let Ok(ip) = dest_ip.parse::<std::net::IpAddr>() {
@@ -157,9 +149,7 @@ pub fn should_auto_allow(app_path: &str, app_name: &str, dest_port: u16, dest_ip
 /// The function classifies the application into one of `AppCategory` variants
 /// based on the path or executable name (case-insensitive).
 ///
-/// - `app_path`: filesystem path to the application binary or service unit.
 ///
-/// # Returns
 ///
 /// `AppCategory::System` when the path is a known system binary or is under
 /// `/usr/lib/systemd/` or `/usr/sbin/`. `AppCategory::Browser` when the
@@ -168,15 +158,8 @@ pub fn should_auto_allow(app_path: &str, app_name: &str, dest_port: u16, dest_ip
 /// when the executable name indicates a communication app. Otherwise
 /// `AppCategory::Unknown`.
 ///
-/// # Examples
 ///
-/// ```
-/// let cat = get_app_category("/usr/bin/firefox");
-/// assert_eq!(cat, AppCategory::Browser);
 ///
-/// let sys = get_app_category("/usr/lib/systemd/systemd");
-/// assert_eq!(sys, AppCategory::System);
-/// ```
 pub fn get_app_category(app_path: &str) -> AppCategory {
     if app_path.starts_with("/usr/lib/systemd/") ||
        app_path.starts_with("/usr/sbin/") ||

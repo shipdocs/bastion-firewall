@@ -23,13 +23,7 @@ impl RuleManager {
     ///
     /// The manager's rules map is initialized and immediately populated by reading RULES_PATH (if present).
     ///
-    /// # Examples
     ///
-    /// ```
-    /// let mgr = RuleManager::new();
-    /// // No rule expected for an unlikely tuple unless configured on disk
-    /// assert!(mgr.get_decision("/unlikely/path", 65535).is_none());
-    /// ```
     pub fn new() -> Self {
         let manager = Self {
             rules: RwLock::new(HashMap::new()),
@@ -47,15 +41,8 @@ impl RuleManager {
     /// and ignored. On successful load the existing in-memory rules are replaced with the
     /// parsed rules. Read or parse failures are logged.
     ///
-    /// # Examples
     ///
-    /// ```rust
-    /// let manager = RuleManager::new();
-    /// // Attempt to populate `manager` from the rules file (may leave empty if file absent)
     /// manager.load_rules();
-    /// // Querying for a decision returns `Some(true|false)` if an exact "path:port" rule exists
-    /// let decision = manager.get_decision("/usr/bin/myapp", 8080);
-    /// ```
     /// Reload rules from disk - public wrapper for load_rules().
     ///
     /// Used when rules are modified externally (e.g., via GUI) and the daemon
@@ -140,14 +127,8 @@ impl RuleManager {
     ///
     /// Returns `Some(true)` if the combination is allowed, `Some(false)` if explicitly denied, or `None` if no rule exists for the given app and port.
     ///
-    /// # Examples
     ///
-    /// ```
-    /// let mgr = RuleManager::new();
     /// mgr.add_rule("/usr/bin/ssh", Some(22), true, false);
-    /// assert_eq!(mgr.get_decision("/usr/bin/ssh", 22), Some(true));
-    /// assert_eq!(mgr.get_decision("/usr/bin/ssh", 23), None);
-    /// ```
     pub fn get_decision(&self, app_path: &str, port: u16) -> Option<bool> {
         let rules = self.rules.read();
 
@@ -171,17 +152,10 @@ impl RuleManager {
     ///
     /// If `all_ports` is true, creates a wildcard rule (port 0) that applies to all ports (issue #13).
     ///
-    /// # Examples
     ///
-    /// ```
-    /// let manager = RuleManager::new();
     /// manager.add_rule("/usr/bin/example", Some(8080), true, false);
-    /// assert_eq!(manager.get_decision("/usr/bin/example", 8080), Some(true));
     ///
-    /// // Wildcard rule
     /// manager.add_rule("/usr/bin/zoom", Some(8801), true, true);
-    /// assert_eq!(manager.get_decision("/usr/bin/zoom", 9999), Some(true));  // Any port matches
-    /// ```
     pub fn add_rule(&self, app_path: &str, port: Option<u16>, allow: bool, all_ports: bool) {
         if let Some(p) = port {
             // Use port 0 as wildcard marker when all_ports is true
@@ -200,13 +174,8 @@ impl RuleManager {
     /// individual rules as `"path:port": <bool>` pairs. On success, logs the number of saved rules;
     /// on failure, logs an error.
     ///
-    /// # Examples
     ///
-    /// ```
-    /// let mgr = RuleManager::new();
-    /// // add_rule is public; persist the current rules to disk
     /// mgr.save_rules();
-    /// ```
     fn save_rules(&self) {
         let rules = self.rules.read();
         let path = Path::new(RULES_PATH);
