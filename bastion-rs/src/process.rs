@@ -524,7 +524,7 @@ impl ProcessCache {
                             if comm.trim() == name {
                                 // Found a matching process, get its exe path
                                 if let Ok(exe) = fs::read_link(format!("{}/exe", path.display())) {
-                                    let exe_str = exe.to_string_lossy().to_string();
+                                    let exe_str = clean_exe_path(&exe.to_string_lossy());
                                     if !exe_str.is_empty() && !exe_str.contains("(deleted)") {
                                         return Some(exe_str);
                                     }
