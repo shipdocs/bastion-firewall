@@ -7,11 +7,10 @@ use aya::{
     maps::HashMap,
 };
 use log::{info, debug};
-// Removed unused StdHashMap import
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
-// Removed unused Duration, Instant imports
+
 
 
 // Mirror of eBPF structures
@@ -61,12 +60,7 @@ impl EbpfManager {
         }
     }
 
-    /// Attempts to load a compiled eBPF object and attach the configured kprobes.
-    ///
-    /// On success the manager will hold the loaded eBPF object ready for map queries and probe attachments.
-    /// On failure, an error is returned describing why the eBPF object could not be loaded or attached (for example, when the eBPF program is not compiled).
-    ///
-    ///
+    /// Load eBPF object and attach kprobes.
 
     pub fn load_from_file(&mut self, path: &str) -> Result<(), anyhow::Error> {
         // Load compiled eBPF program
@@ -159,7 +153,7 @@ impl EbpfManager {
         // Determine IP version and convert to appropriate format
         let (ip_version, dst_ip_v4, dst_ip_v6) = if dst_ip.contains(':') {
             match Ipv6Addr::from_str(dst_ip) {
-                Ok(ip) => (6u8, 0u32, ip.octets()),
+                Ok(ip) => (6u8, 0u32, ip.octets() as [u8; 16]),
                 Err(_) => return None,
             }
         } else {

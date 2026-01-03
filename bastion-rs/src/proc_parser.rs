@@ -1,7 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-// Removed unused debug import
 
 
 /// Connection info from /proc/net/tcp or /proc/net/udp
