@@ -128,8 +128,9 @@ cp bastion-firewall.service debian/lib/systemd/system/
 print_step "Copying desktop entries..."
 cp com.bastion.firewall.desktop debian/usr/share/applications/com.bastion.firewall.desktop
 chmod 644 debian/usr/share/applications/com.bastion.firewall.desktop
-# Control panel desktop file
+# Control panel desktop file (hidden from launcher to avoid redundancy with main app)
 cp bastion-control-panel.desktop debian/usr/share/applications/bastion-control-panel.desktop
+echo "NoDisplay=true" >> debian/usr/share/applications/bastion-control-panel.desktop
 chmod 644 debian/usr/share/applications/bastion-control-panel.desktop
 # Tray icon autostart entry (ONLY in autostart, NOT in applications menu)
 # This prevents Software Center from picking it up as main app
@@ -137,18 +138,17 @@ mkdir -p debian/etc/xdg/autostart
 cp bastion-tray.desktop debian/etc/xdg/autostart/bastion-tray.desktop
 chmod 644 debian/etc/xdg/autostart/bastion-tray.desktop
 
-# Install application icon to system hicolor icon theme
-# This allows desktop files to reference Icon=bastion-icon
+# Install application icon to system hicolor icon theme using reverse-DNS name
 print_step "Installing application icon..."
 mkdir -p debian/usr/share/icons/hicolor/scalable/apps
-cp bastion/resources/bastion-icon.svg debian/usr/share/icons/hicolor/scalable/apps/bastion-icon.svg
-chmod 644 debian/usr/share/icons/hicolor/scalable/apps/bastion-icon.svg
+cp bastion/resources/bastion-icon.svg debian/usr/share/icons/hicolor/scalable/apps/com.bastion.firewall.svg
+chmod 644 debian/usr/share/icons/hicolor/scalable/apps/com.bastion.firewall.svg
 
 # Also install 128x128 PNG for better compatibility
 mkdir -p debian/usr/share/icons/hicolor/128x128/apps
 if [ -f bastion/resources/bastion-icon.png ]; then
-    cp bastion/resources/bastion-icon.png debian/usr/share/icons/hicolor/128x128/apps/bastion-icon.png
-    chmod 644 debian/usr/share/icons/hicolor/128x128/apps/bastion-icon.png
+    cp bastion/resources/bastion-icon.png debian/usr/share/icons/hicolor/128x128/apps/com.bastion.firewall.png
+    chmod 644 debian/usr/share/icons/hicolor/128x128/apps/com.bastion.firewall.png
 fi
 
 # Copy polkit policy file for software center authentication
@@ -186,7 +186,7 @@ cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
     </ul>
   </description>
   <launchable type="desktop-id">com.bastion.firewall.desktop</launchable>
-  <icon type="stock">bastion-icon</icon>
+  <icon type="stock">com.bastion.firewall</icon>
   <url type="homepage">https://github.com/shipdocs/bastion-firewall</url>
   <url type="bugtracker">https://github.com/shipdocs/bastion-firewall/issues</url>
   <url type="help">https://github.com/shipdocs/bastion-firewall/blob/master/README.md</url>
@@ -201,7 +201,6 @@ cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
     <binary>bastion-gui</binary>
     <binary>bastion-control-panel</binary>
     <binary>bastion-firewall</binary>
-    <id>com.bastion.firewall.desktop</id>
   </provides>
   <recommends>
     <control>pointing</control>

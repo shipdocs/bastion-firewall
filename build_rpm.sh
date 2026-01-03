@@ -111,16 +111,18 @@ cat > "$TEMP_DIR/com.bastion.firewall.metainfo.xml" << 'EOF'
     <keyword>application</keyword>
   </keywords>
   <releases>
-    <release version="1.4.7" date="2025-12-26">
+    <release version="${VERSION}" date="$(date +%Y-%m-%d)">
       <description>
-        <p>🏰 Release v1.4.7 - Production Ready</p>
+        <p>🏰 Update to v${VERSION}</p>
         <ul>
-          <li>Critical bug fixes</li>
-          <li>Security hardening</li>
-          <li>Full test coverage for core modules</li>
+          <li>Non-blocking learning mode popups (zero latency)</li>
+          <li>Asynchronous rule creation from popups</li>
+          <li>Improved path identification for containerized apps</li>
+          <li>Codebase cleanup and security hardening</li>
         </ul>
       </description>
     </release>
+    <release version="2.0.25" date="2024-12-31" />
   </releases>
 </component>
 EOF
