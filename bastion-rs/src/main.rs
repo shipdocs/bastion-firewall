@@ -597,13 +597,17 @@ fn process_packet(
     // Check path-based rules first
     if app_path != "unknown" && !app_path.is_empty() {
         if let Some(allow) = rules.get_decision(&app_path, dst_port) {
-            return if allow {
+            if allow {
                 debug!("[RULE:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
-                Verdict::Accept
-            } else {
+                return Verdict::Accept;
+            } else if !learning_mode {
+                // In learning mode, ignore DENY rules (observe only)
                 info!("[RULE:BLOCK] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
-                Verdict::Drop
-            };
+                return Verdict::Drop;
+            } else {
+                // Learning mode: log but don't block
+                info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (would block in enforcement)", app_name, dst_ip, dst_port);
+            }
         }
     }
 
@@ -611,13 +615,17 @@ fn process_packet(
     if app_name != "unknown" && !app_name.is_empty() {
         let name_based_key = format!("@name:{}", app_name);
         if let Some(allow) = rules.get_decision(&name_based_key, dst_port) {
-            return if allow {
+            if allow {
                 debug!("[RULE:ALLOW:NAME] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
-                Verdict::Accept
-            } else {
+                return Verdict::Accept;
+            } else if !learning_mode {
+                // In learning mode, ignore DENY rules (observe only)
                 info!("[RULE:BLOCK:NAME] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
-                Verdict::Drop
-            };
+                return Verdict::Drop;
+            } else {
+                // Learning mode: log but don't block
+                info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"@name:{}\" dst=\"{}:{}\" (would block in enforcement)", app_name, dst_ip, dst_port);
+            }
         }
     }
 
@@ -634,27 +642,37 @@ fn process_packet(
 
     // Check session decision cache first (covers all apps, not just unknown)
     if let Some(cached_allow) = gui.get_session_decision(&session_cache_key) {
-        drop(gui);
-        return if cached_allow {
+        if cached_allow {
+            drop(gui);
             debug!("[SESSION:ALLOW] app=\"{}\" dst=\"{}:{}\"", app_name, dst_ip, dst_port);
-            Verdict::Accept
-        } else {
+            return Verdict::Accept;
+        } else if !learning_mode {
+            // Enforce cached DENY only in enforcement mode
+            drop(gui);
             debug!("[SESSION:BLOCK] app=\"{}\" dst=\"{}:{}\"", app_name, dst_ip, dst_port);
-            Verdict::Drop
-        };
+            return Verdict::Drop;
+        } else {
+            // Learning mode: log cached deny but don't block
+            info!("[LEARN:SESSION-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (cached deny ignored)", app_name, dst_ip, dst_port);
+        }
     }
 
     // For unknown apps, also check the legacy destination-based cache
     if app_name == "unknown" || app_path == "unknown" {
         if let Some(cached_decision) = gui.check_unknown_decision(&dst_ip_str, dst_port) {
-            drop(gui);
-            return if cached_decision {
+            if cached_decision {
+                drop(gui);
                 debug!("[CACHED:ALLOW] unknown app dst=\"{}:{}\"", dst_ip, dst_port);
-                Verdict::Accept
-            } else {
+                return Verdict::Accept;
+            } else if !learning_mode {
+                // Enforce cached DENY only in enforcement mode
+                drop(gui);
                 debug!("[CACHED:BLOCK] unknown app dst=\"{}:{}\"", dst_ip, dst_port);
-                Verdict::Drop
-            };
+                return Verdict::Drop;
+            } else {
+                // Learning mode: log cached deny but don't block
+                info!("[LEARN:UNKNOWN-DENIED-BUT-ALLOWED] dst=\"{}:{}\" (cached deny ignored)", dst_ip, dst_port);
+            }
         }
     }
 
