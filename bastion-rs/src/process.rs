@@ -36,6 +36,18 @@ pub struct ProcessCache {
     ebpf: Option<EbpfManager>,
 }
 
+/// Strip command-line arguments from exe path.
+/// Flatpak apps sometimes store full cmdline in /proc/pid/exe symlink.
+/// e.g., "/app/brave/brave --type=utility..." -> "/app/brave/brave"
+fn clean_exe_path(path: &str) -> String {
+    // If path contains a space, it likely has cmdline args appended
+    if let Some(space_idx) = path.find(' ') {
+        path[..space_idx].to_string()
+    } else {
+        path.to_string()
+    }
+}
+
 impl ProcessCache {
     /// Creates a new `ProcessCache`, attempts to enable eBPF-based tracking, and populates the inode-to-process map.
     ///
@@ -122,7 +134,7 @@ impl ProcessCache {
                     let uid = self.get_process_uid(pid).unwrap_or(0);
                     (
                         name.trim().to_string(),
-                        exe.to_string_lossy().into_owned(),
+                        clean_exe_path(&exe.to_string_lossy()),
                         uid
                     )
                 },
@@ -422,7 +434,7 @@ impl ProcessCache {
             (Ok(name), Ok(exe)) => {
                 let uid = self.get_process_uid(pid).unwrap_or(0);
                 let proc_name = name.trim().to_string();
-                let exe_path_str = exe.to_string_lossy().into_owned();
+                let exe_path_str = clean_exe_path(&exe.to_string_lossy());
                 debug!("✓ Resolved PID {} to process: {} ({})", pid, proc_name, exe_path_str);
                 (
                     proc_name,
