@@ -1,6 +1,5 @@
-//! Bastion Firewall Daemon - Rust Edition v0.5
-//! 
-//! With WORKING popup support via blocking GUI queries!
+//! Bastion Firewall Daemon - Rust Edition
+//! Handles packet filtering, GUI interaction, and rule enforcement.
 
 mod process;
 mod rules;
@@ -11,9 +10,9 @@ mod ebpf_loader;
 use nfq::{Queue, Verdict};
 use etherparse::{Ipv4HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::thread;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::collections::HashMap;
 use log::{info, warn, error, debug};
@@ -49,6 +48,26 @@ struct ConnectionRequest {
     dest_ip: String,
     dest_port: u16,
     protocol: String,
+    #[serde(default)]
+    learning_mode: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum GuiCommand {
+    #[serde(rename = "gui_response")]
+    Response(GuiResponse),
+    #[serde(rename = "add_rule")]
+    AddRule(AddRuleRequest),
+}
+
+#[derive(Deserialize)]
+struct AddRuleRequest {
+    app_path: String,
+    app_name: String,
+    port: u16,
+    allow: bool,
+    all_ports: bool,
 }
 
 #[derive(Deserialize)]
@@ -134,7 +153,6 @@ impl GuiState {
         stream.set_read_timeout(Some(Duration::from_secs(GUI_TIMEOUT_SECS))).ok();
         stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
         
-        // FIX #25: Handle clone failure gracefully
         let reader = match stream.try_clone() {
             Ok(s) => BufReader::new(s),
             Err(e) => {
@@ -192,7 +210,7 @@ impl GuiState {
             }
         }
 
-        // Mark as pending IMMEDIATELY to prevent duplicates while waiting for response
+        // Mark as pending to prevent duplicates while waiting for response
         self.pending_cache.insert(cache_key.clone(), std::time::Instant::now());
 
         // Log that we're sending a popup (after dedup check)
@@ -210,6 +228,12 @@ impl GuiState {
                 return None;
             }
         } else {
+            return None;
+        }
+
+        // In learning mode, we don't wait for a response (non-blocking)
+        if request.learning_mode {
+            debug!("Learning mode: fired-and-forgot popup request for {}", cache_key);
             return None;
         }
 
@@ -303,8 +327,9 @@ fn main() -> anyhow::Result<()> {
     let gui_state_server = gui_state.clone();
     let stats_server = stats.clone();
     let config_server = config.clone();
+    let rules_server = rules.clone();
     thread::spawn(move || {
-        run_socket_server(gui_state_server, stats_server, config_server);
+        run_socket_server(gui_state_server, stats_server, config_server, rules_server);
     });
     
     // Open NFQUEUE
@@ -392,20 +417,15 @@ fn main() -> anyhow::Result<()> {
 fn run_socket_server(
     gui_state: Arc<Mutex<GuiState>>,
     stats: Arc<Mutex<Stats>>,
-    config: Arc<ConfigManager>
+    config: Arc<ConfigManager>,
+    rule_manager: Arc<RuleManager>,
 ) {
-    // FIX #26: Handle missing parent directory gracefully
     let socket_path = std::path::Path::new(SOCKET_PATH);
-    let socket_dir = match socket_path.parent() {
-        Some(dir) => dir,
-        None => {
-            error!("Socket path has no parent directory: {}", SOCKET_PATH);
-            return;
-        }
-    };
-    std::fs::create_dir_all(socket_dir).ok();
+    if let Some(socket_dir) = socket_path.parent() {
+        std::fs::create_dir_all(socket_dir).ok();
+    }
 
-    // Security: Only remove if it's a socket, not a symlink or other file
+    // Security check: only remove if it's a real socket
     if let Ok(meta) = std::fs::symlink_metadata(SOCKET_PATH) {
         if meta.file_type().is_symlink() {
             error!("Socket path is a symlink, refusing to remove: {}", SOCKET_PATH);
@@ -476,12 +496,13 @@ fn run_socket_server(
                 info!("GUI client connecting");
                 gui_state.lock().set_connection(s.try_clone().expect("Failed to clone stream"));
 
-                // Spawn a thread to send stats updates every 2 seconds
+                // Spawn a thread to handle this GUI connection (bi-directional)
                 let stats_clone = stats.clone();
                 let gui_state_clone = gui_state.clone();
                 let config_clone = config.clone();
+                let rules_clone = rule_manager.clone();
                 thread::spawn(move || {
-                    send_stats_updates(s, stats_clone, gui_state_clone, config_clone);
+                    handle_gui_connection(s, stats_clone, gui_state_clone, config_clone, rules_clone);
                 });
             }
             Err(e) => {
@@ -491,45 +512,93 @@ fn run_socket_server(
     }
 }
 
-fn send_stats_updates(
+fn handle_gui_connection(
     mut stream: UnixStream,
     stats: Arc<Mutex<Stats>>,
     gui_state: Arc<Mutex<GuiState>>,
-    config: Arc<ConfigManager>
+    config: Arc<ConfigManager>,
+    rules: Arc<RuleManager>,
 ) {
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
+    stream.set_read_timeout(Some(Duration::from_millis(100))).ok(); // Non-blocking read
+
+    let mut reader = BufReader::new(stream.try_clone().expect("Failed to clone GUI stream for reader"));
+    let mut last_stats_send = Instant::now();
 
     loop {
         if !gui_state.lock().is_connected() {
-            info!("Stats updater: GUI disconnected, stopping stats updates");
+            info!("GUI handler: Disconnected, stopping thread");
             break;
         }
 
-        // Send stats update
-        let s = stats.lock().clone();
-        let learning_mode = config.is_learning_mode();
-        let update = StatsUpdate {
-            msg_type: "stats_update".to_string(),
-            stats: StatsData {
-                total_connections: s.total_connections,
-                allowed_connections: s.allowed_connections,
-                blocked_connections: s.blocked_connections,
-                learning_mode,
-            },
-        };
-        drop(s);
-
-        if let Ok(json) = serde_json::to_string(&update) {
-            if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
-                debug!("Failed to send stats update: {}", e);
+        // 1. Check for incoming commands from GUI (non-blocking)
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) => {
+                info!("GUI handler: Connection closed by peer");
+                gui_state.lock().disconnect();
+                break;
+            }
+            Ok(_) => {
+                if let Ok(cmd) = serde_json::from_str::<GuiCommand>(&line) {
+                    match cmd {
+                        GuiCommand::Response(_) => {
+                            // Responses are handled by the blocking ask_gui thread.
+                            // However, we might get one here if a timeout occurred and then a response arrived.
+                            // We can ignore it as the original thread probably already gave up.
+                            debug!("GUI handler: Received late response, ignoring");
+                        }
+                        GuiCommand::AddRule(req) => {
+                            info!("[ASYNC:RULE] Adding rule from GUI: {} -> {} (allow: {})", req.app_name, req.port, req.allow);
+                            let rule_key = if !req.app_path.is_empty() && req.app_path != "unknown" {
+                                req.app_path
+                            } else {
+                                format!("@name:{}", req.app_name)
+                            };
+                            rules.add_rule(&rule_key, Some(req.port), req.allow, req.all_ports);
+                        }
+                    }
+                }
+            }
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut => {
+                // No data yet, that's fine
+            }
+            Err(e) => {
+                warn!("GUI handler read error: {}", e);
+                gui_state.lock().disconnect();
                 break;
             }
         }
 
-        thread::sleep(Duration::from_secs(2));
+        // 2. Send stats update every 2 seconds
+        if last_stats_send.elapsed() >= Duration::from_secs(2) {
+            let s = stats.lock().clone();
+            let learning_mode = config.is_learning_mode();
+            let update = StatsUpdate {
+                msg_type: "stats_update".to_string(),
+                stats: StatsData {
+                    total_connections: s.total_connections,
+                    allowed_connections: s.allowed_connections,
+                    blocked_connections: s.blocked_connections,
+                    learning_mode,
+                },
+            };
+            drop(s);
+
+            if let Ok(json) = serde_json::to_string(&update) {
+                if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
+                    debug!("GUI handler write error: {}", e);
+                    gui_state.lock().disconnect();
+                    break;
+                }
+            }
+            last_stats_send = Instant::now();
+        }
+
+        thread::sleep(Duration::from_millis(50)); // Small sleep to avoid spinning
     }
 
-    info!("Stats updater thread exiting");
+    info!("GUI handler thread exiting");
 }
 
 fn process_packet(
@@ -684,6 +753,7 @@ fn process_packet(
         dest_ip: dst_ip_str.clone(),
         dest_port: dst_port,
         protocol: protocol_str.to_string(),
+        learning_mode,
     };
 
     if gui.is_connected() {

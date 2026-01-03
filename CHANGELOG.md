@@ -5,6 +5,17 @@ All notable changes to Bastion Firewall will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.26] - 2026-01-03
+
+### Features
+- **Perfect Learning Mode**: Non-blocking popups for zero-latency traffic while in learning mode.
+- **Asynchronous Rule Creation**: Rules created from popups are now saved in the background.
+
+### Improvements
+- **Robust Path Identification**: Improved cleaning for containerized app paths (Flatpak/Brave).
+- **Codebase Sanitization**: Removed verbose AI-generated comments and redundant artifacts.
+- **Security**: Hardened daemon IPC with peer credential verification.
+
 ## [2.0.25] - 2025-12-31
 
 ### Features

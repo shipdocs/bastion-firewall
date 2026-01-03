@@ -24,9 +24,7 @@ from bastion.icon_manager import IconManager
 LOCK_FILE = f'/tmp/bastion-gui-{os.getuid()}.lock'
 
 def acquire_lock():
-    """Try to acquire a lock file. Returns file handle if successful, None if already running."""
     try:
-        # Open file for read/write, create if not exists
         lock_fd = open(LOCK_FILE, 'a+')
         lock_fd.seek(0)
 
@@ -52,7 +50,6 @@ def acquire_lock():
             except (ValueError, OSError):
                 pass  # Stale or invalid PID
 
-        # Write our PID
         lock_fd.seek(0)
         lock_fd.truncate()
         lock_fd.write(str(os.getpid()))
@@ -252,7 +249,6 @@ class BastionClient(QObject):
             pass
 
     def handle_notification(self, req):
-        """Show a system tray notification"""
         title = req.get('title', 'Bastion Firewall')
         message = req.get('message', '')
         level = req.get('level', 'info')
@@ -266,36 +262,44 @@ class BastionClient(QObject):
         self.tray_icon.showMessage(title, message, icon, 5000)
 
     def handle_connection_request(self, req):
-        """
-        Display a non-modal firewall decision dialog for an incoming connection request and send the user's decision back to the daemon.
-
-        Parameters:
-            req (dict): Incoming request payload used to populate the dialog. May include a numeric 'decision_id' (defaults to 0) which will be echoed back in the response.
-
-        Behavior:
-            - Shows a non-modal FirewallDialog with a 60-second timeout to obtain the user's decision and permanence choice.
-            - Dialog doesn't steal focus, allowing user to continue working.
-            - If connected to the daemon, sends a JSON line containing `allow` (boolean), `permanent` (boolean), and `decision_id` back over the socket.
-            - If sending the response fails, the client disconnects and resets its connection state.
-        """
         print(f"[GUI] Popup request: app_name='{req.get('app_name')}' app_path='{req.get('app_path')}' dst={req.get('dest_ip')}:{req.get('dest_port')}")
         dialog = FirewallDialog(req, timeout=60)
         decision_id = req.get('decision_id', 0)
 
         # Handle dialog completion (non-modal)
+        learning_mode = req.get('learning_mode', False)
+        
         def on_dialog_finished():
             decision = (dialog.decision == 'allow')
             permanent = dialog.permanent
             all_ports = dialog.all_ports  # Wildcard port support (issue #13)
 
-            # Send response with decision_id
+            # Send response
             if self.connected and self.sock:
-                resp = json.dumps({
-                    'allow': decision,
-                    'permanent': permanent,
-                    'all_ports': all_ports,
-                    'decision_id': decision_id
-                }) + '\n'
+                if learning_mode:
+                    # In learning mode, we only care about permanent rules
+                    if permanent:
+                        resp = json.dumps({
+                            'type': 'add_rule',
+                            'app_name': req.get('app_name'),
+                            'app_path': req.get('app_path'),
+                            'port': req.get('dest_port'),
+                            'allow': decision,
+                            'all_ports': all_ports
+                        }) + '\n'
+                        print(f"[GUI] Sending async rule addition: {req.get('app_name')} -> {req.get('dest_port')}")
+                    else:
+                        return # No-op for temporary decisions in learning mode
+                else:
+                    # Normal enforcement mode - response to blocking request
+                    resp = json.dumps({
+                        'type': 'gui_response',
+                        'allow': decision,
+                        'permanent': permanent,
+                        'all_ports': all_ports,
+                        'decision_id': decision_id
+                    }) + '\n'
+                
                 try:
                     self.sock.sendall(resp.encode())
                 except (OSError, BrokenPipeError, ConnectionResetError):

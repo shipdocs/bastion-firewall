@@ -1,5 +1,5 @@
 //! Process identification module
-//! Directly reads /proc like Python's psutil does
+//! Reads /proc to identify which process owns a network connection.
 
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -40,7 +40,10 @@ pub struct ProcessCache {
 /// Flatpak apps sometimes store full cmdline in /proc/pid/exe symlink.
 /// e.g., "/app/brave/brave --type=utility..." -> "/app/brave/brave"
 fn clean_exe_path(path: &str) -> String {
-    // If path contains a space, it likely has cmdline args appended
+    // 1. Strip everything after the first space (handles cmdline arguments)
+    // 2. Handle null bytes which might be present in /proc/pid/cmdline
+    let path = path.split('\0').next().unwrap_or("");
+    
     if let Some(space_idx) = path.find(' ') {
         path[..space_idx].to_string()
     } else {
@@ -174,14 +177,6 @@ impl ProcessCache {
         self.last_scan = Instant::now();
     }
     
-    /// Retrieve the primary UID of a process by reading /proc/[pid]/status.
-    ///
-    /// Parses the `Uid:` line from `/proc/<pid>/status` and returns the first numeric UID listed.
-    ///
-    ///
-    /// `Some(uid)` if the primary UID was found and parsed, `None` otherwise.
-    ///
-    ///
     fn get_process_uid(&self, pid: u32) -> Option<u32> {
         let path = format!("/proc/{}/status", pid);
         if let Ok(file) = File::open(path) {
@@ -321,15 +316,6 @@ impl ProcessCache {
         }
     }
     
-    /// Locate the process that owns a socket identified by source/destination IPs and ports for a given protocol.
-    ///
-    /// This first attempts a kernel-level lookup using eBPF (if available) and falls back to scanning /proc and /proc/net
-    /// entries to match socket inodes to processes.
-    ///
-    ///
-    /// `Some(ProcessInfo)` containing the owning process information if a matching process is found, `None` otherwise.
-    ///
-    ///
     pub fn find_process_by_socket(
         &mut self,
         src_ip: &str,
@@ -338,7 +324,7 @@ impl ProcessCache {
         dest_port: u16,
         protocol: &str,
     ) -> Option<ProcessInfo> {
-        // FIRST: Try eBPF lookup (kernel-level tracking, most accurate)
+        // 1. Try eBPF lookup (most accurate)
         // Now uses lookup_process_info which returns both PID and comm name captured at connection time
         if self.ebpf.is_some() {
             // Get both PID and comm from eBPF (comm is captured at connection time, survives process exit)
@@ -448,13 +434,14 @@ impl ProcessCache {
 
                 // Try cmdline as fallback when /proc/pid/exe fails
                 let exe_path = if let Ok(cmdline) = fs::read_to_string(format!("{}/cmdline", proc_path)) {
+                    // cmdline is null-separated. First part is the executable.
                     let first_arg = cmdline.split('\0').next().unwrap_or("");
-                    // Skip /proc/self/exe (used by Electron/Chromium, not a real path)
-                    if !first_arg.is_empty() && first_arg.starts_with('/') && first_arg != "/proc/self/exe" {
-                        debug!("Resolved PID {} to process: {} (from cmdline: {})", pid, proc_name, first_arg);
-                        first_arg.to_string()
+                    if !first_arg.is_empty() && (first_arg.starts_with('/') || first_arg.contains("./")) && first_arg != "/proc/self/exe" {
+                        let cleaned = clean_exe_path(first_arg);
+                        debug!("Resolved PID {} to process: {} (from cmdline: {})", pid, proc_name, cleaned);
+                        cleaned
                     } else {
-                        debug!("Resolved PID {} to process: {} (no exe: {}, cmdline: {})", pid, proc_name, exe_err, first_arg);
+                        debug!("Resolved PID {} to process: {} (no valid exe in cmdline: {})", pid, proc_name, first_arg);
                         String::new()
                     }
                 } else {

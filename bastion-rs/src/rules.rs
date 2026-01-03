@@ -19,11 +19,6 @@ pub struct RuleManager {
 }
 
 impl RuleManager {
-    /// Creates a new RuleManager with an empty in-memory rule store and loads persisted rules from disk.
-    ///
-    /// The manager's rules map is initialized and immediately populated by reading RULES_PATH (if present).
-    ///
-    ///
     pub fn new() -> Self {
         let manager = Self {
             rules: RwLock::new(HashMap::new()),
@@ -32,21 +27,6 @@ impl RuleManager {
         manager
     }
     
-    /// Load rules from the JSON file at RULES_PATH into the manager's in-memory rules map.
-    ///
-    /// If the file does not exist, this leaves the rules map empty. If the file is present,
-    /// the function attempts to parse it as JSON object entries where each rule key uses the
-    /// "path:port" format and the corresponding value is a boolean indicating allow (`true`)
-    /// or deny (`false`). Entries named "applications" or "services" are treated as metadata
-    /// and ignored. On successful load the existing in-memory rules are replaced with the
-    /// parsed rules. Read or parse failures are logged.
-    ///
-    ///
-    /// manager.load_rules();
-    /// Reload rules from disk - public wrapper for load_rules().
-    ///
-    /// Used when rules are modified externally (e.g., via GUI) and the daemon
-    /// receives a SIGHUP signal to reload configuration.
     pub fn reload(&self) {
         self.load_rules();
     }
@@ -119,16 +99,6 @@ impl RuleManager {
         }
     }
     
-    /// Determine whether a specific application path and port combination is allowed.
-    ///
-    /// Checks rules in precedence order (issue #13):
-    /// 1. Specific port rule (app_path:port) - highest priority
-    /// 2. Wildcard port rule (app_path:*) - fallback for all ports
-    ///
-    /// Returns `Some(true)` if the combination is allowed, `Some(false)` if explicitly denied, or `None` if no rule exists for the given app and port.
-    ///
-    ///
-    /// mgr.add_rule("/usr/bin/ssh", Some(22), true, false);
     pub fn get_decision(&self, app_path: &str, port: u16) -> Option<bool> {
         let rules = self.rules.read();
 
@@ -145,17 +115,6 @@ impl RuleManager {
         None
     }
     
-    /// Adds a rule for a specific application path and port and persists the rules if a port is provided.
-    ///
-    /// When `port` is `Some(p)`, inserts or updates the rule mapping `(app_path, p) -> allow` and writes
-    /// the current rules to the rules file. When `port` is `None`, the function is a no-op.
-    ///
-    /// If `all_ports` is true, creates a wildcard rule (port 0) that applies to all ports (issue #13).
-    ///
-    ///
-    /// manager.add_rule("/usr/bin/example", Some(8080), true, false);
-    ///
-    /// manager.add_rule("/usr/bin/zoom", Some(8801), true, true);
     pub fn add_rule(&self, app_path: &str, port: Option<u16>, allow: bool, all_ports: bool) {
         if let Some(p) = port {
             // Use port 0 as wildcard marker when all_ports is true
@@ -168,14 +127,6 @@ impl RuleManager {
         }
     }
     
-    /// Persists the in-memory rules to the JSON file at RULES_PATH in a Python-compatible format.
-    ///
-    /// The serialized top-level object contains empty `"applications"` and `"services"` entries and
-    /// individual rules as `"path:port": <bool>` pairs. On success, logs the number of saved rules;
-    /// on failure, logs an error.
-    ///
-    ///
-    /// mgr.save_rules();
     fn save_rules(&self) {
         let rules = self.rules.read();
         let path = Path::new(RULES_PATH);

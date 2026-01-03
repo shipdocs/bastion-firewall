@@ -1,7 +1,5 @@
 //! eBPF loader and management for process identification
-//! 
-//! This module loads of eBPF program that hooks into socket creation
-//! and provides a map for quick PID lookup by socket information
+//! Hooks into socket creation to provide PID lookup by socket.
 
 use aya::{
     programs::KProbe,
@@ -61,18 +59,12 @@ pub struct EbpfManager {
 }
 
 impl EbpfManager {
-    /// Creates a new EbpfManager with default state.
-    ///
-    /// The manager is initialized with no loaded eBPF object, an empty local cache,
-    /// the current instant as the last cleanup time, and a 5-second cache TTL.
-    ///
-    ///
     pub fn new() -> Self {
         Self {
             bpf: None,
             local_cache: StdHashMap::new(),
             last_cleanup: Instant::now(),
-            ttl: Duration::from_secs(5), // 5 second TTL for entries
+            ttl: Duration::from_secs(5),
         }
     }
 
@@ -89,19 +81,6 @@ impl EbpfManager {
         Err(anyhow::anyhow!("eBPF program not compiled yet"))
     }
 
-    /// Loads a compiled eBPF object from the given filesystem path and attaches its kprobe programs.
-    ///
-    /// On success stores the loaded eBPF object in the manager and attaches `tcp_v4_connect` and
-    /// `udp_sendmsg` kprobes so socket events can be observed for PID lookup.
-    ///
-    ///
-    ///
-    ///
-    /// Returns an error if the eBPF object cannot be loaded, if either required program
-    /// (`tcp_v4_connect`, `udp_sendmsg`) is missing or cannot be converted to a `KProbe`,
-    /// or if attaching either kprobe fails.
-    ///
-    ///
     pub fn load_from_file(&mut self, path: &str) -> Result<(), anyhow::Error> {
         // Load compiled eBPF program
         debug!("Loading eBPF program from: {}", path);
@@ -185,18 +164,6 @@ impl EbpfManager {
         Ok(())
     }
 
-    /// Resolve a process ID (PID) for a socket identified by source port, destination IP address, and destination port.
-    ///
-    /// Supports both IPv4 and IPv6 addresses. Looks up a cached PID first; if not found and an eBPF program is loaded,
-    /// queries the eBPF `SOCKET_MAP` using the destination IP and port (with a wildcard source port/pid) and caches
-    /// any discovered PID for subsequent lookups.
-    ///
-    ///
-    ///
-    ///
-    /// `Some(pid)` if a PID matching the socket information is found, `None` otherwise.
-    ///
-    ///
     pub fn lookup_pid(&mut self, src_port: u16, dst_ip: &str, dst_port: u16) -> Option<u32> {
         // First check local cache
         self.cleanup_cache();
