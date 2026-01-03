@@ -6,18 +6,17 @@ mod rules;
 mod config;
 mod whitelist;
 mod ebpf_loader;
+mod gui;
+mod proc_parser;
 
 use nfq::{Queue, Verdict};
 use etherparse::{Ipv4HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
 use std::thread;
-use std::io::{self, BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::collections::HashMap;
 use log::{info, warn, error, debug};
 use parking_lot::Mutex;
-use serde::{Serialize, Deserialize};
 use signal_hook::consts::SIGHUP;
 use signal_hook::iterator::Signals;
 
@@ -25,280 +24,9 @@ use process::ProcessCache;
 use rules::RuleManager;
 use config::ConfigManager;
 use whitelist::should_auto_allow;
+use gui::{GuiState, Stats, ConnectionRequest, run_socket_server};
 
 const QUEUE_NUM: u16 = 1;
-const SOCKET_PATH: &str = "/var/run/bastion/bastion-daemon.sock";
-const GUI_TIMEOUT_SECS: u64 = 60;  // Increased to 60s to allow user to finish typing
-
-#[derive(Default, Clone)]
-pub struct Stats {
-    pub total_connections: u64,
-    pub allowed_connections: u64,
-    pub blocked_connections: u64,
-    pub learning_mode: bool,
-}
-
-#[derive(Serialize)]
-struct ConnectionRequest {
-    #[serde(rename = "type")]
-    msg_type: String,
-    app_name: String,
-    app_path: String,
-    app_category: String,
-    dest_ip: String,
-    dest_port: u16,
-    protocol: String,
-    #[serde(default)]
-    learning_mode: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type")]
-enum GuiCommand {
-    #[serde(rename = "gui_response")]
-    Response(GuiResponse),
-    #[serde(rename = "add_rule")]
-    AddRule(AddRuleRequest),
-}
-
-#[derive(Deserialize)]
-struct AddRuleRequest {
-    app_path: String,
-    app_name: String,
-    port: u16,
-    allow: bool,
-    all_ports: bool,
-}
-
-#[derive(Deserialize)]
-struct GuiResponse {
-    allow: bool,
-    #[serde(default)]
-    permanent: bool,
-    /// When true, create a wildcard rule for all ports (issue #13)
-    #[serde(default)]
-    all_ports: bool,
-}
-
-#[derive(Serialize)]
-struct StatsUpdate {
-    #[serde(rename = "type")]
-    msg_type: String,
-    stats: StatsData,
-}
-
-#[derive(Serialize)]
-struct StatsData {
-    total_connections: u64,
-    allowed_connections: u64,
-    blocked_connections: u64,
-    learning_mode: bool,
-}
-
-/// User decision for an unknown connection
-#[derive(Clone, Copy)]
-struct UnknownDecision {
-    allow: bool,
-    timestamp: std::time::Instant,
-}
-
-/// Cached session decision (for apps that don't have persistent rules yet)
-#[derive(Clone)]
-struct SessionDecision {
-    allow: bool,
-    timestamp: std::time::Instant,
-}
-
-/// Shared state for GUI connection (we're the SERVER, GUI connects to us)
-struct GuiState {
-    stream: Option<UnixStream>,
-    reader: Option<BufReader<UnixStream>>,
-    pending_cache: HashMap<String, std::time::Instant>,
-    // Cache user decisions for "unknown" apps to prevent popup spam
-    // Key: "dest_ip:dest_port", Value: (allow_bool, timestamp)
-    unknown_decisions: HashMap<String, UnknownDecision>,
-    // Session decision cache: remembers user decisions for this session
-    // Key: "app_name:port" or "app_path:port", Value: allow/deny + timestamp
-    session_decisions: HashMap<String, SessionDecision>,
-}
-
-impl GuiState {
-    fn new() -> Self {
-        Self {
-            stream: None,
-            reader: None,
-            pending_cache: HashMap::new(),
-            unknown_decisions: HashMap::new(),
-            session_decisions: HashMap::new(),
-        }
-    }
-
-    fn get_session_decision(&self, cache_key: &str) -> Option<bool> {
-        if let Some(decision) = self.session_decisions.get(cache_key) {
-            if decision.timestamp.elapsed() < Duration::from_secs(3600) {
-                return Some(decision.allow);
-            }
-        }
-        None
-    }
-
-    fn cache_session_decision(&mut self, cache_key: &str, allow: bool) {
-        self.session_decisions.insert(cache_key.to_string(), SessionDecision {
-            allow,
-            timestamp: std::time::Instant::now(),
-        });
-    }
-    
-    fn set_connection(&mut self, stream: UnixStream) {
-        stream.set_read_timeout(Some(Duration::from_secs(GUI_TIMEOUT_SECS))).ok();
-        stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
-        
-        let reader = match stream.try_clone() {
-            Ok(s) => BufReader::new(s),
-            Err(e) => {
-                error!("Failed to clone stream: {}", e);
-                return;
-            }
-        };
-        
-        self.stream = Some(stream);
-        self.reader = Some(reader);
-        info!("GUI connection established");
-    }
-    
-    fn is_connected(&self) -> bool {
-        self.stream.is_some()
-    }
-    
-    fn disconnect(&mut self) {
-        info!("GUI disconnected");
-        self.stream = None;
-        self.reader = None;
-    }
-    
-    fn ask_gui(&mut self, request: &ConnectionRequest) -> Option<GuiResponse> {
-        if !self.is_connected() {
-            return None;
-        }
-        
-        // FIX #29: Implement cache eviction to prevent unlimited growth (memory leak)
-        // Clean up old entries if cache gets too large
-        if self.pending_cache.len() > 1000 {
-            let now = std::time::Instant::now();
-            self.pending_cache.retain(|_, timestamp| {
-                now.duration_since(*timestamp) < Duration::from_secs(10)
-            });
-            debug!("Cleaned pending cache (size was > 1000)");
-        }
-        
-        // Dedup: don't spam same request
-        // Key by app+port only (not destination IP) to reduce popup spam
-        // This means one popup per app+port, not per app+destination
-        let cache_key = if request.app_path.is_empty() || request.app_path == "unknown" {
-            // For unknown paths, use app_name:port
-            format!("@name:{}:{}", request.app_name, request.dest_port)
-        } else {
-            // For known paths, use path:port
-            format!("{}:{}", request.app_path, request.dest_port)
-        };
-
-        if let Some(time) = self.pending_cache.get(&cache_key) {
-            // Extend dedup window to 30 seconds to cover typical browsing sessions
-            if time.elapsed() < Duration::from_secs(30) {
-                debug!("Dedup: already asked for {} (waiting for response)", cache_key);
-                return None;
-            }
-        }
-
-        // Mark as pending to prevent duplicates while waiting for response
-        self.pending_cache.insert(cache_key.clone(), std::time::Instant::now());
-
-        // Log that we're sending a popup (after dedup check)
-        info!("[POPUP] {} ({}) -> {}:{}", request.app_name, request.app_path, request.dest_ip, request.dest_port);
-
-        // Send request to GUI
-        let json = match serde_json::to_string(request) {
-            Ok(j) => j,
-            Err(_) => return None,
-        };
-
-        if let Some(ref mut stream) = self.stream {
-            if stream.write_all((json + "\n").as_bytes()).is_err() {
-                self.disconnect();
-                return None;
-            }
-        } else {
-            return None;
-        }
-
-        // In learning mode, we don't wait for a response (non-blocking)
-        if request.learning_mode {
-            debug!("Learning mode: fired-and-forgot popup request for {}", cache_key);
-            return None;
-        }
-
-        // Wait for response (blocking with timeout)
-        if let Some(ref mut reader) = self.reader {
-            let mut line = String::new();
-            match reader.read_line(&mut line) {
-                Ok(0) => {
-                    self.disconnect();
-                    return None;
-                }
-                Ok(_) => {
-                    match serde_json::from_str::<GuiResponse>(&line) {
-                        Ok(resp) => {
-                            // Cache is already set above
-                            return Some(resp);
-                        }
-                        Err(e) => {
-                            debug!("Failed to parse GUI response: {} - line: {}", e, line.trim());
-                            return None;
-                        }
-                    }
-                }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::WouldBlock ||
-                       e.kind() == std::io::ErrorKind::TimedOut {
-                        debug!("GUI timeout - no response, allowing retry");
-                    } else {
-                        debug!("GUI read error: {}", e);
-                        self.disconnect();
-                    }
-                    return None;
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Returns cached decision for unknown app if valid (within 60 seconds)
-    fn check_unknown_decision(&self, dest_ip: &str, dest_port: u16) -> Option<bool> {
-        let key = format!("{}:{}", dest_ip, dest_port);
-        if let Some(decision) = self.unknown_decisions.get(&key) {
-            if decision.timestamp.elapsed() < Duration::from_secs(60) {
-                debug!("Using cached unknown decision for {}:{} -> {}", dest_ip, dest_port,
-                    if decision.allow { "ALLOW" } else { "BLOCK" });
-                return Some(decision.allow);
-            }
-        }
-        None
-    }
-
-    fn cache_unknown_decision(&mut self, dest_ip: &str, dest_port: u16, allow: bool) {
-        let key = format!("{}:{}", dest_ip, dest_port);
-        self.unknown_decisions.insert(key, UnknownDecision {
-            allow,
-            timestamp: std::time::Instant::now(),
-        });
-
-        let now = std::time::Instant::now();
-        self.unknown_decisions.retain(|_, dec| {
-            now.duration_since(dec.timestamp) < Duration::from_secs(60)
-        });
-    }
-}
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(
@@ -367,7 +95,9 @@ fn main() -> anyhow::Result<()> {
         for sig in signals.forever() {
             if sig == SIGHUP {
                 info!("Received SIGHUP - reloading config and rules");
-                config_sighup.load();
+                if let Err(e) = config_sighup.load() {
+                    error!("Failed to reload config: {}", e);
+                }
                 gui_state_sighup.lock().pending_cache.clear();
                 rules_sighup.reload();
                 let mode = if config_sighup.is_learning_mode() { "learning" } else { "enforcement" };
@@ -414,193 +144,6 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-fn run_socket_server(
-    gui_state: Arc<Mutex<GuiState>>,
-    stats: Arc<Mutex<Stats>>,
-    config: Arc<ConfigManager>,
-    rule_manager: Arc<RuleManager>,
-) {
-    let socket_path = std::path::Path::new(SOCKET_PATH);
-    if let Some(socket_dir) = socket_path.parent() {
-        std::fs::create_dir_all(socket_dir).ok();
-    }
-
-    // Security check: only remove if it's a real socket
-    if let Ok(meta) = std::fs::symlink_metadata(SOCKET_PATH) {
-        if meta.file_type().is_symlink() {
-            error!("Socket path is a symlink, refusing to remove: {}", SOCKET_PATH);
-            return;
-        }
-        let _ = std::fs::remove_file(SOCKET_PATH);
-    }
-
-    let listener = match UnixListener::bind(SOCKET_PATH) {
-        Ok(l) => l,
-        Err(e) => {
-            error!("Failed to bind socket: {}", e);
-            return;
-        }
-    };
-    
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        // SECURITY: Use 0o666 to allow GUI connections, but verify peer credentials below
-        // This allows any user to connect, but we validate UID before accepting
-        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o666));
-    }
-    
-    info!("Socket server listening on {}", SOCKET_PATH);
-    
-    for stream in listener.incoming() {
-        match stream {
-            Ok(s) => {
-                // SECURITY: Verify peer credentials before accepting connection
-                // This prevents system processes or malicious scripts from impersonating the GUI
-                #[cfg(unix)]
-                {
-                    use std::os::unix::io::AsRawFd;
-                    
-                    // Get peer credentials using SO_PEERCRED
-                    let fd = s.as_raw_fd();
-                    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
-                    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-                    
-                    let result = unsafe {
-                        libc::getsockopt(
-                            fd,
-                            libc::SOL_SOCKET,
-                            libc::SO_PEERCRED,
-                            &mut cred as *mut _ as *mut libc::c_void,
-                            &mut len,
-                        )
-                    };
-                    
-                    if result == 0 {
-                        let peer_uid = cred.uid;
-                        // Allow: root (uid 0) for system tools, or regular users (uid >= 1000)
-                        // Block: system users (uid 1-999) which are typically daemons/services
-                        if peer_uid == 0 || peer_uid >= 1000 {
-                            info!("GUI client connected (UID: {})", peer_uid);
-                        } else {
-                            warn!("Rejected connection from system user (UID: {})", peer_uid);
-                            drop(s);
-                            continue;
-                        }
-                    } else {
-                        warn!("Failed to get peer credentials, allowing connection");
-                    }
-                }
-                
-                #[cfg(not(unix))]
-                info!("GUI client connecting");
-                gui_state.lock().set_connection(s.try_clone().expect("Failed to clone stream"));
-
-                // Spawn a thread to handle this GUI connection (bi-directional)
-                let stats_clone = stats.clone();
-                let gui_state_clone = gui_state.clone();
-                let config_clone = config.clone();
-                let rules_clone = rule_manager.clone();
-                thread::spawn(move || {
-                    handle_gui_connection(s, stats_clone, gui_state_clone, config_clone, rules_clone);
-                });
-            }
-            Err(e) => {
-                error!("Socket accept error: {}", e);
-            }
-        }
-    }
-}
-
-fn handle_gui_connection(
-    mut stream: UnixStream,
-    stats: Arc<Mutex<Stats>>,
-    gui_state: Arc<Mutex<GuiState>>,
-    config: Arc<ConfigManager>,
-    rules: Arc<RuleManager>,
-) {
-    stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
-    stream.set_read_timeout(Some(Duration::from_millis(100))).ok(); // Non-blocking read
-
-    let mut reader = BufReader::new(stream.try_clone().expect("Failed to clone GUI stream for reader"));
-    let mut last_stats_send = Instant::now();
-
-    loop {
-        if !gui_state.lock().is_connected() {
-            info!("GUI handler: Disconnected, stopping thread");
-            break;
-        }
-
-        // 1. Check for incoming commands from GUI (non-blocking)
-        let mut line = String::new();
-        match reader.read_line(&mut line) {
-            Ok(0) => {
-                info!("GUI handler: Connection closed by peer");
-                gui_state.lock().disconnect();
-                break;
-            }
-            Ok(_) => {
-                if let Ok(cmd) = serde_json::from_str::<GuiCommand>(&line) {
-                    match cmd {
-                        GuiCommand::Response(_) => {
-                            // Responses are handled by the blocking ask_gui thread.
-                            // However, we might get one here if a timeout occurred and then a response arrived.
-                            // We can ignore it as the original thread probably already gave up.
-                            debug!("GUI handler: Received late response, ignoring");
-                        }
-                        GuiCommand::AddRule(req) => {
-                            info!("[ASYNC:RULE] Adding rule from GUI: {} -> {} (allow: {})", req.app_name, req.port, req.allow);
-                            let rule_key = if !req.app_path.is_empty() && req.app_path != "unknown" {
-                                req.app_path
-                            } else {
-                                format!("@name:{}", req.app_name)
-                            };
-                            rules.add_rule(&rule_key, Some(req.port), req.allow, req.all_ports);
-                        }
-                    }
-                }
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut => {
-                // No data yet, that's fine
-            }
-            Err(e) => {
-                warn!("GUI handler read error: {}", e);
-                gui_state.lock().disconnect();
-                break;
-            }
-        }
-
-        // 2. Send stats update every 2 seconds
-        if last_stats_send.elapsed() >= Duration::from_secs(2) {
-            let s = stats.lock().clone();
-            let learning_mode = config.is_learning_mode();
-            let update = StatsUpdate {
-                msg_type: "stats_update".to_string(),
-                stats: StatsData {
-                    total_connections: s.total_connections,
-                    allowed_connections: s.allowed_connections,
-                    blocked_connections: s.blocked_connections,
-                    learning_mode,
-                },
-            };
-            drop(s);
-
-            if let Ok(json) = serde_json::to_string(&update) {
-                if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
-                    debug!("GUI handler write error: {}", e);
-                    gui_state.lock().disconnect();
-                    break;
-                }
-            }
-            last_stats_send = Instant::now();
-        }
-
-        thread::sleep(Duration::from_millis(50)); // Small sleep to avoid spinning
-    }
-
-    info!("GUI handler thread exiting");
-}
-
 fn process_packet(
     payload: &[u8],
     rules: &RuleManager,
@@ -642,7 +185,7 @@ fn process_packet(
     let src_ip = ip_header.source_addr();
     let src_ip_str = format!("{}", src_ip);
     
-    // Identify process - exactly like Python's find_process_by_socket
+    // Identify process
     let mut cache = process_cache.lock();
     let process_info = cache.find_process_by_socket(
         &src_ip_str, src_port,
@@ -670,11 +213,9 @@ fn process_packet(
                 debug!("[RULE:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
                 return Verdict::Accept;
             } else if !learning_mode {
-                // In learning mode, ignore DENY rules (observe only)
                 info!("[RULE:BLOCK] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
                 return Verdict::Drop;
             } else {
-                // Learning mode: log but don't block
                 info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (would block in enforcement)", app_name, dst_ip, dst_port);
             }
         }
@@ -688,45 +229,39 @@ fn process_packet(
                 debug!("[RULE:ALLOW:NAME] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
                 return Verdict::Accept;
             } else if !learning_mode {
-                // In learning mode, ignore DENY rules (observe only)
                 info!("[RULE:BLOCK:NAME] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
                 return Verdict::Drop;
             } else {
-                // Learning mode: log but don't block
                 info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"@name:{}\" dst=\"{}:{}\" (would block in enforcement)", app_name, dst_ip, dst_port);
             }
         }
     }
 
     // No rule found - check session cache first, then ask user
-    // Build cache key (same format as dedup key)
     let session_cache_key = if app_path.is_empty() || app_path == "unknown" {
         format!("@name:{}:{}", app_name, dst_port)
     } else {
         format!("{}:{}", app_path, dst_port)
     };
 
-    // Try to get GUI decision (blocking with timeout)
     let mut gui = gui_state.lock();
 
-    // Check session decision cache first (covers all apps, not just unknown)
+    // Check session decision cache first
     if let Some(cached_allow) = gui.get_session_decision(&session_cache_key) {
         if cached_allow {
             drop(gui);
             debug!("[SESSION:ALLOW] app=\"{}\" dst=\"{}:{}\"", app_name, dst_ip, dst_port);
             return Verdict::Accept;
         } else if !learning_mode {
-            // Enforce cached DENY only in enforcement mode
             drop(gui);
             debug!("[SESSION:BLOCK] app=\"{}\" dst=\"{}:{}\"", app_name, dst_ip, dst_port);
             return Verdict::Drop;
         } else {
-            // Learning mode: log cached deny but don't block
             info!("[LEARN:SESSION-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (cached deny ignored)", app_name, dst_ip, dst_port);
         }
     }
 
-    // For unknown apps, also check the legacy destination-based cache
+    // For unknown apps, also check legacy destination-based cache
     if app_name == "unknown" || app_path == "unknown" {
         if let Some(cached_decision) = gui.check_unknown_decision(&dst_ip_str, dst_port) {
             if cached_decision {
@@ -734,12 +269,10 @@ fn process_packet(
                 debug!("[CACHED:ALLOW] unknown app dst=\"{}:{}\"", dst_ip, dst_port);
                 return Verdict::Accept;
             } else if !learning_mode {
-                // Enforce cached DENY only in enforcement mode
                 drop(gui);
                 debug!("[CACHED:BLOCK] unknown app dst=\"{}:{}\"", dst_ip, dst_port);
                 return Verdict::Drop;
             } else {
-                // Learning mode: log cached deny but don't block
                 info!("[LEARN:UNKNOWN-DENIED-BUT-ALLOWED] dst=\"{}:{}\" (cached deny ignored)", dst_ip, dst_port);
             }
         }
@@ -758,11 +291,9 @@ fn process_packet(
 
     if gui.is_connected() {
         if let Some(response) = gui.ask_gui(&request) {
-            // Always cache the session decision (reduces popups for same app+port)
             gui.cache_session_decision(&session_cache_key, response.allow);
             debug!("[SESSION] Cached decision for {} (allow: {})", session_cache_key, response.allow);
 
-            // For unknown apps, also cache by destination
             if app_name == "unknown" || app_path == "unknown" {
                 gui.cache_unknown_decision(&dst_ip_str, dst_port, response.allow);
             }
@@ -771,12 +302,10 @@ fn process_packet(
                 let rule_key = if !app_path.is_empty() && app_path != "unknown" {
                     app_path.clone()
                 } else {
-                    // Name-based rule when path unavailable (less secure)
                     let name_based_key = format!("@name:{}", app_name);
                     warn!("[SECURITY] Creating name-based rule (no path): {} -> port {}", app_name, dst_port);
                     name_based_key
                 };
-                // Pass all_ports flag for wildcard rules (issue #13)
                 rules.add_rule(&rule_key, Some(dst_port), response.allow, response.all_ports);
                 let port_display = if response.all_ports { "*".to_string() } else { dst_port.to_string() };
                 info!("[RULE] Created permanent rule: {} -> port {}", rule_key, port_display);
@@ -796,16 +325,9 @@ fn process_packet(
     }
     drop(gui);
     
-    // No GUI or no response - use mode default
     if learning_mode {
-        info!("[LEARN] app=\"{}\" path=\"{}\" dst=\"{}:{}\" user={}", app_name, app_path, dst_ip, dst_port, app_uid);
         Verdict::Accept
     } else {
-        if app_path == "unknown" {
-            Verdict::Accept
-        } else {
-            warn!("[BLOCK] app=\"{}\" dst=\"{}:{}\" user={} (no GUI)", app_name, dst_ip, dst_port, app_uid);
-            Verdict::Drop
-        }
+        Verdict::Drop
     }
 }

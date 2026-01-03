@@ -4,7 +4,8 @@
 //! Python format: {"path:port": true/false, ...}
 //! Also supports: {"applications": {}, "services": {}, "path:port": bool}
 
-use serde::{Deserialize, Serialize};
+// Removed unused serde imports
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;

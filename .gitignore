@@ -101,3 +101,4 @@ build_deb_v2.sh
 
 # AI guidance docs (local only)
 CLAUDE.md
+GEMINI.md

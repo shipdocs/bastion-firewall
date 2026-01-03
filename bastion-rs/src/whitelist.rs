@@ -45,84 +45,52 @@ static SYSTEM_PATHS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 // Instead, we show a popup on first connection and let the user decide.
 // The decision is then saved as a persistent rule (@name:appname:port).
 
-/// Category of an application
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AppCategory {
-    System,
-    Browser,
-    Development,
-    Communication,
-    Unknown,
-}
-
 /// Decides whether a connection should be automatically allowed and returns a short reason label.
-///
-/// This grants trusted system binaries access to essential service ports and loopback addresses,
-/// and treats known system paths (and systemd services) as allowed sources.
-/// The decision follows the file's whitelist policy: essential ports and localhost are only
-/// auto-allowed for trusted binaries; known system binaries and `/usr/lib/systemd/` paths are allowed.
-///
-///
-/// A tuple where the first element is `true` if the connection should be auto-allowed, `false` otherwise;
-/// the second element is a short static reason string when allowed, or an empty string when denied.
-///
-///
-///
 pub fn should_auto_allow(app_path: &str, app_name: &str, dest_port: u16, dest_ip: &str) -> (bool, &'static str) {
     // 1. Localhost connections - only for trusted binaries
     if let Ok(ip) = dest_ip.parse::<std::net::IpAddr>() {
         if ip.is_loopback() {
-            // Allow localhost for any app, as it's low risk, but log it.
-            // For higher security, you could restrict this to trusted paths:
-            // if SYSTEM_PATHS.contains(app_path) || app_path.starts_with("/usr/lib/systemd/") {
             return (true, "Localhost");
-            // }
         }
     }
 
-    // 1b. mDNS multicast (224.0.0.251:5353) - local network service discovery
-    // Used by Avahi, Chrome (Chromecast), printers, etc. Never leaves LAN.
+    // 1b. mDNS multicast (224.0.0.251:5353)
     if dest_ip == "224.0.0.251" && dest_port == 5353 {
         return (true, "mDNS (local)");
     }
 
-    // 1c. SSDP/UPnP multicast (239.255.255.250:1900) - local network discovery
-    // Used by printers, smart home devices, media servers, etc. Never leaves LAN.
+    // 1c. SSDP/UPnP multicast (239.255.255.250:1900)
     if dest_ip == "239.255.255.250" && dest_port == 1900 {
         return (true, "SSDP (local)");
     }
 
-    // 2. DNS traffic - auto-allow for trusted binaries OR unknown processes
+    // 2. DNS traffic
     if dest_port == 53 {
         if SYSTEM_PATHS.contains(app_path) || app_path.starts_with("/usr/lib/systemd/") {
             return (true, "DNS (trusted)");
         }
-        // Check by name if path is empty (e.g., permission denied on /proc/PID/exe)
         if app_path.is_empty() && (app_name == "NetworkManager" || app_name.starts_with("systemd")) {
             return (true, "DNS (trusted)");
         }
-        // Auto-allow unknown processes - they're almost always system DNS resolvers
         if app_path.is_empty() || app_path == "unknown" {
             return (true, "DNS (system)");
         }
     }
 
-    // 3. Other essential ports (DHCP, NTP) - trusted binaries OR unknown processes
-    if ESSENTIAL_PORTS.contains(&dest_port) && dest_port != 53 {
+    // 3. Other essential ports (DHCP, NTP)
+    if ESSENTIAL_PORTS.contains(&dest_port) {
         if SYSTEM_PATHS.contains(app_path) || app_path.starts_with("/usr/lib/systemd/") {
             return (true, "Essential port (trusted)");
         }
-        // Check by name if path is empty
         if app_path.is_empty() && (app_name == "NetworkManager" || app_name.starts_with("systemd") || app_name == "chronyd" || app_name == "ntpd") {
             return (true, "Essential port (trusted)");
         }
-        // Auto-allow unknown processes on NTP/DHCP - they're system time/network services
         if (app_path.is_empty() || app_path == "unknown") && (dest_port == 123 || dest_port == 67 || dest_port == 68 || dest_port == 323) {
             return (true, "System service");
         }
     }
 
-    // 4. NetworkManager connectivity checks (port 80 to detectportal.firefox.com, etc.)
+    // 4. NetworkManager connectivity checks
     if app_name == "NetworkManager" && (dest_port == 80 || dest_port == 443) {
         return (true, "Network connectivity check");
     }
@@ -137,56 +105,5 @@ pub fn should_auto_allow(app_path: &str, app_name: &str, dest_port: u16, dest_ip
         return (true, "Systemd service");
     }
 
-    // All other connections require user approval via popup
-    // This is intentional - the user should see and approve each app at least once
     (false, "")
-}
-
-/// Get category for an application (for GUI display)
-// FIX #24: Use case-insensitive matching for executable names
-/// Infers a display category for an application from its filesystem path.
-///
-/// The function classifies the application into one of `AppCategory` variants
-/// based on the path or executable name (case-insensitive).
-///
-///
-///
-/// `AppCategory::System` when the path is a known system binary or is under
-/// `/usr/lib/systemd/` or `/usr/sbin/`. `AppCategory::Browser` when the
-/// executable name indicates a web browser. `AppCategory::Development` when the
-/// executable name indicates a development tool. `AppCategory::Communication`
-/// when the executable name indicates a communication app. Otherwise
-/// `AppCategory::Unknown`.
-///
-///
-///
-pub fn get_app_category(app_path: &str) -> AppCategory {
-    if app_path.starts_with("/usr/lib/systemd/") ||
-       app_path.starts_with("/usr/sbin/") ||
-       SYSTEM_PATHS.contains(app_path) {
-        return AppCategory::System;
-    }
-    
-    let name = app_path.split('/').last().unwrap_or("");
-    let name_lower = name.to_lowercase();
-    
-    // Browsers (case-insensitive)
-    if ["firefox", "firefox-esr", "chromium", "chrome", "brave", "vivaldi", "opera"]
-        .iter().any(|&b| name_lower.contains(b)) {
-        return AppCategory::Browser;
-    }
-
-    // Dev tools (case-insensitive)
-    if ["code", "vim", "nvim", "cargo", "rustc", "python", "node", "npm", "git"]
-        .iter().any(|&t| name_lower.contains(t)) {
-        return AppCategory::Development;
-    }
-
-    // Communication (case-insensitive)
-    if ["discord", "slack", "telegram", "signal", "teams", "zoom", "skype"]
-        .iter().any(|&c| name_lower.contains(c)) {
-        return AppCategory::Communication;
-    }
-    
-    AppCategory::Unknown
 }
