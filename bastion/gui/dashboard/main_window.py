@@ -178,7 +178,7 @@ class DashboardWindow(QMainWindow):
             logger.debug(f"Failed to detect inbound firewall: {e}")
 
     def init_ui(self):
-        self.setWindowTitle("Bastion Firewall")
+        self.setWindowTitle(f"Bastion Firewall v{__version__}")
         self.resize(1100, 750)
         self.setStyleSheet(STYLESHEET)
         

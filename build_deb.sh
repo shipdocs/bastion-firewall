@@ -223,20 +223,19 @@ cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
     <keyword>application</keyword>
   </keywords>
   <releases>
-    <release version="1.0.0" date="2024-12-21">
+    <release version="${VERSION}" date="$(date +%Y-%m-%d)">
       <description>
-        <p>🏰 Initial release of Bastion Firewall - Your Last Line of Defense</p>
+        <p>🏰 Update to v${VERSION}</p>
         <ul>
-          <li>Rebranded from Douane to Bastion Firewall</li>
-          <li>Built specifically for Zorin OS 18</li>
-          <li>Independent tray icon with auto-connect</li>
-          <li>Visual status indicators (green/red/orange)</li>
-          <li>Security hardened (5-phase implementation)</li>
-          <li>UFW integration for complete protection</li>
-          <li>Production-ready and stable</li>
+          <li>Non-blocking learning mode popups (zero latency)</li>
+          <li>Asynchronous rule creation from popups</li>
+          <li>Improved path identification for Flatpak/ containerized apps</li>
+          <li>Codebase cleanup and security hardening</li>
         </ul>
       </description>
     </release>
+    <release version="2.0.25" date="2024-12-31" />
+    <release version="1.0.0" date="2024-12-21" />
   </releases>
 </component>
 EOF
@@ -266,19 +265,16 @@ EOF
 
 # Create changelog
 cat > debian/usr/share/doc/bastion-firewall/changelog << 'EOF'
+bastion-firewall (${VERSION}) stable; urgency=medium
+
+  * 🏰 Release v${VERSION}
+  * Non-blocking learning mode popups
+  * Asynchronous rule creation
+  * Cleaned codebase and removed verbose comments
+
+ -- Martin <shipdocs@users.noreply.github.com>  $(date -R)
+
 bastion-firewall (1.0.0) stable; urgency=medium
-
-  * 🏰 Initial release of Bastion Firewall
-  * Rebranded from Douane to Bastion Firewall
-  * Professional branding: "Your Last Line of Defense"
-  * Built specifically for Zorin OS 18
-  * Independent tray icon with auto-connect
-  * Visual status indicators (green/red/orange)
-  * Security hardened (5-phase implementation, score: 2/10 LOW RISK)
-  * UFW integration for complete firewall coverage
-  * Production-ready and stable
-
- -- Martin <shipdocs@users.noreply.github.com>  Sat, 21 Dec 2024 14:00:00 +0000
   * Safe installation with rollback capability
   * Systemd service integration
   * Comprehensive documentation
