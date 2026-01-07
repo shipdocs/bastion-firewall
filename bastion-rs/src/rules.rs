@@ -1,16 +1,16 @@
 //! Rules management module
 //! Loads and matches firewall rules from JSON
-//! 
+//!
 //! Python format: {"path:port": true/false, ...}
 //! Also supports: {"applications": {}, "services": {}, "path:port": bool}
 
 // Removed unused serde imports
 
+use log::{debug, error, info, warn};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use log::{info, warn, error, debug};
-use parking_lot::RwLock;
 
 const RULES_PATH: &str = "/etc/bastion/rules.json";
 
@@ -27,7 +27,7 @@ impl RuleManager {
         manager.load_rules();
         manager
     }
-    
+
     pub fn reload(&self) {
         self.load_rules();
     }
@@ -42,7 +42,11 @@ impl RuleManager {
         }
 
         // Security: Reject symlinks to prevent symlink attacks
-        if path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+        if path
+            .symlink_metadata()
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
             error!("Rules file is a symlink, refusing to load: {}", RULES_PATH);
             let mut rules = self.rules.write();
             rules.clear();
@@ -56,14 +60,14 @@ impl RuleManager {
                     Ok(json) => {
                         let mut rules = self.rules.write();
                         rules.clear();
-                        
+
                         if let serde_json::Value::Object(map) = json {
                             for (key, value) in map {
                                 // Skip meta fields
                                 if key == "applications" || key == "services" {
                                     continue;
                                 }
-                                
+
                                 // Parse "path:port" format (port can be * for wildcard)
                                 if let Some(colon_pos) = key.rfind(':') {
                                     let app_path = &key[..colon_pos];
@@ -71,22 +75,31 @@ impl RuleManager {
 
                                     // Handle wildcard port (stored as 0 internally)
                                     let port = if port_str == "*" {
-                                        0u16  // Wildcard marker
+                                        0u16 // Wildcard marker
                                     } else if let Ok(p) = port_str.parse::<u16>() {
                                         p
                                     } else {
-                                        continue;  // Invalid port format
+                                        continue; // Invalid port format
                                     };
 
                                     if let serde_json::Value::Bool(allow) = value {
                                         rules.insert((app_path.to_string(), port), allow);
-                                        let port_display = if port == 0 { "*".to_string() } else { port.to_string() };
-                                        debug!("Loaded rule: {} port {} -> {}", app_path, port_display, if allow { "allow" } else { "deny" });
+                                        let port_display = if port == 0 {
+                                            "*".to_string()
+                                        } else {
+                                            port.to_string()
+                                        };
+                                        debug!(
+                                            "Loaded rule: {} port {} -> {}",
+                                            app_path,
+                                            port_display,
+                                            if allow { "allow" } else { "deny" }
+                                        );
                                     }
                                 }
                             }
                         }
-                        
+
                         info!("Loaded {} rules from {}", rules.len(), RULES_PATH);
                     }
                     Err(e) => {
@@ -99,7 +112,7 @@ impl RuleManager {
             }
         }
     }
-    
+
     pub fn get_decision(&self, app_path: &str, port: u16) -> Option<bool> {
         let rules = self.rules.read();
 
@@ -115,7 +128,7 @@ impl RuleManager {
 
         None
     }
-    
+
     pub fn add_rule(&self, app_path: &str, port: Option<u16>, allow: bool, all_ports: bool) {
         if let Some(p) = port {
             // Use port 0 as wildcard marker when all_ports is true
@@ -127,17 +140,20 @@ impl RuleManager {
             self.save_rules();
         }
     }
-    
+
     fn save_rules(&self) {
         let rules = self.rules.read();
         let path = Path::new(RULES_PATH);
 
         // Security: Reject symlinks
-        if path.exists() {
-            if path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
-                error!("Rules file is a symlink, refusing to save: {}", RULES_PATH);
-                return;
-            }
+        if path.exists()
+            && path
+                .symlink_metadata()
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false)
+        {
+            error!("Rules file is a symlink, refusing to save: {}", RULES_PATH);
+            return;
         }
 
         // Ensure parent directory exists
@@ -155,7 +171,11 @@ impl RuleManager {
 
         for ((path, port), &allow) in rules.iter() {
             // Convert port 0 back to * for JSON serialization (issue #13)
-            let port_str = if *port == 0 { "*".to_string() } else { port.to_string() };
+            let port_str = if *port == 0 {
+                "*".to_string()
+            } else {
+                port.to_string()
+            };
             let key = format!("{}:{}", path, port_str);
             map.insert(key, serde_json::Value::Bool(allow));
         }

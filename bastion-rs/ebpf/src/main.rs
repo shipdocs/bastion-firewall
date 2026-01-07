@@ -3,9 +3,9 @@
 
 use aya_ebpf::{
     macros::{kprobe, kretprobe, map},
-    programs::ProbeContext as KProbe,
-    programs::RetProbeContext as RetProbeContext,
     maps::HashMap,
+    programs::ProbeContext as KProbe,
+    programs::RetProbeContext,
 };
 use aya_log_ebpf::{info, warn};
 
@@ -17,12 +17,12 @@ use aya_log_ebpf::{info, warn};
 #[repr(C)]
 pub struct SocketKey {
     pub src_port: u16,
-    pub ip_version: u8,  // 4 for IPv4, 6 for IPv6
-    pub _pad: [u8; 1],   // Padding for alignment
+    pub ip_version: u8, // 4 for IPv4, 6 for IPv6
+    pub _pad: [u8; 1],  // Padding for alignment
     pub dst_port: u16,
-    pub pid: u32,        // Disambiguator to prevent collisions between processes
-    pub dst_ip_v4: u32,  // IPv4 in network byte order (only used when ip_version == 4)
-    pub dst_ip_v6: [u8; 16],  // IPv6 address (only used when ip_version == 6)
+    pub pid: u32,            // Disambiguator to prevent collisions between processes
+    pub dst_ip_v4: u32,      // IPv4 in network byte order (only used when ip_version == 4)
+    pub dst_ip_v6: [u8; 16], // IPv6 address (only used when ip_version == 6)
 }
 
 // Value structure for our socket map
@@ -31,8 +31,8 @@ pub struct SocketKey {
 #[repr(C)]
 pub struct SocketInfo {
     pub pid: u32,
-    pub timestamp: u64,  // For TTL/expiry
-    pub comm: [u8; 16],  // Process name captured at connection time (bpf_get_current_comm)
+    pub timestamp: u64, // For TTL/expiry
+    pub comm: [u8; 16], // Process name captured at connection time (bpf_get_current_comm)
 }
 
 // Map to store socket information
@@ -104,7 +104,7 @@ fn port_from_sockaddr(addr: *const core::ffi::c_void) -> u16 {
         // Skip sin_family (2 bytes) and read the two port bytes
         let b0 = *addr.add(2);
         let b1 = *addr.add(3);
-        u16::from_be_bytes([b0, b1])  // Network byte order to host
+        u16::from_be_bytes([b0, b1]) // Network byte order to host
     }
 }
 
@@ -144,11 +144,11 @@ fn tcp_v4_connect(ctx: KProbe) -> u32 {
 fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
     // tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
     // Arguments: RDI = sock, RSI = uaddr, RDX = addr_len
-    
+
     // FIX #4: Extract PID correctly from bpf_get_current_pid_tgid()
     // Returns u64 where lower 32 bits = PID, upper 32 bits = TGID
     let pid = (aya_ebpf::helpers::bpf_get_current_pid_tgid() >> 32) as u32;
-    
+
     // Get userspace address from RSI (second argument)
     let uaddr = unsafe {
         let regs = ctx.regs;
@@ -157,7 +157,7 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
         }
         (*regs).rsi
     };
-    
+
     // Read sockaddr structure (try kernel space first, then user space)
     if uaddr == 0 {
         return Err(2);
@@ -175,15 +175,15 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
             }
         }
     };
-    
+
     // Extract destination IP and port
     let dst_ip = ipv4_from_sockaddr(sockaddr.as_ptr() as *const core::ffi::c_void);
     let dst_port = port_from_sockaddr(sockaddr.as_ptr() as *const core::ffi::c_void);
-    
+
     // For TCP connect, we don't know source port yet (it's assigned later)
     // FIX #1: Include pid in key to prevent collisions between processes
     let key = SocketKey {
-        src_port: 0,  // Will be updated when we see actual packet
+        src_port: 0, // Will be updated when we see actual packet
         ip_version: 4,
         _pad: [0u8; 1],
         dst_port,
@@ -191,9 +191,9 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
         dst_ip_v4: dst_ip,
         dst_ip_v6: [0u8; 16],
     };
-    
+
     // Capture process name at connection time - critical for short-lived processes
-    let comm = match unsafe { aya_ebpf::helpers::bpf_get_current_comm() } {
+    let comm = match aya_ebpf::helpers::bpf_get_current_comm() {
         Ok(c) => c,
         Err(_) => [0u8; 16],
     };
@@ -210,7 +210,10 @@ fn try_tcp_v4_connect(ctx: KProbe) -> Result<(), i32> {
         }
     }
 
-    info!(&ctx, "TCPv4 connect: PID {} -> {}:{}", pid, dst_ip, dst_port);
+    info!(
+        &ctx,
+        "TCPv4 connect: PID {} -> {}:{}", pid, dst_ip, dst_port
+    );
 
     Ok(())
 }
@@ -258,12 +261,12 @@ fn udp_sendmsg(ctx: KProbe) -> u32 {
 fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
     // udp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
     // Arguments: RDI = sock, RSI = msg, RDX = len
-    
+
     // FIX #5: Extract PID correctly from bpf_get_current_pid_tgid()
     // Returns u64 where lower 32 bits = TID, upper 32 bits = TGID (process PID)
     // We want TGID (the actual process ID), not TID (thread ID)
     let pid = (aya_ebpf::helpers::bpf_get_current_pid_tgid() >> 32) as u32;
-    
+
     // Get the msghdr from RSI (second argument)
     let msg = unsafe {
         let regs = ctx.regs;
@@ -272,7 +275,7 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
         }
         (*regs).rsi
     };
-    
+
     // msg->msg_name contains the destination address
     let msg_name_ptr: [u8; 8] = unsafe {
         match aya_ebpf::helpers::bpf_probe_read(msg as *const [u8; 8]) {
@@ -280,13 +283,13 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
             Err(_) => return Err(2),
         }
     };
-    
+
     let msg_name = u64::from_ne_bytes(msg_name_ptr);
     if msg_name == 0 {
         // No destination address (connected UDP socket)
         return Ok(());
     }
-    
+
     // Read the sockaddr structure
     let sockaddr: [u8; 16] = unsafe {
         match aya_ebpf::helpers::bpf_probe_read_user(msg_name as *const [u8; 16]) {
@@ -294,15 +297,15 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
             Err(_) => return Err(3),
         }
     };
-    
+
     // Extract destination IP and port
     let dst_ip = ipv4_from_sockaddr(sockaddr.as_ptr() as *const core::ffi::c_void);
     let dst_port = port_from_sockaddr(sockaddr.as_ptr() as *const core::ffi::c_void);
-    
+
     // For UDP, we also don't know the source port yet
     // FIX #1: Include pid in key to prevent collisions between processes
     let key = SocketKey {
-        src_port: 0,  // Will be updated when we see the actual packet
+        src_port: 0, // Will be updated when we see the actual packet
         ip_version: 4,
         _pad: [0u8; 1],
         dst_port,
@@ -310,9 +313,9 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
         dst_ip_v4: dst_ip,
         dst_ip_v6: [0u8; 16],
     };
-    
+
     // Capture process name at connection time - critical for short-lived processes
-    let comm = match unsafe { aya_ebpf::helpers::bpf_get_current_comm() } {
+    let comm = match aya_ebpf::helpers::bpf_get_current_comm() {
         Ok(c) => c,
         Err(_) => [0u8; 16],
     };
@@ -329,7 +332,10 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
         }
     }
 
-    info!(&ctx, "UDPv4 sendmsg: PID {} -> {}:{}", pid, dst_ip, dst_port);
+    info!(
+        &ctx,
+        "UDPv4 sendmsg: PID {} -> {}:{}", pid, dst_ip, dst_port
+    );
 
     Ok(())
 }
@@ -383,9 +389,9 @@ fn tcp_v6_connect(ctx: KProbe) -> u32 {
 fn try_tcp_v6_connect(ctx: KProbe) -> Result<(), i32> {
     // tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
     // Arguments: RDI = sock, RSI = uaddr, RDX = addr_len
-    
+
     let pid = (aya_ebpf::helpers::bpf_get_current_pid_tgid() >> 32) as u32;
-    
+
     // Get the userspace address from RSI (second argument)
     let uaddr = unsafe {
         let regs = ctx.regs;
@@ -394,27 +400,26 @@ fn try_tcp_v6_connect(ctx: KProbe) -> Result<(), i32> {
         }
         (*regs).rsi
     };
-    
+
     // Read the sockaddr_in6 structure
     if uaddr == 0 {
         return Err(2);
     }
-    let sockaddr: [u8; 28] = unsafe {  // sockaddr_in6 is 28 bytes
+    let sockaddr: [u8; 28] = unsafe {
+        // sockaddr_in6 is 28 bytes
         match aya_ebpf::helpers::bpf_probe_read(uaddr as *const [u8; 28]) {
             Ok(val) => val,
-            Err(_) => {
-                match aya_ebpf::helpers::bpf_probe_read_user(uaddr as *const [u8; 28]) {
-                    Ok(val) => val,
-                    Err(_) => return Err(2),
-                }
-            }
+            Err(_) => match aya_ebpf::helpers::bpf_probe_read_user(uaddr as *const [u8; 28]) {
+                Ok(val) => val,
+                Err(_) => return Err(2),
+            },
         }
     };
-    
+
     // Extract destination IPv6 address and port
     let dst_ip_v6 = ipv6_from_sockaddr(sockaddr.as_ptr() as *const core::ffi::c_void);
     let dst_port = port_from_sockaddr(sockaddr.as_ptr() as *const core::ffi::c_void);
-    
+
     // For TCP connect, we don't know the source port yet
     let key = SocketKey {
         src_port: 0,
@@ -425,9 +430,9 @@ fn try_tcp_v6_connect(ctx: KProbe) -> Result<(), i32> {
         dst_ip_v4: 0,
         dst_ip_v6,
     };
-    
+
     // Capture process name at connection time - critical for short-lived processes
-    let comm = match unsafe { aya_ebpf::helpers::bpf_get_current_comm() } {
+    let comm = match aya_ebpf::helpers::bpf_get_current_comm() {
         Ok(c) => c,
         Err(_) => [0u8; 16],
     };
@@ -444,12 +449,28 @@ fn try_tcp_v6_connect(ctx: KProbe) -> Result<(), i32> {
         }
     }
 
-    info!(&ctx, "TCPv6 connect: PID {} -> [{}]:{}", pid,
-          dst_ip_v6[0], dst_ip_v6[1], dst_ip_v6[2], dst_ip_v6[3],
-          dst_ip_v6[4], dst_ip_v6[5], dst_ip_v6[6], dst_ip_v6[7],
-          dst_ip_v6[8], dst_ip_v6[9], dst_ip_v6[10], dst_ip_v6[11],
-          dst_ip_v6[12], dst_ip_v6[13], dst_ip_v6[14], dst_ip_v6[15],
-          dst_port);
+    info!(
+        &ctx,
+        "TCPv6 connect: PID {} -> [{}]:{}",
+        pid,
+        dst_ip_v6[0],
+        dst_ip_v6[1],
+        dst_ip_v6[2],
+        dst_ip_v6[3],
+        dst_ip_v6[4],
+        dst_ip_v6[5],
+        dst_ip_v6[6],
+        dst_ip_v6[7],
+        dst_ip_v6[8],
+        dst_ip_v6[9],
+        dst_ip_v6[10],
+        dst_ip_v6[11],
+        dst_ip_v6[12],
+        dst_ip_v6[13],
+        dst_ip_v6[14],
+        dst_ip_v6[15],
+        dst_port
+    );
 
     Ok(())
 }
@@ -467,9 +488,9 @@ fn udpv6_sendmsg(ctx: KProbe) -> u32 {
 fn try_udpv6_sendmsg(ctx: KProbe) -> Result<(), i32> {
     // udpv6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
     // Arguments: RDI = sock, RSI = msg, RDX = len
-    
+
     let pid = (aya_ebpf::helpers::bpf_get_current_pid_tgid() >> 32) as u32;
-    
+
     // Get the msghdr from RSI (second argument)
     let msg = unsafe {
         let regs = ctx.regs;
@@ -478,7 +499,7 @@ fn try_udpv6_sendmsg(ctx: KProbe) -> Result<(), i32> {
         }
         (*regs).rsi
     };
-    
+
     // msg->msg_name contains the destination address
     let msg_name_ptr: [u8; 8] = unsafe {
         match aya_ebpf::helpers::bpf_probe_read(msg as *const [u8; 8]) {
@@ -486,13 +507,13 @@ fn try_udpv6_sendmsg(ctx: KProbe) -> Result<(), i32> {
             Err(_) => return Err(2),
         }
     };
-    
+
     let msg_name = u64::from_ne_bytes(msg_name_ptr);
     if msg_name == 0 {
         // No destination address (connected UDP socket)
         return Ok(());
     }
-    
+
     // Read the sockaddr_in6 structure (28 bytes)
     let sockaddr: [u8; 28] = unsafe {
         match aya_ebpf::helpers::bpf_probe_read_user(msg_name as *const [u8; 28]) {
@@ -500,11 +521,11 @@ fn try_udpv6_sendmsg(ctx: KProbe) -> Result<(), i32> {
             Err(_) => return Err(3),
         }
     };
-    
+
     // Extract destination IPv6 address and port
     let dst_ip_v6 = ipv6_from_sockaddr(sockaddr.as_ptr() as *const core::ffi::c_void);
     let dst_port = port_from_sockaddr(sockaddr.as_ptr() as *const core::ffi::c_void);
-    
+
     // For UDP, we also don't know the source port yet
     let key = SocketKey {
         src_port: 0,
@@ -515,9 +536,9 @@ fn try_udpv6_sendmsg(ctx: KProbe) -> Result<(), i32> {
         dst_ip_v4: 0,
         dst_ip_v6,
     };
-    
+
     // Capture process name at connection time - critical for short-lived processes
-    let comm = match unsafe { aya_ebpf::helpers::bpf_get_current_comm() } {
+    let comm = match aya_ebpf::helpers::bpf_get_current_comm() {
         Ok(c) => c,
         Err(_) => [0u8; 16],
     };
@@ -534,12 +555,28 @@ fn try_udpv6_sendmsg(ctx: KProbe) -> Result<(), i32> {
         }
     }
 
-    info!(&ctx, "UDPv6 sendmsg: PID {} -> [{}]:{}", pid,
-          dst_ip_v6[0], dst_ip_v6[1], dst_ip_v6[2], dst_ip_v6[3],
-          dst_ip_v6[4], dst_ip_v6[5], dst_ip_v6[6], dst_ip_v6[7],
-          dst_ip_v6[8], dst_ip_v6[9], dst_ip_v6[10], dst_ip_v6[11],
-          dst_ip_v6[12], dst_ip_v6[13], dst_ip_v6[14], dst_ip_v6[15],
-          dst_port);
+    info!(
+        &ctx,
+        "UDPv6 sendmsg: PID {} -> [{}]:{}",
+        pid,
+        dst_ip_v6[0],
+        dst_ip_v6[1],
+        dst_ip_v6[2],
+        dst_ip_v6[3],
+        dst_ip_v6[4],
+        dst_ip_v6[5],
+        dst_ip_v6[6],
+        dst_ip_v6[7],
+        dst_ip_v6[8],
+        dst_ip_v6[9],
+        dst_ip_v6[10],
+        dst_ip_v6[11],
+        dst_ip_v6[12],
+        dst_ip_v6[13],
+        dst_ip_v6[14],
+        dst_ip_v6[15],
+        dst_port
+    );
 
     Ok(())
 }
@@ -570,14 +607,17 @@ fn try_tcp_v4_connect_ret(ctx: RetProbeContext) -> Result<(), i32> {
                 // Since we don't have the original key, we can't directly remove
                 // In a real implementation, we'd track pending connections separately
                 // For now, just log the failure
-                info!(&ctx, "TCPv4 connect failed with ret={}, entry will expire naturally", ret_val);
+                info!(
+                    &ctx,
+                    "TCPv4 connect failed with ret={}, entry will expire naturally", ret_val
+                );
             }
         }
         None => {
             info!(&ctx, "TCPv4 connect ret value unavailable");
         }
     }
-    
+
     Ok(())
 }
 
@@ -597,14 +637,17 @@ fn try_tcp_v6_connect_ret(ctx: RetProbeContext) -> Result<(), i32> {
         Some(ret) => {
             let ret_val = ret as i32;
             if ret_val < 0 {
-                info!(&ctx, "TCPv6 connect failed with ret={}, entry will expire naturally", ret_val);
+                info!(
+                    &ctx,
+                    "TCPv6 connect failed with ret={}, entry will expire naturally", ret_val
+                );
             }
         }
         None => {
             info!(&ctx, "TCPv6 connect ret value unavailable");
         }
     }
-    
+
     Ok(())
 }
 

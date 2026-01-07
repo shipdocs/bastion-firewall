@@ -93,7 +93,7 @@ fn main() -> anyhow::Result<()> {
     let rules_sighup = rules.clone();
     let config_sighup = config.clone();
     thread::spawn(move || {
-        let mut signals = match Signals::new(&[SIGHUP]) {
+        let mut signals = match Signals::new([SIGHUP]) {
             Ok(s) => s,
             Err(e) => {
                 error!("Failed to register SIGHUP handler: {}", e);

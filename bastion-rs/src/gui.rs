@@ -471,8 +471,7 @@ pub fn handle_gui_connection(
                     learning_mode,
                 },
             };
-            drop(s);
-
+            // Stats unlocked implicitly when moving to json serialization or scope ends
             if let Ok(json) = serde_json::to_string(&update) {
                 if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
                     debug!("GUI handler write error: {}", e);
