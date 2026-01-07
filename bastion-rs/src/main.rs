@@ -1,43 +1,41 @@
 //! Bastion Firewall Daemon - Rust Edition
 //! Handles packet filtering, GUI interaction, and rule enforcement.
 
-mod process;
-mod rules;
 mod config;
-mod whitelist;
 mod ebpf_loader;
 mod gui;
 mod proc_parser;
+mod process;
+mod rules;
+mod whitelist;
 
-use nfq::{Queue, Verdict};
 use etherparse::{Ipv4HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};
+use nfq::{Queue, Verdict};
 use std::sync::Arc;
 use std::time::Duration;
 
-use std::thread;
-use log::{info, warn, error, debug};
+use log::{debug, error, info, warn};
 use parking_lot::Mutex;
 use signal_hook::consts::SIGHUP;
 use signal_hook::iterator::Signals;
+use std::thread;
 
+use config::ConfigManager;
+use gui::{run_socket_server, ConnectionRequest, GuiState, Stats};
 use process::ProcessCache;
 use rules::RuleManager;
-use config::ConfigManager;
 use whitelist::should_auto_allow;
-use gui::{GuiState, Stats, ConnectionRequest, run_socket_server};
 
 const QUEUE_NUM: u16 = 1;
 
 fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info")
-    ).init();
-    
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
     info!("╔════════════════════════════════════════╗");
     info!("║  Bastion Firewall Daemon (Rust) v0.5  ║");
     info!("║         With Popup Support!           ║");
     info!("╚════════════════════════════════════════╝");
-    
+
     let config = Arc::new(ConfigManager::new());
     let rules = Arc::new(RuleManager::new());
     let learning_mode = config.is_learning_mode();
@@ -46,7 +44,14 @@ fn main() -> anyhow::Result<()> {
         ..Stats::default()
     }));
 
-    info!("Mode: {}", if learning_mode { "Learning" } else { "Enforcement" });
+    info!(
+        "Mode: {}",
+        if learning_mode {
+            "Learning"
+        } else {
+            "Enforcement"
+        }
+    );
 
     // Shared GUI state
     let gui_state = Arc::new(Mutex::new(GuiState::new()));
@@ -59,24 +64,28 @@ fn main() -> anyhow::Result<()> {
     thread::spawn(move || {
         run_socket_server(gui_state_server, stats_server, config_server, rules_server);
     });
-    
+
     // Open NFQUEUE
     let mut queue = Queue::open()?;
     queue.bind(QUEUE_NUM)?;
-    
+
     info!("Listening on NFQUEUE {}", QUEUE_NUM);
     info!("Ready for packets!");
-    
+
     // Stats printer
     let stats_clone = stats.clone();
-    thread::spawn(move || {
-        loop {
-            thread::sleep(Duration::from_secs(30));
-            let s = stats_clone.lock();
-            let mode = if s.learning_mode { "learning" } else { "enforcement" };
-            info!("Stats: {} total, {} allowed, {} blocked ({})",
-                s.total_connections, s.allowed_connections, s.blocked_connections, mode);
-        }
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(30));
+        let s = stats_clone.lock();
+        let mode = if s.learning_mode {
+            "learning"
+        } else {
+            "enforcement"
+        };
+        info!(
+            "Stats: {} total, {} allowed, {} blocked ({})",
+            s.total_connections, s.allowed_connections, s.blocked_connections, mode
+        );
     });
 
     // SIGHUP handler - reload config, clear pending cache, reload rules
@@ -100,15 +109,22 @@ fn main() -> anyhow::Result<()> {
                 }
                 gui_state_sighup.lock().pending_cache.clear();
                 rules_sighup.reload();
-                let mode = if config_sighup.is_learning_mode() { "learning" } else { "enforcement" };
-                info!("Config reloaded: mode={}, rules reloaded, cache cleared", mode);
+                let mode = if config_sighup.is_learning_mode() {
+                    "learning"
+                } else {
+                    "enforcement"
+                };
+                info!(
+                    "Config reloaded: mode={}, rules reloaded, cache cleared",
+                    mode
+                );
             }
         }
     });
 
     // Process cache
     let process_cache = Mutex::new(ProcessCache::new(120));
-    
+
     // Main packet processing loop
     loop {
         let mut msg = match queue.recv() {
@@ -118,23 +134,17 @@ fn main() -> anyhow::Result<()> {
                 continue;
             }
         };
-        
+
         stats.lock().total_connections += 1;
-        
+
         let payload = msg.get_payload();
-        let verdict = process_packet(
-            payload, 
-            &rules, 
-            &process_cache, 
-            &config,
-            &gui_state,
-        );
-        
+        let verdict = process_packet(payload, &rules, &process_cache, &config, &gui_state);
+
         msg.set_verdict(verdict);
         if let Err(e) = queue.verdict(msg) {
             error!("Failed to send verdict: {}", e);
         }
-        
+
         let mut s = stats.lock();
         if verdict == Verdict::Accept {
             s.allowed_connections += 1;
@@ -156,18 +166,18 @@ fn process_packet(
         Ok(h) => h,
         Err(_) => return Verdict::Accept,
     };
-    
+
     let dst_ip = ip_header.destination_addr();
     let dst_ip_str = format!("{}", dst_ip);
     let proto = ip_header.protocol();
-    
+
     let ip_len = ip_header.slice().len();
     if payload.len() <= ip_len {
         return Verdict::Accept;
     }
-    
+
     let transport_slice = &payload[ip_len..];
-    
+
     // Parse transport layer
     let (src_port, dst_port, protocol_str) = match proto {
         6 => match TcpHeaderSlice::from_slice(transport_slice) {
@@ -180,40 +190,43 @@ fn process_packet(
         },
         _ => return Verdict::Accept,
     };
-    
+
     // Get source IP
     let src_ip = ip_header.source_addr();
     let src_ip_str = format!("{}", src_ip);
-    
+
     // Identify process
     let mut cache = process_cache.lock();
-    let process_info = cache.find_process_by_socket(
-        &src_ip_str, src_port,
-        &dst_ip_str, dst_port,
-        protocol_str
-    );
+    let process_info =
+        cache.find_process_by_socket(&src_ip_str, src_port, &dst_ip_str, dst_port, protocol_str);
     drop(cache);
-    
+
     let (app_name, app_path, app_uid) = match &process_info {
         Some(info) => (info.name.clone(), info.exe_path.clone(), info.uid),
         None => ("unknown".to_string(), "unknown".to_string(), 0),
     };
-    
+
     // Check whitelist
     let (auto_allow, reason) = should_auto_allow(&app_path, &app_name, dst_port, &dst_ip_str);
     if auto_allow {
         debug!("[AUTO] {} - {}", app_name, reason);
         return Verdict::Accept;
     }
-    
+
     // Check path-based rules first
     if app_path != "unknown" && !app_path.is_empty() {
         if let Some(allow) = rules.get_decision(&app_path, dst_port) {
             if allow {
-                debug!("[RULE:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
+                debug!(
+                    "[RULE:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}",
+                    app_name, dst_ip, dst_port, app_uid
+                );
                 return Verdict::Accept;
             } else if !learning_mode {
-                info!("[RULE:BLOCK] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
+                info!(
+                    "[RULE:BLOCK] app=\"{}\" dst=\"{}:{}\" user={}",
+                    app_name, dst_ip, dst_port, app_uid
+                );
                 return Verdict::Drop;
             } else {
                 info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (would block in enforcement)", app_name, dst_ip, dst_port);
@@ -221,15 +234,21 @@ fn process_packet(
         }
     }
 
-    // Check name-based rules as fallback
-    if app_name != "unknown" && !app_name.is_empty() {
+    // Check name-based rules as fallback (including @name:unknown for unidentified processes)
+    if !app_name.is_empty() {
         let name_based_key = format!("@name:{}", app_name);
         if let Some(allow) = rules.get_decision(&name_based_key, dst_port) {
             if allow {
-                debug!("[RULE:ALLOW:NAME] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
+                debug!(
+                    "[RULE:ALLOW:NAME] app=\"{}\" dst=\"{}:{}\" user={}",
+                    app_name, dst_ip, dst_port, app_uid
+                );
                 return Verdict::Accept;
             } else if !learning_mode {
-                info!("[RULE:BLOCK:NAME] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
+                info!(
+                    "[RULE:BLOCK:NAME] app=\"{}\" dst=\"{}:{}\" user={}",
+                    app_name, dst_ip, dst_port, app_uid
+                );
                 return Verdict::Drop;
             } else {
                 info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"@name:{}\" dst=\"{}:{}\" (would block in enforcement)", app_name, dst_ip, dst_port);
@@ -250,14 +269,23 @@ fn process_packet(
     if let Some(cached_allow) = gui.get_session_decision(&session_cache_key) {
         if cached_allow {
             drop(gui);
-            debug!("[SESSION:ALLOW] app=\"{}\" dst=\"{}:{}\"", app_name, dst_ip, dst_port);
+            debug!(
+                "[SESSION:ALLOW] app=\"{}\" dst=\"{}:{}\"",
+                app_name, dst_ip, dst_port
+            );
             return Verdict::Accept;
         } else if !learning_mode {
             drop(gui);
-            debug!("[SESSION:BLOCK] app=\"{}\" dst=\"{}:{}\"", app_name, dst_ip, dst_port);
+            debug!(
+                "[SESSION:BLOCK] app=\"{}\" dst=\"{}:{}\"",
+                app_name, dst_ip, dst_port
+            );
             return Verdict::Drop;
         } else {
-            info!("[LEARN:SESSION-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (cached deny ignored)", app_name, dst_ip, dst_port);
+            info!(
+                "[LEARN:SESSION-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (cached deny ignored)",
+                app_name, dst_ip, dst_port
+            );
         }
     }
 
@@ -273,7 +301,10 @@ fn process_packet(
                 debug!("[CACHED:BLOCK] unknown app dst=\"{}:{}\"", dst_ip, dst_port);
                 return Verdict::Drop;
             } else {
-                info!("[LEARN:UNKNOWN-DENIED-BUT-ALLOWED] dst=\"{}:{}\" (cached deny ignored)", dst_ip, dst_port);
+                info!(
+                    "[LEARN:UNKNOWN-DENIED-BUT-ALLOWED] dst=\"{}:{}\" (cached deny ignored)",
+                    dst_ip, dst_port
+                );
             }
         }
     }
@@ -292,7 +323,10 @@ fn process_packet(
     if gui.is_connected() {
         if let Some(response) = gui.ask_gui(&request) {
             gui.cache_session_decision(&session_cache_key, response.allow);
-            debug!("[SESSION] Cached decision for {} (allow: {})", session_cache_key, response.allow);
+            debug!(
+                "[SESSION] Cached decision for {} (allow: {})",
+                session_cache_key, response.allow
+            );
 
             if app_name == "unknown" || app_path == "unknown" {
                 gui.cache_unknown_decision(&dst_ip_str, dst_port, response.allow);
@@ -303,28 +337,49 @@ fn process_packet(
                     app_path.clone()
                 } else {
                     let name_based_key = format!("@name:{}", app_name);
-                    warn!("[SECURITY] Creating name-based rule (no path): {} -> port {}", app_name, dst_port);
+                    warn!(
+                        "[SECURITY] Creating name-based rule (no path): {} -> port {}",
+                        app_name, dst_port
+                    );
                     name_based_key
                 };
-                rules.add_rule(&rule_key, Some(dst_port), response.allow, response.all_ports);
-                let port_display = if response.all_ports { "*".to_string() } else { dst_port.to_string() };
-                info!("[RULE] Created permanent rule: {} -> port {}", rule_key, port_display);
+                rules.add_rule(
+                    &rule_key,
+                    Some(dst_port),
+                    response.allow,
+                    response.all_ports,
+                );
+                let port_display = if response.all_ports {
+                    "*".to_string()
+                } else {
+                    dst_port.to_string()
+                };
+                info!(
+                    "[RULE] Created permanent rule: {} -> port {}",
+                    rule_key, port_display
+                );
             } else if response.permanent {
                 warn!("[SECURITY] Cannot create permanent rule for unidentified process");
             }
 
             drop(gui);
             return if response.allow {
-                info!("[USER:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
+                info!(
+                    "[USER:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}",
+                    app_name, dst_ip, dst_port, app_uid
+                );
                 Verdict::Accept
             } else {
-                info!("[USER:BLOCK] app=\"{}\" dst=\"{}:{}\" user={}", app_name, dst_ip, dst_port, app_uid);
+                info!(
+                    "[USER:BLOCK] app=\"{}\" dst=\"{}:{}\" user={}",
+                    app_name, dst_ip, dst_port, app_uid
+                );
                 Verdict::Drop
             };
         }
     }
     drop(gui);
-    
+
     if learning_mode {
         Verdict::Accept
     } else {
