@@ -180,15 +180,10 @@ class BastionClient(QObject):
 
     def on_tray_activated(self, reason):
         """Handle tray icon activation (click)"""
-        # Show menu on any click for GNOME/AppIndicator compatibility
-        if reason == QSystemTrayIcon.ActivationReason.Trigger:  # Left click
-            # Show context menu at cursor position
-            from PyQt6.QtGui import QCursor
-            self.menu.popup(QCursor.pos())
-        elif reason == QSystemTrayIcon.ActivationReason.Context:  # Right click
-            # Context menu should show automatically, but force it just in case
-            from PyQt6.QtGui import QCursor
-            self.menu.popup(QCursor.pos())
+        # On Wayland (Pop!_OS/COSMIC), manual menu.popup() doesn't position correctly
+        # Right-click context menu is handled natively by setContextMenu() and works fine
+        # Left-click: no action (Wayland limitation)
+        pass
 
     def update_status(self, text, status='connected'):
         """Update tray icon and status text"""
