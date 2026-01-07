@@ -124,14 +124,30 @@ class FirewallDialog(QDialog):
         app_path = self.conn_info.get('app_path', 'Unknown')
         self.add_detail_row(details_layout, "Path", app_path)
         
-        # Reverse DNS lookup for hostname display
+        # Enhanced Destination identification
         dest_ip = self.conn_info.get('dest_ip', '')
         dest_port = self.conn_info.get('dest_port', '')
+        dest_display = f"{dest_ip}:{dest_port}"
+        
+        # 1. Try Reverse DNS (Fast, local cache usually)
         try:
             hostname = socket.gethostbyaddr(dest_ip)[0]
             dest_display = f"{hostname} ({dest_ip}):{dest_port}"
         except (socket.herror, socket.gaierror, OSError):
-            dest_display = f"{dest_ip}:{dest_port}"
+            # 2. Try Organization/ISP lookup (External, 1s timeout)
+            try:
+                import urllib.request
+                import json
+                # Fields: 16 (org), 512 (as) -> 528
+                with urllib.request.urlopen(f"http://ip-api.com/json/{dest_ip}?fields=org,as", timeout=1.0) as response:
+                    data = json.loads(response.read().decode())
+                    org = data.get('org') or data.get('as', '').split(' ', 1)[-1]
+                    if org:
+                        dest_display = f"{org} - {dest_ip}:{dest_port}"
+            except Exception as e:
+                # Silently fall back to IP if lookup fails or times out
+                logger.debug(f"IP info lookup failed for {dest_ip}: {e}")
+                
         self.add_detail_row(details_layout, "Destination", dest_display)
         self.add_detail_row(details_layout, "Protocol", self.conn_info.get('protocol', 'TCP'))
         info_layout.addLayout(details_layout)
