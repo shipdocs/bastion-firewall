@@ -279,6 +279,7 @@ class BastionClient(QObject):
                             'app_name': req.get('app_name'),
                             'app_path': req.get('app_path'),
                             'port': req.get('dest_port'),
+                            'dest_ip': req.get('dest_ip'),  # For @dest rules on unknown apps
                             'allow': decision,
                             'all_ports': all_ports
                         }) + '\n'

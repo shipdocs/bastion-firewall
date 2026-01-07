@@ -5,6 +5,7 @@ Displays connection requests and allows user to allow/deny.
 """
 
 import logging
+import socket
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                             QPushButton, QFrame, QProgressBar)
 from PyQt6.QtCore import Qt, QTimer
@@ -122,7 +123,16 @@ class FirewallDialog(QDialog):
         details_layout = QVBoxLayout()
         app_path = self.conn_info.get('app_path', 'Unknown')
         self.add_detail_row(details_layout, "Path", app_path)
-        self.add_detail_row(details_layout, "Destination", f"{self.conn_info.get('dest_ip')} : {self.conn_info.get('dest_port')}")
+        
+        # Reverse DNS lookup for hostname display
+        dest_ip = self.conn_info.get('dest_ip', '')
+        dest_port = self.conn_info.get('dest_port', '')
+        try:
+            hostname = socket.gethostbyaddr(dest_ip)[0]
+            dest_display = f"{hostname} ({dest_ip}):{dest_port}"
+        except (socket.herror, socket.gaierror, OSError):
+            dest_display = f"{dest_ip}:{dest_port}"
+        self.add_detail_row(details_layout, "Destination", dest_display)
         self.add_detail_row(details_layout, "Protocol", self.conn_info.get('protocol', 'TCP'))
         info_layout.addLayout(details_layout)
 

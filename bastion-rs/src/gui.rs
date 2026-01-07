@@ -1,16 +1,16 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use std::thread;
+use log::{debug, error, info, warn};
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::collections::HashMap;
-use log::{info, warn, error, debug};
-use parking_lot::Mutex;
-use serde::{Serialize, Deserialize};
+use std::thread;
 
-use crate::rules::RuleManager;
 use crate::config::ConfigManager;
+use crate::rules::RuleManager;
 
 pub const SOCKET_PATH: &str = "/var/run/bastion/bastion-daemon.sock";
 pub const GUI_TIMEOUT_SECS: u64 = 60;
@@ -53,6 +53,8 @@ pub struct AddRuleRequest {
     pub port: u16,
     pub allow: bool,
     pub all_ports: bool,
+    #[serde(default)]
+    pub dest_ip: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -120,16 +122,21 @@ impl GuiState {
     }
 
     pub fn cache_session_decision(&mut self, cache_key: &str, allow: bool) {
-        self.session_decisions.insert(cache_key.to_string(), SessionDecision {
-            allow,
-            timestamp: Instant::now(),
-        });
+        self.session_decisions.insert(
+            cache_key.to_string(),
+            SessionDecision {
+                allow,
+                timestamp: Instant::now(),
+            },
+        );
     }
-    
+
     pub fn set_connection(&mut self, stream: UnixStream) {
-        stream.set_read_timeout(Some(Duration::from_secs(GUI_TIMEOUT_SECS))).ok();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(GUI_TIMEOUT_SECS)))
+            .ok();
         stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
-        
+
         let reader = match stream.try_clone() {
             Ok(s) => BufReader::new(s),
             Err(e) => {
@@ -137,35 +144,34 @@ impl GuiState {
                 return;
             }
         };
-        
+
         self.stream = Some(stream);
         self.reader = Some(reader);
         info!("GUI connection established");
     }
-    
+
     pub fn is_connected(&self) -> bool {
         self.stream.is_some()
     }
-    
+
     pub fn disconnect(&mut self) {
         info!("GUI disconnected");
         self.stream = None;
         self.reader = None;
     }
-    
+
     pub fn ask_gui(&mut self, request: &ConnectionRequest) -> Option<GuiResponse> {
         if !self.is_connected() {
             return None;
         }
-        
+
         if self.pending_cache.len() > 1000 {
             let now = Instant::now();
-            self.pending_cache.retain(|_, timestamp| {
-                now.duration_since(*timestamp) < Duration::from_secs(10)
-            });
+            self.pending_cache
+                .retain(|_, timestamp| now.duration_since(*timestamp) < Duration::from_secs(10));
             debug!("Cleaned pending cache (size was > 1000)");
         }
-        
+
         let cache_key = if request.app_path.is_empty() || request.app_path == "unknown" {
             format!("@name:{}:{}", request.app_name, request.dest_port)
         } else {
@@ -174,14 +180,20 @@ impl GuiState {
 
         if let Some(time) = self.pending_cache.get(&cache_key) {
             if time.elapsed() < Duration::from_secs(30) {
-                debug!("Dedup: already asked for {} (waiting for response)", cache_key);
+                debug!(
+                    "Dedup: already asked for {} (waiting for response)",
+                    cache_key
+                );
                 return None;
             }
         }
 
         self.pending_cache.insert(cache_key.clone(), Instant::now());
 
-        info!("[POPUP] {} ({}) -> {}:{}", request.app_name, request.app_path, request.dest_ip, request.dest_port);
+        info!(
+            "[POPUP] {} ({}) -> {}:{}",
+            request.app_name, request.app_path, request.dest_ip, request.dest_port
+        );
 
         let json = match serde_json::to_string(request) {
             Ok(j) => j,
@@ -198,7 +210,10 @@ impl GuiState {
         }
 
         if request.learning_mode {
-            debug!("Learning mode: fired-and-forgot popup request for {}", cache_key);
+            debug!(
+                "Learning mode: fired-and-forgot popup request for {}",
+                cache_key
+            );
             return None;
         }
 
@@ -209,20 +224,22 @@ impl GuiState {
                     self.disconnect();
                     return None;
                 }
-                Ok(_) => {
-                    match serde_json::from_str::<GuiResponse>(&line) {
-                        Ok(resp) => {
-                            return Some(resp);
-                        }
-                        Err(e) => {
-                            debug!("Failed to parse GUI response: {} - line: {}", e, line.trim());
-                            return None;
-                        }
+                Ok(_) => match serde_json::from_str::<GuiResponse>(&line) {
+                    Ok(resp) => {
+                        return Some(resp);
                     }
-                }
+                    Err(e) => {
+                        debug!(
+                            "Failed to parse GUI response: {} - line: {}",
+                            e,
+                            line.trim()
+                        );
+                        return None;
+                    }
+                },
                 Err(e) => {
-                    if e.kind() == io::ErrorKind::WouldBlock ||
-                       e.kind() == io::ErrorKind::TimedOut {
+                    if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut
+                    {
                         debug!("GUI timeout - no response, allowing retry");
                     } else {
                         debug!("GUI read error: {}", e);
@@ -240,8 +257,12 @@ impl GuiState {
         let key = format!("{}:{}", dest_ip, dest_port);
         if let Some(decision) = self.unknown_decisions.get(&key) {
             if decision.timestamp.elapsed() < Duration::from_secs(60) {
-                debug!("Using cached unknown decision for {}:{} -> {}", dest_ip, dest_port,
-                    if decision.allow { "ALLOW" } else { "BLOCK" });
+                debug!(
+                    "Using cached unknown decision for {}:{} -> {}",
+                    dest_ip,
+                    dest_port,
+                    if decision.allow { "ALLOW" } else { "BLOCK" }
+                );
                 return Some(decision.allow);
             }
         }
@@ -250,15 +271,17 @@ impl GuiState {
 
     pub fn cache_unknown_decision(&mut self, dest_ip: &str, dest_port: u16, allow: bool) {
         let key = format!("{}:{}", dest_ip, dest_port);
-        self.unknown_decisions.insert(key, UnknownDecision {
-            allow,
-            timestamp: Instant::now(),
-        });
+        self.unknown_decisions.insert(
+            key,
+            UnknownDecision {
+                allow,
+                timestamp: Instant::now(),
+            },
+        );
 
         let now = Instant::now();
-        self.unknown_decisions.retain(|_, dec| {
-            now.duration_since(dec.timestamp) < Duration::from_secs(60)
-        });
+        self.unknown_decisions
+            .retain(|_, dec| now.duration_since(dec.timestamp) < Duration::from_secs(60));
     }
 }
 
@@ -275,7 +298,10 @@ pub fn run_socket_server(
 
     if let Ok(meta) = std::fs::symlink_metadata(SOCKET_PATH) {
         if meta.file_type().is_symlink() {
-            error!("Socket path is a symlink, refusing to remove: {}", SOCKET_PATH);
+            error!(
+                "Socket path is a symlink, refusing to remove: {}",
+                SOCKET_PATH
+            );
             return;
         }
         let _ = std::fs::remove_file(SOCKET_PATH);
@@ -288,15 +314,15 @@ pub fn run_socket_server(
             return;
         }
     };
-    
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o666));
     }
-    
+
     info!("Socket server listening on {}", SOCKET_PATH);
-    
+
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
@@ -306,7 +332,7 @@ pub fn run_socket_server(
                     let fd = s.as_raw_fd();
                     let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
                     let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-                    
+
                     let result = unsafe {
                         libc::getsockopt(
                             fd,
@@ -316,7 +342,7 @@ pub fn run_socket_server(
                             &mut len,
                         )
                     };
-                    
+
                     if result == 0 {
                         let peer_uid = cred.uid;
                         if peer_uid == 0 || peer_uid >= 1000 {
@@ -330,17 +356,25 @@ pub fn run_socket_server(
                         warn!("Failed to get peer credentials, allowing connection");
                     }
                 }
-                
+
                 #[cfg(not(unix))]
                 info!("GUI client connecting");
-                gui_state.lock().set_connection(s.try_clone().expect("Failed to clone stream"));
+                gui_state
+                    .lock()
+                    .set_connection(s.try_clone().expect("Failed to clone stream"));
 
                 let stats_clone = stats.clone();
                 let gui_state_clone = gui_state.clone();
                 let config_clone = config.clone();
                 let rules_clone = rule_manager.clone();
                 thread::spawn(move || {
-                    handle_gui_connection(s, stats_clone, gui_state_clone, config_clone, rules_clone);
+                    handle_gui_connection(
+                        s,
+                        stats_clone,
+                        gui_state_clone,
+                        config_clone,
+                        rules_clone,
+                    );
                 });
             }
             Err(e) => {
@@ -358,9 +392,15 @@ pub fn handle_gui_connection(
     rules: Arc<RuleManager>,
 ) {
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
-    stream.set_read_timeout(Some(Duration::from_millis(100))).ok();
+    stream
+        .set_read_timeout(Some(Duration::from_millis(100)))
+        .ok();
 
-    let mut reader = BufReader::new(stream.try_clone().expect("Failed to clone GUI stream for reader"));
+    let mut reader = BufReader::new(
+        stream
+            .try_clone()
+            .expect("Failed to clone GUI stream for reader"),
+    );
     let mut last_stats_send = Instant::now();
 
     loop {
@@ -383,18 +423,34 @@ pub fn handle_gui_connection(
                             debug!("GUI handler: Received late response, ignoring");
                         }
                         GuiCommand::AddRule(req) => {
-                            info!("[ASYNC:RULE] Adding rule from GUI: {} -> {} (allow: {})", req.app_name, req.port, req.allow);
-                            let rule_key = if !req.app_path.is_empty() && req.app_path != "unknown" {
+                            info!(
+                                "[ASYNC:RULE] Adding rule from GUI: {} -> {} (allow: {})",
+                                req.app_name, req.port, req.allow
+                            );
+                            // For unknown apps, use destination-based rules (@dest:IP:PORT)
+                            // This is more secure than @name:unknown which would allow any unknown app
+                            let rule_key = if !req.app_path.is_empty() && req.app_path != "unknown"
+                            {
                                 req.app_path
+                            } else if req.app_name == "unknown" && !req.dest_ip.is_empty() {
+                                // Destination-based rule for unknown apps
+                                format!("@dest:{}:{}", req.dest_ip, req.port)
                             } else {
                                 format!("@name:{}", req.app_name)
                             };
-                            rules.add_rule(&rule_key, Some(req.port), req.allow, req.all_ports);
+                            // For @dest rules, port is embedded in key, so pass 0
+                            let port = if rule_key.starts_with("@dest:") {
+                                None
+                            } else {
+                                Some(req.port)
+                            };
+                            rules.add_rule(&rule_key, port, req.allow, req.all_ports);
                         }
                     }
                 }
             }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut => {
+            Err(ref e)
+                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut => {
             }
             Err(e) => {
                 warn!("GUI handler read error: {}", e);

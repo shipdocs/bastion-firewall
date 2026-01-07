@@ -234,8 +234,8 @@ fn process_packet(
         }
     }
 
-    // Check name-based rules as fallback (including @name:unknown for unidentified processes)
-    if !app_name.is_empty() {
+    // Check name-based rules as fallback (skip unknown - use @dest rules instead for security)
+    if app_name != "unknown" && !app_name.is_empty() {
         let name_based_key = format!("@name:{}", app_name);
         if let Some(allow) = rules.get_decision(&name_based_key, dst_port) {
             if allow {
@@ -252,6 +252,27 @@ fn process_packet(
                 return Verdict::Drop;
             } else {
                 info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"@name:{}\" dst=\"{}:{}\" (would block in enforcement)", app_name, dst_ip, dst_port);
+            }
+        }
+    }
+
+    // For unknown apps: check destination-based rules (@dest:IP:PORT)
+    // This is more secure than @name:unknown which would allow any unknown app
+    if app_name == "unknown" || app_path == "unknown" {
+        let dest_key = format!("@dest:{}:{}", dst_ip, dst_port);
+        if let Some(allow) = rules.get_decision(&dest_key, 0) {
+            if allow {
+                debug!(
+                    "[RULE:ALLOW:DEST] dst=\"{}:{}\" (unknown app)",
+                    dst_ip, dst_port
+                );
+                return Verdict::Accept;
+            } else if !learning_mode {
+                info!(
+                    "[RULE:BLOCK:DEST] dst=\"{}:{}\" (unknown app)",
+                    dst_ip, dst_port
+                );
+                return Verdict::Drop;
             }
         }
     }
