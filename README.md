@@ -190,6 +190,12 @@ To create a new release (update versions, build packages, tag git, release on Gi
 ```
 This requires `rpm` and `gh` CLI to be installed and authenticated.
 
+## Roadmap
+
+- [ ] **DNS Proxy/Sniffing** - Implement a local DNS proxy or eBPF DNS sniffer to attribute connections to hostnames and processes more robustly.
+- [ ] **Advanced Rule Grouping** - Group rules by application suites or categories.
+- [ ] **Network Profiles** - Different rule sets for Home, Work, and Public networks.
+
 ## License
 
 GPL-3.0. See [LICENSE](LICENSE) for details.
