@@ -7,7 +7,7 @@ Displays connection requests and allows user to allow/deny.
 import logging
 import socket
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                            QPushButton, QFrame, QProgressBar)
+                            QPushButton, QFrame, QProgressBar, QCheckBox)
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QGuiApplication
 
@@ -30,6 +30,7 @@ class FirewallDialog(QDialog):
         self.learning_mode = learning_mode
         self.decision = "deny"  # Default
         self.permanent = False
+        self.all_ports = False  # Wildcard port support (issue #13)
         self.time_remaining = timeout
         
         self.init_ui()
@@ -37,7 +38,7 @@ class FirewallDialog(QDialog):
         
     def init_ui(self):
         self.setWindowTitle("Bastion Firewall - Connection Request")
-        self.setFixedSize(500, 450)
+        self.setFixedSize(500, 480)  # Increased height for all_ports checkbox
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {COLORS["background"]};
@@ -185,6 +186,24 @@ class FirewallDialog(QDialog):
 
         layout.addLayout(btn_grid)
 
+        # "Apply to all ports" checkbox (issue #13)
+        self.chk_all_ports = QCheckBox("Apply to all ports (less secure)")
+        self.chk_all_ports.setToolTip(
+            "When enabled, this rule will apply to ALL destination ports for this application, "
+            f"not just port {self.conn_info.get('dest_port')}. Use for apps with dynamic ports (Zoom, games, etc)."
+        )
+        self.chk_all_ports.setStyleSheet(f"""
+            QCheckBox {{
+                color: {COLORS['text_secondary']};
+                font-size: 12px;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+            }}
+        """)
+        layout.addWidget(self.chk_all_ports)
+
         # Timer
         if self.timeout > 0:
             self.progress = QProgressBar()
@@ -281,21 +300,25 @@ class FirewallDialog(QDialog):
     def allow_once(self):
         self.decision = "allow"
         self.permanent = False
+        self.all_ports = False
         self.accept()
 
     def allow_always(self):
         self.decision = "allow"
         self.permanent = True
+        self.all_ports = self.chk_all_ports.isChecked()
         self.accept()
 
     def deny_once(self):
         self.decision = "deny"
         self.permanent = False
+        self.all_ports = False
         self.reject()
 
     def deny_always(self):
         self.decision = "deny"
         self.permanent = True
+        self.all_ports = self.chk_all_ports.isChecked()
         self.reject()
 
     def keyPressEvent(self, event):

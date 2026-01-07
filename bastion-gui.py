@@ -17,7 +17,7 @@ import fcntl
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer, QSocketNotifier
-from bastion.gui_qt import FirewallDialog
+from bastion.gui.dialogs.firewall_dialog import FirewallDialog
 from bastion.icon_manager import IconManager
 
 # Lock file to prevent multiple instances
