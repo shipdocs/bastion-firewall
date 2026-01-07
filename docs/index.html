@@ -47,58 +47,80 @@
                     🏰 <span class="gradient-text">Your Last Line of Defense</span>
                 </h1>
                 <p class="hero-subtitle">
-                    Production-ready application firewall with a <strong>high-performance Rust daemon and kernel-level eBPF</strong> for <1µs process identification. Like a medieval bastion protecting a
-                    fortress, Bastion stands guard over your network connections, giving you complete control over outbound traffic.
-                </p>
+                    Production-ready application firewall with a <strong>high-performance Rust daemon and kernel-level
+                        eBPF</strong> for <1µs process identification. Like a medieval bastion protecting a fortress,
+                        Bastion stands guard over your network connections, giving you complete control over outbound
+                        traffic. </p>
 
-                <div style="background: linear-gradient(135deg, #1a3a5f 0%, #2d5a8a 100%); padding: 15px 25px; border-radius: 8px; margin: 20px auto; max-width: 700px; border-left: 4px solid #4a9eff;">
-                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 5px;">🎉 v2.0.25 Released!</div>
-                    <div style="font-size: 13px; opacity: 0.95;">NEW: Inbound firewall protection (UFW integration), mDNS auto-allow, wildcard port rules. Rust daemon + eBPF kernel hooks with 98% success rate for short-lived connections.</div>
-                </div>
+                        <div
+                            style="background: linear-gradient(135deg, #1a3a5f 0%, #2d5a8a 100%); padding: 15px 25px; border-radius: 8px; margin: 20px auto; max-width: 700px; border-left: 4px solid #4a9eff;">
+                            <div style="font-size: 14px; font-weight: 600; margin-bottom: 5px;">🎉 v2.0.28 Released!
+                            </div>
+                            <div style="font-size: 13px; opacity: 0.95;">NEW: LAN broadcast auto-allow for Steam, DLNA,
+                                printers. Plus inbound firewall protection, mDNS auto-allow, wildcard port rules. Rust
+                                daemon + eBPF kernel hooks.</div>
+                        </div>
 
-                <!-- Dynamic Release Cards -->
-                <div class="release-cards" style="display: flex; gap: 20px; justify-content: center; margin: 30px 0; flex-wrap: wrap;">
-                    <!-- Stable Release -->
-                    <div class="release-card" id="stable-release" style="background: linear-gradient(135deg, #1a5f2a 0%, #2d8a3e 100%); padding: 20px 30px; border-radius: 12px; min-width: 280px;">
-                        <div style="font-size: 12px; text-transform: uppercase; opacity: 0.8; margin-bottom: 5px;">✅ Stable Release</div>
-                        <div style="font-size: 24px; font-weight: bold;" id="stable-version">v1.4.0</div>
-                        <div style="font-size: 13px; opacity: 0.9; margin: 8px 0;" id="stable-name">Major Security Audit Release</div>
-                        <a href="https://github.com/shipdocs/bastion-firewall/releases/latest" class="btn" style="background: white; color: #1a5f2a; padding: 8px 16px; font-size: 13px; margin-top: 10px; display: inline-block; text-decoration: none; border-radius: 6px;">Download Stable</a>
-                    </div>
-                    <!-- Pre-release -->
-                    <div class="release-card" id="prerelease-card" style="background: linear-gradient(135deg, #5a4a1a 0%, #8a7a2d 100%); padding: 20px 30px; border-radius: 12px; min-width: 280px;">
-                        <div style="font-size: 12px; text-transform: uppercase; opacity: 0.8; margin-bottom: 5px;">🧪 Pre-release</div>
-                        <div style="font-size: 24px; font-weight: bold;" id="prerelease-version">v1.4.1</div>
-                        <div style="font-size: 13px; opacity: 0.9; margin: 8px 0;" id="prerelease-name">GUI & Tray Improvements</div>
-                        <a href="https://github.com/shipdocs/bastion-firewall/releases" id="prerelease-link" class="btn" style="background: white; color: #5a4a1a; padding: 8px 16px; font-size: 13px; margin-top: 10px; display: inline-block; text-decoration: none; border-radius: 6px;">View Pre-releases</a>
-                    </div>
-                </div>
+                        <!-- Dynamic Release Cards -->
+                        <div class="release-cards"
+                            style="display: flex; gap: 20px; justify-content: center; margin: 30px 0; flex-wrap: wrap;">
+                            <!-- Stable Release -->
+                            <div class="release-card" id="stable-release"
+                                style="background: linear-gradient(135deg, #1a5f2a 0%, #2d8a3e 100%); padding: 20px 30px; border-radius: 12px; min-width: 280px;">
+                                <div
+                                    style="font-size: 12px; text-transform: uppercase; opacity: 0.8; margin-bottom: 5px;">
+                                    ✅ Stable Release</div>
+                                <div style="font-size: 24px; font-weight: bold;" id="stable-version">v1.4.0</div>
+                                <div style="font-size: 13px; opacity: 0.9; margin: 8px 0;" id="stable-name">Major
+                                    Security Audit Release</div>
+                                <a href="https://github.com/shipdocs/bastion-firewall/releases/latest" class="btn"
+                                    style="background: white; color: #1a5f2a; padding: 8px 16px; font-size: 13px; margin-top: 10px; display: inline-block; text-decoration: none; border-radius: 6px;">Download
+                                    Stable</a>
+                            </div>
+                            <!-- Pre-release -->
+                            <div class="release-card" id="prerelease-card"
+                                style="background: linear-gradient(135deg, #5a4a1a 0%, #8a7a2d 100%); padding: 20px 30px; border-radius: 12px; min-width: 280px;">
+                                <div
+                                    style="font-size: 12px; text-transform: uppercase; opacity: 0.8; margin-bottom: 5px;">
+                                    🧪 Pre-release</div>
+                                <div style="font-size: 24px; font-weight: bold;" id="prerelease-version">v1.4.1</div>
+                                <div style="font-size: 13px; opacity: 0.9; margin: 8px 0;" id="prerelease-name">GUI &
+                                    Tray Improvements</div>
+                                <a href="https://github.com/shipdocs/bastion-firewall/releases" id="prerelease-link"
+                                    class="btn"
+                                    style="background: white; color: #5a4a1a; padding: 8px 16px; font-size: 13px; margin-top: 10px; display: inline-block; text-decoration: none; border-radius: 6px;">View
+                                    Pre-releases</a>
+                            </div>
+                        </div>
 
-                <div class="hero-buttons">
-                    <a href="#installation" class="btn btn-primary">Get Started</a>
-                    <a href="https://github.com/shipdocs/bastion-firewall" class="btn btn-secondary"
-                        target="_blank">View on GitHub</a>
-                </div>
-                <div class="hero-badges" style="margin-top: 20px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-                    <img src="https://img.shields.io/github/v/release/shipdocs/bastion-firewall?label=Stable&color=green" alt="Stable Release">
-                    <img src="https://img.shields.io/github/v/release/shipdocs/bastion-firewall?include_prereleases&label=Latest&color=yellow" alt="Latest Release">
-                    <img src="https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue" alt="Zorin OS 18">
-                    <img src="https://img.shields.io/badge/Security-Hardened-green" alt="Security Hardened">
-                </div>
-                <div class="hero-stats">
-                    <div class="stat">
-                        <div class="stat-value">🔒</div>
-                        <div class="stat-label">Secure by Default</div>
-                    </div>
-                    <div class="stat">
-                        <div class="stat-value">⚡</div>
-                        <div class="stat-label">Real-time Protection</div>
-                    </div>
-                    <div class="stat">
-                        <div class="stat-value">🎯</div>
-                        <div class="stat-label">Per-App Control</div>
-                    </div>
-                </div>
+                        <div class="hero-buttons">
+                            <a href="#installation" class="btn btn-primary">Get Started</a>
+                            <a href="https://github.com/shipdocs/bastion-firewall" class="btn btn-secondary"
+                                target="_blank">View on GitHub</a>
+                        </div>
+                        <div class="hero-badges"
+                            style="margin-top: 20px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                            <img src="https://img.shields.io/github/v/release/shipdocs/bastion-firewall?label=Stable&color=green"
+                                alt="Stable Release">
+                            <img src="https://img.shields.io/github/v/release/shipdocs/bastion-firewall?include_prereleases&label=Latest&color=yellow"
+                                alt="Latest Release">
+                            <img src="https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue" alt="Zorin OS 18">
+                            <img src="https://img.shields.io/badge/Security-Hardened-green" alt="Security Hardened">
+                        </div>
+                        <div class="hero-stats">
+                            <div class="stat">
+                                <div class="stat-value">🔒</div>
+                                <div class="stat-label">Secure by Default</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value">⚡</div>
+                                <div class="stat-label">Real-time Protection</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value">🎯</div>
+                                <div class="stat-label">Per-App Control</div>
+                            </div>
+                        </div>
             </div>
         </div>
     </section>
@@ -134,7 +156,8 @@
                 <div class="feature-card">
                     <div class="feature-icon">🔍</div>
                     <h3>eBPF Process Tracking</h3>
-                    <p>Kernel-level hooks capture process info at connection creation with ~<1µs latency - solves timing issues with short-lived connections</p>
+                    <p>Kernel-level hooks capture process info at connection creation with ~<1µs latency - solves timing
+                            issues with short-lived connections</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">⚡</div>
@@ -183,7 +206,8 @@
                 <div class="feature-card">
                     <div class="feature-icon">🛡️</div>
                     <h3>Inbound Protection</h3>
-                    <p>Automatic inbound firewall via UFW integration or standalone INPUT rules - blocks unsolicited connections</p>
+                    <p>Automatic inbound firewall via UFW integration or standalone INPUT rules - blocks unsolicited
+                        connections</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">📡</div>
@@ -275,7 +299,8 @@ sudo dpkg -i bastion-firewall_*.deb
 # Fix dependencies if needed
 sudo apt-get install -f</code></pre>
                     </div>
-                    <p style="margin-top: 15px; text-align: center; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                    <p
+                        style="margin-top: 15px; text-align: center; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
                         <a href="https://github.com/shipdocs/bastion-firewall/releases/latest" class="btn btn-primary"
                             target="_blank">Download Stable</a>
                         <a href="https://github.com/shipdocs/bastion-firewall/releases" class="btn btn-secondary"
@@ -410,8 +435,7 @@ sudo apt-get install -f</code></pre>
                     <h3>Security</h3>
                     <p>Security model and reporting</p>
                 </a>
-                <a href="https://github.com/shipdocs/bastion-firewall/releases" class="doc-card"
-                    target="_blank">
+                <a href="https://github.com/shipdocs/bastion-firewall/releases" class="doc-card" target="_blank">
                     <div class="doc-icon">📦</div>
                     <h3>Releases</h3>
                     <p>Download packages and changelog</p>
@@ -436,7 +460,8 @@ sudo apt-get install -f</code></pre>
             <h2 class="section-title">Built For</h2>
             <div class="distro-badges">
                 <span class="badge"
-                    style="background: linear-gradient(135deg, #0066cc 0%, #0099ff 100%); font-weight: 600;">🎯 Ubuntu 22.04+</span>
+                    style="background: linear-gradient(135deg, #0066cc 0%, #0099ff 100%); font-weight: 600;">🎯 Ubuntu
+                    22.04+</span>
                 <span class="badge">Debian 12+</span>
                 <span class="badge">Linux Mint 21+</span>
                 <span class="badge">Pop!_OS 22.04+</span>
@@ -466,7 +491,7 @@ sudo apt-get install -f</code></pre>
             <div class="footer-content">
                 <div class="footer-section">
                     <h4>🏰 Bastion Firewall</h4>
-                    <p>Your Last Line of Defense - Rust + eBPF v2.0.25</p>
+                    <p>Your Last Line of Defense - Rust + eBPF v2.0.28</p>
                 </div>
                 <div class="footer-section">
                     <h4>Links</h4>

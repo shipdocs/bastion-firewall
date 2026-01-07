@@ -35,6 +35,7 @@ Bastion intercepts outbound connections and prompts you to allow or deny them pe
 - **DNS Hostname Display** - Shows destination hostname in popups (e.g., "google.com" instead of just IP)
 - **Inbound Firewall Protection** - Automatic UFW integration or standalone INPUT rules
 - **mDNS Auto-Allow** - No popups for local network discovery (.local hostnames)
+- **LAN Broadcast Auto-Allow** - Automatic allow for broadcast traffic (Steam, DLNA, printers)
 - **Wildcard Port Rules** - Apply rules to all ports for an application (e.g., Zoom, Slack)
 - **Rule Search & Filtering** - Quickly find rules by app name, path, port, or action
 - **Import/Export Rules** - Backup and restore your firewall rules

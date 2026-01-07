@@ -1,16 +1,16 @@
 //! Service whitelist - auto-allow essential system services and trusted apps
 
-use std::collections::HashSet;
 use once_cell::sync::Lazy;
+use std::collections::HashSet;
 
 /// Ports that should always be allowed for system operation
 static ESSENTIAL_PORTS: Lazy<HashSet<u16>> = Lazy::new(|| {
     let mut s = HashSet::new();
-    s.insert(53);   // DNS
-    s.insert(67);   // DHCP client
-    s.insert(68);   // DHCP server
-    s.insert(123);  // NTP
-    s.insert(323);  // Chrony NTP
+    s.insert(53); // DNS
+    s.insert(67); // DHCP client
+    s.insert(68); // DHCP server
+    s.insert(123); // NTP
+    s.insert(323); // Chrony NTP
     s
 });
 
@@ -46,7 +46,12 @@ static SYSTEM_PATHS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 // The decision is then saved as a persistent rule (@name:appname:port).
 
 /// Decides whether a connection should be automatically allowed and returns a short reason label.
-pub fn should_auto_allow(app_path: &str, app_name: &str, dest_port: u16, dest_ip: &str) -> (bool, &'static str) {
+pub fn should_auto_allow(
+    app_path: &str,
+    app_name: &str,
+    dest_port: u16,
+    dest_ip: &str,
+) -> (bool, &'static str) {
     // 1. Localhost connections - only for trusted binaries
     if let Ok(ip) = dest_ip.parse::<std::net::IpAddr>() {
         if ip.is_loopback() {
@@ -64,12 +69,19 @@ pub fn should_auto_allow(app_path: &str, app_name: &str, dest_port: u16, dest_ip
         return (true, "SSDP (local)");
     }
 
+    // 1d. LAN broadcast traffic (*.*.*.255 or 255.255.255.255)
+    // Broadcast packets never leave the local network - safe for discovery protocols
+    if dest_ip.ends_with(".255") || dest_ip == "255.255.255.255" {
+        return (true, "LAN broadcast");
+    }
+
     // 2. DNS traffic
     if dest_port == 53 {
         if SYSTEM_PATHS.contains(app_path) || app_path.starts_with("/usr/lib/systemd/") {
             return (true, "DNS (trusted)");
         }
-        if app_path.is_empty() && (app_name == "NetworkManager" || app_name.starts_with("systemd")) {
+        if app_path.is_empty() && (app_name == "NetworkManager" || app_name.starts_with("systemd"))
+        {
             return (true, "DNS (trusted)");
         }
         if app_path.is_empty() || app_path == "unknown" {
@@ -82,10 +94,17 @@ pub fn should_auto_allow(app_path: &str, app_name: &str, dest_port: u16, dest_ip
         if SYSTEM_PATHS.contains(app_path) || app_path.starts_with("/usr/lib/systemd/") {
             return (true, "Essential port (trusted)");
         }
-        if app_path.is_empty() && (app_name == "NetworkManager" || app_name.starts_with("systemd") || app_name == "chronyd" || app_name == "ntpd") {
+        if app_path.is_empty()
+            && (app_name == "NetworkManager"
+                || app_name.starts_with("systemd")
+                || app_name == "chronyd"
+                || app_name == "ntpd")
+        {
             return (true, "Essential port (trusted)");
         }
-        if (app_path.is_empty() || app_path == "unknown") && (dest_port == 123 || dest_port == 67 || dest_port == 68 || dest_port == 323) {
+        if (app_path.is_empty() || app_path == "unknown")
+            && (dest_port == 123 || dest_port == 67 || dest_port == 68 || dest_port == 323)
+        {
             return (true, "System service");
         }
     }

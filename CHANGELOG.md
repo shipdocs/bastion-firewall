@@ -5,6 +5,14 @@ All notable changes to Bastion Firewall will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.28] - 2026-01-07
+
+### Features
+- **LAN Broadcast Auto-Allow**: Automatically allows all broadcast traffic (addresses ending in `.255` or `255.255.255.255`)
+  - Fixes repeated popups for Steam LAN discovery, DLNA, printers, and gaming protocols
+  - Broadcast packets never leave the local network - safe for all discovery protocols
+  - No more "unknown" app popups for local network traffic
+
 ## [2.0.26] - 2026-01-03
 
 ### Features
