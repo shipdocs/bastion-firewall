@@ -38,7 +38,7 @@ class FirewallDialog(QDialog):
         
     def init_ui(self):
         self.setWindowTitle("Bastion Firewall - Connection Request")
-        self.setFixedSize(500, 480)  # Increased height for all_ports checkbox
+        self.setFixedSize(500, 650)  # Increased height for trust section
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {COLORS["background"]};
@@ -161,6 +161,57 @@ class FirewallDialog(QDialog):
             info_layout.addWidget(warning_label)
 
         layout.addWidget(info_frame)
+
+        # Trust Application Section (for Steam-like scenarios)
+        trust_frame = QFrame()
+        trust_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: rgba(97, 175, 239, 0.1);
+                border: 1px solid {COLORS['accent']};
+                border-radius: 6px;
+            }}
+        """)
+        trust_layout = QVBoxLayout(trust_frame)
+        trust_layout.setContentsMargins(15, 12, 15, 12)
+        trust_layout.setSpacing(8)
+
+        trust_header = QLabel("🔐 Trust This Application")
+        trust_header.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {COLORS['accent']};")
+        trust_layout.addWidget(trust_header)
+
+        trust_desc = QLabel(
+            f"Allow <b>{app_name}</b> to connect to <b>any destination</b> on <b>any port</b>. "
+            "No more popups for this application."
+        )
+        trust_desc.setWordWrap(True)
+        trust_desc.setStyleSheet(f"color: {COLORS['text_primary']}; font-size: 12px;")
+        trust_layout.addWidget(trust_desc)
+
+        trust_warning = QLabel("⚠️ Only use for applications you fully trust")
+        trust_warning.setStyleSheet(f"color: {COLORS['warning']}; font-size: 11px; font-weight: bold;")
+        trust_layout.addWidget(trust_warning)
+
+        btn_trust = QPushButton("✓ Trust & Allow All Connections")
+        btn_trust.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['accent']};
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 13px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['accent_hover']};
+            }}
+        """)
+        btn_trust.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_trust.clicked.connect(self.trust_app)
+        trust_layout.addWidget(btn_trust)
+
+        layout.addWidget(trust_frame)
+        layout.addSpacing(10)
 
         # Buttons
         btn_grid = QVBoxLayout()
@@ -320,6 +371,13 @@ class FirewallDialog(QDialog):
         self.permanent = True
         self.all_ports = self.chk_all_ports.isChecked()
         self.reject()
+
+    def trust_app(self):
+        """Trust this application completely - allow all destinations and ports"""
+        self.decision = "allow"
+        self.permanent = True
+        self.all_ports = True  # Enable wildcard for all ports
+        self.accept()
 
     def keyPressEvent(self, event):
         if event.key() in [Qt.Key.Key_Return, Qt.Key.Key_Enter]:

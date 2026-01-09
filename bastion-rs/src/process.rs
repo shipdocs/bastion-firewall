@@ -1,10 +1,11 @@
 //! Process identification module
 //! Reads /proc to identify which process owns a network connection.
 
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::ebpf_loader::EbpfManager;
@@ -150,34 +151,68 @@ impl ProcessCache {
             }
         }
 
-        // 2. Query live eBPF map
-        if let Some(ebpf) = self.ebpf.as_mut() {
-            if let Some((pid, comm)) = ebpf.lookup_process_info(src_port, dest_ip, dest_port) {
-                // Cache this result for future lookups
-                self.ebpf_connection_cache.insert(
-                    cache_key,
-                    CachedEbpfInfo {
-                        pid,
-                        comm: comm.clone(),
-                        timestamp: Instant::now(),
-                    },
-                );
+        // 2. Query live eBPF map with retry logic
+        // Retry up to 3 times with 1ms delay to handle race conditions
+        // where packet arrives before eBPF kprobe completes
+        let ebpf_result = if let Some(ebpf) = self.ebpf.as_mut() {
+            let mut retry_count = 0;
+            let max_retries = 3;
 
-                if let Some(info) = self.get_process_info_by_pid(pid) {
-                    return Some(info);
+            let mut result = None;
+            loop {
+                if let Some((pid, comm)) = ebpf.lookup_process_info(src_port, dest_ip, dest_port) {
+                    // Cache this result for future lookups
+                    self.ebpf_connection_cache.insert(
+                        cache_key.clone(),
+                        CachedEbpfInfo {
+                            pid,
+                            comm: comm.clone(),
+                            timestamp: Instant::now(),
+                        },
+                    );
+
+                    // Clone values to release the ebpf borrow before calling other self methods
+                    let pid_clone = pid;
+                    let comm_clone = comm.clone();
+
+                    result = Some((pid_clone, comm_clone));
+                    break;
                 }
-                if !comm.is_empty() {
-                    return Some(ProcessInfo {
-                        name: comm.clone(),
-                        exe_path: self.find_exe_by_name(&comm).unwrap_or_default(),
-                        uid: 0,
-                    });
+
+                retry_count += 1;
+                if retry_count >= max_retries {
+                    break;
                 }
+
+                // Small sleep to give eBPF kprobe time to complete
+                // Only sleep on first retry to avoid excessive delays
+                if retry_count == 1 {
+                    thread::sleep(Duration::from_millis(1));
+                }
+            }
+            result
+        } else {
+            None
+        };
+
+        // Now process the result after releasing the ebpf borrow
+        if let Some((pid, comm)) = ebpf_result {
+            if let Some(mut info) = self.get_process_info_by_pid(pid) {
+                info.name = comm.clone(); // Use eBPF-captured name
+                return Some(info);
+            }
+            if !comm.is_empty() {
+                return Some(ProcessInfo {
+                    name: comm.clone(),
+                    exe_path: self.find_exe_by_name(&comm).unwrap_or_default(),
+                    uid: 0,
+                });
             }
         }
 
         // 3. /proc fallback (for when eBPF misses or isn't available)
-        if self.last_scan.elapsed() > Duration::from_millis(100) {
+        // Scan every 20ms to catch short-lived processes (was 100ms)
+        if self.last_scan.elapsed() > Duration::from_millis(20) {
             self.scan_processes();
         }
 
