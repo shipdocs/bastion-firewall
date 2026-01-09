@@ -17,15 +17,13 @@ setup(
         "Pillow>=10.2.0",
     ],
     scripts=[
-        "bastion-daemon.py",
         "bastion-gui.py",
         "bastion_control_panel.py"
     ],
     # Note: entry_points removed because script files use hyphens (bastion-daemon.py)
     # which cannot be imported as Python modules. Use scripts[] instead.
     data_files=[
-        ('/etc/bastion', ['config.json']),
-        ('/usr/share/applications', ['bastion-firewall.desktop']),
+        ('/usr/share/applications', ['com.bastion.firewall.desktop']),
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
