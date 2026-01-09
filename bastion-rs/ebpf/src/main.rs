@@ -36,8 +36,9 @@ pub struct SocketInfo {
 }
 
 // Map to store socket information
+// Increased from 10K to 100K to reduce evictions for short-lived processes
 #[map(name = "SOCKET_MAP")]
-static mut SOCKET_MAP: HashMap<SocketKey, SocketInfo> = HashMap::with_max_entries(10240, 0);
+static mut SOCKET_MAP: HashMap<SocketKey, SocketInfo> = HashMap::with_max_entries(100000, 0);
 
 // Helper to convert IPv4 address from struct sockaddr_in
 // FIX #3: Returns IPv4 in network byte order (already in correct format in sockaddr)

@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use crate::ebpf_loader::EbpfManager;
 use crate::proc_parser;
 
-/// Information about an identified process  
+/// Information about an identified process
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
     pub name: String,
@@ -18,11 +18,31 @@ pub struct ProcessInfo {
     pub uid: u32,
 }
 
+/// Cache key for eBPF connection lookups
+/// Uses destination IP and port to match connections
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+struct ConnectionKey {
+    dst_ip: String,
+    dst_port: u16,
+}
+
+/// Cached eBPF connection information
+/// Stores process name and PID captured at connect time
+#[derive(Clone)]
+struct CachedEbpfInfo {
+    pid: u32,
+    comm: String,
+    timestamp: Instant,
+}
+
 /// Process cache - reads /proc directly like Python's psutil
 pub struct ProcessCache {
     inode_to_process: HashMap<u64, ProcessInfo>,
     last_scan: Instant,
     ebpf: Option<EbpfManager>,
+    // Cache for eBPF connection info with longer TTL than kernel map
+    ebpf_connection_cache: HashMap<ConnectionKey, CachedEbpfInfo>,
+    last_ebpf_cleanup: Instant,
 }
 
 impl ProcessCache {
@@ -50,6 +70,8 @@ impl ProcessCache {
             inode_to_process: HashMap::new(),
             last_scan: Instant::now(),
             ebpf: if ebpf_loaded { Some(ebpf) } else { None },
+            ebpf_connection_cache: HashMap::new(),
+            last_ebpf_cleanup: Instant::now(),
         };
         cache.scan_processes();
         cache
@@ -95,9 +117,52 @@ impl ProcessCache {
         dest_port: u16,
         protocol: &str,
     ) -> Option<ProcessInfo> {
-        // 1. eBPF lookup
+        // Periodic cleanup of eBPF cache (every 60 seconds)
+        if self.last_ebpf_cleanup.elapsed() > Duration::from_secs(60) {
+            self.cleanup_ebpf_cache();
+            self.last_ebpf_cleanup = Instant::now();
+        }
+
+        let cache_key = ConnectionKey {
+            dst_ip: dest_ip.to_string(),
+            dst_port: dest_port,
+        };
+
+        // 1. Check eBPF connection cache first (fast, has comm name)
+        if let Some(cached) = self.ebpf_connection_cache.get(&cache_key) {
+            if cached.timestamp.elapsed() < Duration::from_secs(60) {
+                // Cache entry is still valid (within 60 seconds)
+                // Try to get full process info from /proc
+                if let Some(mut info) = self.get_process_info_by_pid(cached.pid) {
+                    info.name = cached.comm.clone(); // Use eBPF-captured name
+                    return Some(info);
+                }
+                // Process has exited, but we have the name from eBPF
+                info!(
+                    "✓ eBPF cache hit: Process {} (PID {}) exited, using cached name",
+                    cached.comm, cached.pid
+                );
+                return Some(ProcessInfo {
+                    name: cached.comm.clone(),
+                    exe_path: self.find_exe_by_name(&cached.comm).unwrap_or_default(),
+                    uid: 0,
+                });
+            }
+        }
+
+        // 2. Query live eBPF map
         if let Some(ebpf) = self.ebpf.as_mut() {
             if let Some((pid, comm)) = ebpf.lookup_process_info(src_port, dest_ip, dest_port) {
+                // Cache this result for future lookups
+                self.ebpf_connection_cache.insert(
+                    cache_key,
+                    CachedEbpfInfo {
+                        pid,
+                        comm: comm.clone(),
+                        timestamp: Instant::now(),
+                    },
+                );
+
                 if let Some(info) = self.get_process_info_by_pid(pid) {
                     return Some(info);
                 }
@@ -111,7 +176,7 @@ impl ProcessCache {
             }
         }
 
-        // 2. /proc fallback
+        // 3. /proc fallback (for when eBPF misses or isn't available)
         if self.last_scan.elapsed() > Duration::from_millis(100) {
             self.scan_processes();
         }
@@ -180,6 +245,22 @@ impl ProcessCache {
             }
         }
         None
+    }
+
+    /// Clean up expired entries from the eBPF connection cache
+    fn cleanup_ebpf_cache(&mut self) {
+        let now = Instant::now();
+        let initial_size = self.ebpf_connection_cache.len();
+        self.ebpf_connection_cache
+            .retain(|_, info| now.duration_since(info.timestamp) < Duration::from_secs(60));
+        let removed = initial_size - self.ebpf_connection_cache.len();
+        if removed > 0 {
+            info!(
+                "eBPF cache cleanup: removed {} expired entries ({} remaining)",
+                removed,
+                self.ebpf_connection_cache.len()
+            );
+        }
     }
 }
 
