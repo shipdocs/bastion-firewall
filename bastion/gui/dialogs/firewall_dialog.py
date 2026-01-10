@@ -8,7 +8,7 @@ import logging
 import socket
 import threading
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                            QPushButton, QFrame, QProgressBar, QCheckBox)
+                            QPushButton, QFrame, QProgressBar, QCheckBox, QComboBox)
 from PyQt6.QtCore import Qt, QTimer, QMetaObject, Q_ARG
 from PyQt6.QtGui import QGuiApplication
 
@@ -32,6 +32,7 @@ class FirewallDialog(QDialog):
         self.decision = "deny"  # Default
         self.permanent = False
         self.all_ports = False  # Wildcard port support (issue #13)
+        self.duration = "once"  # Duration: "once", "session", "always"
         self.time_remaining = timeout
         
         self.init_ui()
@@ -39,7 +40,7 @@ class FirewallDialog(QDialog):
         
     def init_ui(self):
         self.setWindowTitle("Bastion Firewall - Connection Request")
-        self.setFixedSize(500, 650)  # Increased height for trust section
+        self.setFixedSize(500, 520)  # Reduced height after removing trust section
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {COLORS["background"]};
@@ -155,77 +156,68 @@ class FirewallDialog(QDialog):
 
         layout.addWidget(info_frame)
 
-        # Trust Application Section (for Steam-like scenarios)
-        trust_frame = QFrame()
-        trust_frame.setStyleSheet(f"""
-            QFrame {{
-                background-color: rgba(97, 175, 239, 0.1);
-                border: 1px solid {COLORS['accent']};
-                border-radius: 6px;
-            }}
-        """)
-        trust_layout = QVBoxLayout(trust_frame)
-        trust_layout.setContentsMargins(15, 12, 15, 12)
-        trust_layout.setSpacing(8)
+        # Duration dropdown (OpenSnitch-style)
+        duration_layout = QHBoxLayout()
+        duration_label = QLabel("Duration:")
+        duration_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-weight: bold;")
+        duration_layout.addWidget(duration_label)
 
-        trust_header = QLabel("Trust This Application")
-        trust_header.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {COLORS['accent']};")
-        trust_layout.addWidget(trust_header)
-
-        trust_desc = QLabel(
-            f"Allow <b>{app_name}</b> to connect to <b>any destination</b> on <b>any port</b>. "
-            "No more popups for this application."
-        )
-        trust_desc.setWordWrap(True)
-        trust_desc.setStyleSheet(f"color: {COLORS['text_primary']}; font-size: 12px;")
-        trust_layout.addWidget(trust_desc)
-
-        trust_warning = QLabel("Only use for applications you fully trust")
-        trust_warning.setStyleSheet(f"color: {COLORS['warning']}; font-size: 11px; font-weight: bold;")
-        trust_layout.addWidget(trust_warning)
-
-        btn_trust = QPushButton("Trust & Allow All Connections")
-        btn_trust.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['accent']};
-                color: white;
-                border: none;
-                padding: 10px;
+        self.duration_combo = QComboBox()
+        self.duration_combo.addItems(["This Time Only", "For This Session", "Always (Permanent)"])
+        self.duration_combo.setCurrentIndex(0)  # Default to "This Time Only"
+        self.duration_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {COLORS['card']};
+                color: {COLORS['text_primary']};
+                border: 1px solid {COLORS['card_border']};
                 border-radius: 4px;
-                font-weight: bold;
+                padding: 8px 12px;
                 font-size: 13px;
+                min-width: 200px;
             }}
-            QPushButton:hover {{
-                background-color: {COLORS['accent_hover']};
+            QComboBox:hover {{
+                border-color: {COLORS['accent']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: 10px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLORS['card']};
+                color: {COLORS['text_primary']};
+                selection-background-color: {COLORS['accent']};
+                border: 1px solid {COLORS['card_border']};
             }}
         """)
-        btn_trust.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_trust.clicked.connect(self.trust_app)
-        trust_layout.addWidget(btn_trust)
+        # Add tooltips to dropdown items
+        self.duration_combo.setItemData(0, "Allow this single connection without saving a rule", Qt.ItemDataRole.ToolTipRole)
+        self.duration_combo.setItemData(1, "Remember until daemon restart", Qt.ItemDataRole.ToolTipRole)
+        self.duration_combo.setItemData(2, "Save permanently to /etc/bastion/rules.json", Qt.ItemDataRole.ToolTipRole)
+        self.duration_combo.currentIndexChanged.connect(self._on_duration_changed)
+        duration_layout.addWidget(self.duration_combo)
+        duration_layout.addStretch()
+        layout.addLayout(duration_layout)
 
-        layout.addWidget(trust_frame)
-        layout.addSpacing(10)
-
-        # Buttons
+        # Buttons (2x2 grid)
         btn_grid = QVBoxLayout()
         btn_grid.setSpacing(10)
 
         row_allow = QHBoxLayout()
         btn_allow_once = self.create_button("Allow Once", COLORS['success'], outline=True)
         btn_allow_once.clicked.connect(self.allow_once)
-        btn_allow_always = self.create_button("Allow Always", COLORS['success'])
-        btn_allow_always.clicked.connect(self.allow_always)
+        btn_allow = self.create_button("Allow", COLORS['success'])
+        btn_allow.clicked.connect(self.allow_with_duration)
         row_allow.addWidget(btn_allow_once)
-        row_allow.addWidget(btn_allow_always)
+        row_allow.addWidget(btn_allow)
         btn_grid.addLayout(row_allow)
 
         row_deny = QHBoxLayout()
         btn_deny_once = self.create_button("Deny Once", COLORS['danger'], outline=True)
         btn_deny_once.clicked.connect(self.deny_once)
-        btn_deny_always = self.create_button("Deny Always", COLORS['danger'])
-        btn_deny_always.clicked.connect(self.deny_always)
+        btn_deny = self.create_button("Deny", COLORS['danger'])
+        btn_deny.clicked.connect(self.deny_with_duration)
         row_deny.addWidget(btn_deny_once)
-        row_deny.addWidget(btn_deny_always)
+        row_deny.addWidget(btn_deny)
         btn_grid.addLayout(row_deny)
 
         layout.addLayout(btn_grid)
@@ -341,36 +333,42 @@ class FirewallDialog(QDialog):
             return
         self.progress.setValue(current - 1)
 
+    def _on_duration_changed(self, index):
+        """Handle duration dropdown change - disable all_ports for 'once'"""
+        durations = ["once", "session", "always"]
+        self.duration = durations[index]
+        # Disable "Apply to all ports" for one-time decisions (has no effect)
+        self.chk_all_ports.setEnabled(index > 0)
+        if index == 0:
+            self.chk_all_ports.setChecked(False)
+
     def allow_once(self):
         self.decision = "allow"
+        self.duration = "once"
         self.permanent = False
         self.all_ports = False
         self.accept()
 
-    def allow_always(self):
+    def allow_with_duration(self):
+        """Allow using the selected duration from dropdown"""
         self.decision = "allow"
-        self.permanent = True
-        self.all_ports = self.chk_all_ports.isChecked()
+        self.permanent = (self.duration == "always")
+        self.all_ports = self.chk_all_ports.isChecked() if self.duration != "once" else False
         self.accept()
 
     def deny_once(self):
         self.decision = "deny"
+        self.duration = "once"
         self.permanent = False
         self.all_ports = False
         self.reject()
 
-    def deny_always(self):
+    def deny_with_duration(self):
+        """Deny using the selected duration from dropdown"""
         self.decision = "deny"
-        self.permanent = True
-        self.all_ports = self.chk_all_ports.isChecked()
+        self.permanent = (self.duration == "always")
+        self.all_ports = self.chk_all_ports.isChecked() if self.duration != "once" else False
         self.reject()
-
-    def trust_app(self):
-        """Trust this application completely - allow all destinations and ports"""
-        self.decision = "allow"
-        self.permanent = True
-        self.all_ports = True  # Enable wildcard for all ports
-        self.accept()
 
     def keyPressEvent(self, event):
         if event.key() in [Qt.Key.Key_Return, Qt.Key.Key_Enter]:
@@ -378,9 +376,9 @@ class FirewallDialog(QDialog):
         elif event.key() == Qt.Key.Key_Escape:
             self.deny_once()
         elif event.key() == Qt.Key.Key_A:
-            self.allow_always()
+            self.allow_with_duration()
         elif event.key() == Qt.Key.Key_D:
-            self.deny_always()
+            self.deny_with_duration()
         else:
             super().keyPressEvent(event)
 

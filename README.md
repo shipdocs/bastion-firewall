@@ -12,7 +12,7 @@ An application firewall for Linux that gives you control over outbound network c
 
 Bastion intercepts outbound connections and prompts you to allow or deny them per application. It features a **high-performance Rust daemon** with **kernel-level eBPF process tracking** and a Qt 6 control panel.
 
-**NEW:** v2.0 introduces a Rust daemon with eBPF for <1µs process identification, solving timing issues with short-lived connections (curl, wget, etc).
+**NEW in v2.0.30:** Full IPv6 support - both IPv4 and IPv6 connections are now protected by the firewall.
 
 **Target Platform:** Zorin OS 18 / Ubuntu 24.04 LTS (Debian-based distributions)
 
@@ -29,10 +29,14 @@ Bastion intercepts outbound connections and prompts you to allow or deny them pe
 - **Status-Aware Icons** - Color-coded tray icons showing connection status, learning mode, and errors
 
 ### Advanced Features
+- **IPv6 Support** - Full IPv6 packet processing for apt, traceroute, and IPv6-enabled apps
 - Identifies short-lived connections (curl, wget) that timing-based methods miss
 - /proc scanning fallback for compatibility
 - Connection caching with TTL
 - **DNS Hostname Display** - Shows destination hostname in popups (e.g., "google.com" instead of just IP)
+- **Duration Dropdown** - Choose "This Time Only", "For This Session", or "Always" for each decision
+- **Enhanced Logs View** - Structured columns (Time, App, Destination, Action, Reason) with filtering
+- **Allow from Logs** - Click the ⚙ icon on blocked entries to create allow rules retroactively
 - **Inbound Firewall Protection** - Automatic UFW integration or standalone INPUT rules
 - **mDNS Auto-Allow** - No popups for local network discovery (.local hostnames)
 - **LAN Broadcast Auto-Allow** - Automatic allow for broadcast traffic (Steam, DLNA, printers)

@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QPushButton, QFrame, QStackedWidget,
                             QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar,
                             QMessageBox, QCheckBox, QScrollArea, QAbstractItemView,
-                            QApplication)
+                            QApplication, QDialog)
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier
 from PyQt6.QtGui import QIcon, QFont, QColor
 
@@ -30,6 +30,7 @@ from ..platform import is_wayland
 from ...inbound_firewall import InboundFirewallDetector
 from ...icon_manager import IconManager
 from ...notification import show_notification
+from ...log_parser import LogParser, LogEntry
 from ... import __version__
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,10 @@ class DashboardWindow(QMainWindow):
         # Status cache to reduce subprocess calls
         self._status_cache = {}
         self._status_cache_time = 0
+
+        # Log entries and filter state
+        self.log_entries = []
+        self.log_filter = "all"  # all, blocked, allowed, popups
 
         self.init_ui()
 
@@ -472,33 +477,89 @@ class DashboardWindow(QMainWindow):
     def create_logs_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.addWidget(QLabel("Connection Logs (Last 50 Lines)", objectName="page_title"))
 
+        # Title and refresh button row
+        header_row = QHBoxLayout()
+        header_row.addWidget(QLabel("Connection Logs", objectName="page_title"))
+
+        btn_refresh = QPushButton("Refresh")
+        btn_refresh.setObjectName("action_btn")
+        btn_refresh.setStyleSheet(f"background-color: {COLORS['sidebar']}; color: {COLORS['text_primary']}; padding: 6px 12px;")
+        btn_refresh.clicked.connect(self.refresh_logs)
+        header_row.addWidget(btn_refresh)
+        header_row.addStretch()
+        layout.addLayout(header_row)
+
+        # Filter buttons
+        filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(10)
+
+        self.filter_btn_all = QPushButton("All")
+        self.filter_btn_all.setCheckable(True)
+        self.filter_btn_all.setChecked(True)
+        self.filter_btn_all.setObjectName("filter_btn")
+        self.filter_btn_all.clicked.connect(lambda: self.set_log_filter("all"))
+
+        self.filter_btn_blocked = QPushButton("Blocked")
+        self.filter_btn_blocked.setCheckable(True)
+        self.filter_btn_blocked.setObjectName("filter_btn")
+        self.filter_btn_blocked.clicked.connect(lambda: self.set_log_filter("blocked"))
+
+        self.filter_btn_allowed = QPushButton("Allowed")
+        self.filter_btn_allowed.setCheckable(True)
+        self.filter_btn_allowed.setObjectName("filter_btn")
+        self.filter_btn_allowed.clicked.connect(lambda: self.set_log_filter("allowed"))
+
+        self.filter_btn_popups = QPushButton("Popups")
+        self.filter_btn_popups.setCheckable(True)
+        self.filter_btn_popups.setObjectName("filter_btn")
+        self.filter_btn_popups.clicked.connect(lambda: self.set_log_filter("popups"))
+
+        filter_layout.addWidget(self.filter_btn_all)
+        filter_layout.addWidget(self.filter_btn_blocked)
+        filter_layout.addWidget(self.filter_btn_allowed)
+        filter_layout.addWidget(self.filter_btn_popups)
+        filter_layout.addStretch()
+
+        # Style the filter buttons
+        filter_btn_style = f"""
+            QPushButton#filter_btn {{
+                background-color: {COLORS['card']};
+                color: {COLORS['text_secondary']};
+                border: 1px solid {COLORS['card_border']};
+                padding: 6px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }}
+            QPushButton#filter_btn:checked {{
+                background-color: {COLORS['accent']};
+                color: #1e2227;
+            }}
+            QPushButton#filter_btn:hover {{
+                border-color: {COLORS['accent']};
+            }}
+        """
+        for btn in [self.filter_btn_all, self.filter_btn_blocked, self.filter_btn_allowed, self.filter_btn_popups]:
+            btn.setStyleSheet(filter_btn_style)
+
+        layout.addLayout(filter_layout)
+
+        # Logs table with structured columns
         self.table_logs = QTableWidget()
-        self.table_logs.setColumnCount(1)
-        self.table_logs.horizontalHeader().setVisible(False)
+        self.table_logs.setColumnCount(6)
+        self.table_logs.setHorizontalHeaderLabels(["Time", "Application", "Destination", "Action", "Reason", ""])
         self.table_logs.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table_logs.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Gear column
+        self.table_logs.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Time column
         self.table_logs.verticalHeader().setVisible(False)
 
-        # Enable selection and copy
-        self.table_logs.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.table_logs.setTextElideMode(Qt.TextElideMode.ElideNone)
-
-        # Monospace font for logs
-        font = QFont("Monospace")
-        font.setStyleHint(QFont.StyleHint.TypeWriter)
-        self.table_logs.setFont(font)
+        # Enable selection
+        self.table_logs.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table_logs.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table_logs.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
 
         layout.addWidget(self.table_logs)
 
-        btn_box = QHBoxLayout()
-        btn_refresh = QPushButton("Refresh Logs")
-        btn_refresh.setObjectName("action_btn")
-        btn_refresh.clicked.connect(self.refresh_logs)
-        btn_box.addWidget(btn_refresh)
-        btn_box.addStretch()
-
-        layout.addLayout(btn_box)
         return page
 
     def create_settings_page(self):
@@ -943,47 +1004,212 @@ X-GNOME-Autostart-enabled=true
             self.table_rules.item(row, 0).setData(Qt.ItemDataRole.UserRole, key)
 
     def refresh_logs(self):
-        def load_logs():
-            try:
-                # Read logs from systemd journal (Rust daemon logs to stdout, captured by journald)
-                cmd = ['journalctl', '-u', 'bastion-firewall', '-n', '100', '--no-pager']
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-                lines = res.stdout.strip().split('\n') if res.stdout else []
-                logger.info(f"Successfully read {len(lines)} log lines from journal")
+        """Refresh logs from systemd journal."""
+        try:
+            # Read logs from systemd journal (Rust daemon logs to stdout, captured by journald)
+            cmd = ['journalctl', '-u', 'bastion-firewall', '-n', '200', '--no-pager']
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            lines = res.stdout.strip().split('\n') if res.stdout else []
+            logger.info(f"Successfully read {len(lines)} log lines from journal")
 
-                # Schedule UI update in main thread using functools.partial
-                QTimer.singleShot(0, partial(self._populate_logs, lines))
-            except Exception as e:
-                error_lines = [f"Error reading logs: {e}"]
-                logger.error(f"Failed to read logs: {e}")
-                QTimer.singleShot(0, partial(self._populate_logs, error_lines))
+            # Parse logs using LogParser
+            self.log_entries = LogParser.parse_lines(lines)
+            logger.info(f"Parsed {len(self.log_entries)} log entries")
 
-        logger.info(f"Starting log refresh thread")
-        threading.Thread(target=load_logs, daemon=True).start()
+            # Apply filter and populate
+            self._populate_logs_filtered()
+        except Exception as e:
+            logger.error(f"Failed to read logs: {e}")
+            self.log_entries = []
+            self._populate_logs_filtered()
 
-    def _populate_logs(self, lines):
-        logger.info(f"Populating logs table with {len(lines)} lines")
+    def set_log_filter(self, filter_type):
+        """Set the log filter type and refresh the display."""
+        self.log_filter = filter_type
+
+        # Update button states
+        for btn in [self.filter_btn_all, self.filter_btn_blocked, self.filter_btn_allowed, self.filter_btn_popups]:
+            btn.setChecked(False)
+
+        if filter_type == "all":
+            self.filter_btn_all.setChecked(True)
+        elif filter_type == "blocked":
+            self.filter_btn_blocked.setChecked(True)
+        elif filter_type == "allowed":
+            self.filter_btn_allowed.setChecked(True)
+        elif filter_type == "popups":
+            self.filter_btn_popups.setChecked(True)
+
+        self._populate_logs_filtered()
+
+    def _populate_logs_filtered(self):
+        """Populate the logs table with entries based on current filter."""
         self.table_logs.setRowCount(0)
-        for line in reversed(lines):  # Newest first
-            if not line.strip():
-                continue
-            row = self.table_logs.rowCount()
-            self.table_logs.insertRow(row)
-            item = QTableWidgetItem(line)
-            item.setForeground(QColor(COLORS['text_primary']))
-            self.table_logs.setItem(row, 0, item)
 
-        if self.table_logs.rowCount() == 0:
-            logger.warning("No log entries to display")
+        # Filter entries
+        filtered_entries = []
+        for entry in reversed(self.log_entries):  # Newest first
+            if self.log_filter == "all":
+                filtered_entries.append(entry)
+            elif self.log_filter == "blocked":
+                if entry.action == "BLOCK":
+                    filtered_entries.append(entry)
+            elif self.log_filter == "allowed":
+                if entry.action == "ALLOW":
+                    filtered_entries.append(entry)
+            elif self.log_filter == "popups":
+                if entry.event_type == "POPUP":
+                    filtered_entries.append(entry)
+
+        if not filtered_entries:
             self.table_logs.insertRow(0)
-            item = QTableWidgetItem("No log entries available.")
+            item = QTableWidgetItem(f"No log entries for filter: {self.log_filter}")
             item.setForeground(QColor(COLORS['text_secondary']))
             self.table_logs.setItem(0, 0, item)
-        else:
-            logger.info(f"Successfully populated {self.table_logs.rowCount()} log entries")
+            for col in range(1, 6):
+                self.table_logs.setItem(0, col, QTableWidgetItem(""))
+            logger.info(f"No log entries to display for filter: {self.log_filter}")
+            return
+
+        # Populate table
+        for entry in filtered_entries[:100]:  # Limit to 100 entries for performance
+            row = self.table_logs.rowCount()
+            self.table_logs.insertRow(row)
+
+            # Time column (extract HH:MM:SS from timestamp)
+            time_str = entry.timestamp.split('T')[-1].split('.')[0] if 'T' in entry.timestamp else entry.timestamp
+            time_item = QTableWidgetItem(time_str)
+            time_item.setForeground(QColor(COLORS['text_secondary']))
+            self.table_logs.setItem(row, 0, time_item)
+
+            # Application column
+            app_item = QTableWidgetItem(entry.app_name)
+            app_item.setForeground(QColor(COLORS['text_primary']))
+            self.table_logs.setItem(row, 1, app_item)
+
+            # Destination column
+            dest_str = f"{entry.dest_ip}:{entry.dest_port}"
+            dest_item = QTableWidgetItem(dest_str)
+            dest_item.setForeground(QColor(COLORS['text_primary']))
+            self.table_logs.setItem(row, 2, dest_item)
+
+            # Action column (color-coded)
+            action_str = entry.action if entry.action else "N/A"
+            action_item = QTableWidgetItem(action_str)
+            if entry.action == "BLOCK":
+                action_item.setForeground(QColor(COLORS['danger']))
+            elif entry.action == "ALLOW":
+                action_item.setForeground(QColor(COLORS['success']))
+            else:
+                action_item.setForeground(QColor(COLORS['text_secondary']))
+            action_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            self.table_logs.setItem(row, 3, action_item)
+
+            # Reason/Event Type column
+            reason_str = LogParser.get_event_type_display(entry.event_type)
+            reason_item = QTableWidgetItem(reason_str)
+            reason_item.setForeground(QColor(COLORS['text_secondary']))
+            self.table_logs.setItem(row, 4, reason_item)
+
+            # Gear icon column - only show for blocked entries
+            if entry.action == "BLOCK":
+                btn_gear = QPushButton("⚙")
+                btn_gear.setFixedSize(30, 30)
+                btn_gear.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {COLORS['card']};
+                        border: 1px solid {COLORS['card_border']};
+                        border-radius: 4px;
+                        color: {COLORS['text_secondary']};
+                        font-size: 14px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {COLORS['accent']};
+                        color: #1e2227;
+                    }}
+                """)
+                btn_gear.setToolTip("Create allow rule for this connection")
+                btn_gear.clicked.connect(lambda checked, e=entry: self._show_allow_rule_dialog(e))
+                self.table_logs.setCellWidget(row, 5, btn_gear)
+            else:
+                # Empty widget for non-blocked entries
+                self.table_logs.setCellWidget(row, 5, None)
+
+            # Store entry in row for reference
+            self.table_logs.item(row, 0).setData(Qt.ItemDataRole.UserRole, entry)
+
+        logger.info(f"Populated {self.table_logs.rowCount()} log entries (filter: {self.log_filter})")
         # Force UI update
         self.table_logs.viewport().update()
         self.table_logs.update()
+
+    def _show_allow_rule_dialog(self, log_entry):
+        """Show the allow rule dialog for a blocked connection."""
+        from ..dialogs.allow_rule_dialog import AllowRuleDialog
+
+        dialog = AllowRuleDialog(log_entry, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            rule_config = dialog.get_rule_config()
+            self._create_allow_rule(rule_config)
+
+    def _create_allow_rule(self, rule_config):
+        """Create an allow rule from the configuration."""
+        # Prepare the add_rule message
+        port = 0 if rule_config['all_ports'] else rule_config['dest_port']
+
+        msg = json.dumps({
+            'type': 'add_rule',
+            'app_path': rule_config['app_path'] if rule_config['rule_type'] == 'path' else '',
+            'app_name': rule_config['app_name'],
+            'port': port,
+            'allow': True,
+            'all_ports': rule_config['all_ports'],
+            'dest_ip': rule_config['dest_ip'],
+        }) + '\n'
+
+        # Send via socket to daemon
+        if not self.daemon_connected or not self.sock:
+            QMessageBox.warning(self, "Not Connected",
+                              "Not connected to daemon. Please ensure bastion-firewall is running.")
+            return
+
+        try:
+            self.sock.sendall(msg.encode())
+            logger.info(f"Sent add_rule request: {rule_config['rule_key']}:{port}")
+
+            # Clear session cache if requested
+            if rule_config['clear_cache']:
+                self._clear_session_cache(rule_config)
+
+            show_notification(self, "Rule Created", f"Allow rule created for {rule_config['app_name']}")
+
+            # Refresh rules and logs after a short delay
+            QTimer.singleShot(200, self.load_data)
+            QTimer.singleShot(200, self.refresh_rules_table)
+            QTimer.singleShot(200, self.refresh_logs)
+
+        except Exception as e:
+            logger.error(f"Failed to send add_rule request: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to create rule: {e}")
+
+    def _clear_session_cache(self, rule_config):
+        """Send a message to clear the session cache for this connection."""
+        # Create cache key based on connection info
+        if rule_config['app_path'] and rule_config['app_path'] != '-':
+            cache_key = f"{rule_config['app_path']}:{rule_config['dest_port']}"
+        else:
+            cache_key = f"@name:{rule_config['app_name']}:{rule_config['dest_port']}"
+
+        msg = json.dumps({
+            'type': 'clear_cache',
+            'cache_key': cache_key,
+        }) + '\n'
+
+        try:
+            self.sock.sendall(msg.encode())
+            logger.info(f"Sent clear_cache request for: {cache_key}")
+        except Exception as e:
+            logger.warning(f"Failed to send clear_cache request: {e}")
 
     def toggle_firewall(self):
         is_active = "Stop" in self.btn_toggle.text()

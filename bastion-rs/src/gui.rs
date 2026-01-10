@@ -48,6 +48,13 @@ pub enum GuiCommand {
     DeleteRule(DeleteRuleRequest),
     #[serde(rename = "list_rules")]
     ListRules,
+    #[serde(rename = "clear_cache")]
+    ClearCache(ClearCacheRequest),
+}
+
+#[derive(Deserialize)]
+pub struct ClearCacheRequest {
+    pub cache_key: String,
 }
 
 #[derive(Deserialize)]
@@ -73,6 +80,8 @@ pub struct GuiResponse {
     pub permanent: bool,
     #[serde(default)]
     pub all_ports: bool,
+    #[serde(default)]  // Defaults to empty string for backwards compatibility
+    pub duration: String,
 }
 
 #[derive(Serialize)]
@@ -429,8 +438,14 @@ pub fn handle_gui_connection(
                 if let Ok(cmd) = serde_json::from_str::<GuiCommand>(&line) {
                     match cmd {
                         GuiCommand::Response(resp) => {
+                            // Determine duration: use explicit duration field or fall back to permanent flag
+                            let duration = if resp.duration.is_empty() {
+                                if resp.permanent { "always" } else { "once" }
+                            } else {
+                                resp.duration.as_str()
+                            };
                             // Cache the response for ask_gui() to retrieve (fixes race condition)
-                            info!("[GUI:RESPONSE] Caching popup response: allow={}, permanent={}", resp.allow, resp.permanent);
+                            info!("[GUI:RESPONSE] Caching popup response: allow={}, duration={}", resp.allow, duration);
                             gui_state.lock().pending_response = Some(resp);
                         }
                         GuiCommand::AddRule(req) => {
@@ -488,6 +503,18 @@ pub fn handle_gui_connection(
                                     debug!("Failed to send rules list: {}", e);
                                 }
                             }
+                        }
+                        GuiCommand::ClearCache(req) => {
+                            info!(
+                                "[ASYNC:CLEAR_CACHE] Clearing session cache for: {}",
+                                req.cache_key
+                            );
+                            // Remove from session_decisions in gui_state
+                            let mut state = gui_state.lock();
+                            state.session_decisions.remove(&req.cache_key);
+                            // Also remove from pending_cache to allow retry
+                            state.pending_cache.remove(&req.cache_key);
+                            info!("[ASYNC:CLEAR_CACHE] Cache cleared for: {}", req.cache_key);
                         }
                     }
                 }

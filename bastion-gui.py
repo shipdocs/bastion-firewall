@@ -300,6 +300,7 @@ class BastionClient(QObject):
             decision = (dialog.decision == 'allow')
             permanent = dialog.permanent
             all_ports = dialog.all_ports  # Wildcard port support (issue #13)
+            duration = getattr(dialog, 'duration', 'once')  # Duration: once/session/always
 
             # Check if we're connected to daemon
             if not self.connected or not self.sock:
@@ -339,6 +340,7 @@ class BastionClient(QObject):
                     'allow': decision,
                     'permanent': permanent,
                     'all_ports': all_ports,
+                    'duration': duration,  # once/session/always
                     'decision_id': decision_id
                 }) + '\n'
 
