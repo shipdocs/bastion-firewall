@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://shipdocs.github.io/bastion-firewall/sitemap.xml

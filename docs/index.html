@@ -5,13 +5,54 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description"
-        content="🏰 Bastion Firewall - Your Last Line of Defense. Production-ready outbound firewall for Zorin OS 18 and Linux.">
+        content="🏰 Bastion Firewall - A high-performance, production-ready application firewall for Linux (Ubuntu/Zorin OS). Features kernel-level eBPF process tracking for real-time outbound connection control.">
+    <meta name="keywords"
+        content="linux firewall, outbound firewall, ebpf, rust, security, application firewall, ubuntu, zorin os, network security">
+    <meta name="author" content="Bastion Firewall Team">
+    <meta name="robots" content="index, follow">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://shipdocs.github.io/bastion-firewall/">
+    <meta property="og:title" content="Bastion Firewall - Your Last Line of Defense">
+    <meta property="og:description"
+        content="Production-ready application firewall for Linux with kernel-level eBPF monitoring. Protect your system from unsolicited outbound connections.">
+    <meta property="og:image" content="https://shipdocs.github.io/bastion-firewall/screenshots/status.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://shipdocs.github.io/bastion-firewall/">
+    <meta property="twitter:title" content="Bastion Firewall - Your Last Line of Defense">
+    <meta property="twitter:description"
+        content="Production-ready application firewall for Linux with kernel-level eBPF monitoring. Protect your system from unsolicited outbound connections.">
+    <meta property="twitter:image" content="https://shipdocs.github.io/bastion-firewall/screenshots/status.png">
+
     <title>🏰 Bastion Firewall - Your Last Line of Defense</title>
+    <link rel="canonical" href="https://shipdocs.github.io/bastion-firewall/">
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
         rel="stylesheet">
+
+    <!-- Structured Data for AI/Search Engines -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Bastion Firewall",
+      "operatingSystem": "Linux",
+      "applicationCategory": "SecurityApplication",
+      "description": "Production-ready application firewall for Linux using a high-performance Rust daemon and kernel-level eBPF.",
+      "softwareVersion": "2.0.29",
+      "license": "https://opensource.org/licenses/GPL-3.0",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    }
+    </script>
 </head>
 
 <body>
@@ -19,7 +60,7 @@
     <nav class="navbar">
         <div class="container">
             <div class="nav-brand">
-                <span class="shield-icon">🏰</span>
+                <span class="shield-icon" aria-hidden="true">🏰</span>
                 <span class="brand-name">Bastion Firewall</span>
             </div>
             <div class="nav-links">
@@ -44,7 +85,7 @@
         <div class="container">
             <div class="hero-content">
                 <h1 class="hero-title">
-                    🏰 <span class="gradient-text">Your Last Line of Defense</span>
+                    <span aria-hidden="true">🏰</span> <span class="gradient-text">Your Last Line of Defense</span>
                 </h1>
                 <p class="hero-subtitle">
                     Production-ready application firewall with a <strong>high-performance Rust daemon and kernel-level
@@ -56,7 +97,9 @@
                             style="background: linear-gradient(135deg, #1a3a5f 0%, #2d5a8a 100%); padding: 15px 25px; border-radius: 8px; margin: 20px auto; max-width: 700px; border-left: 4px solid #4a9eff;">
                             <div style="font-size: 14px; font-weight: 600; margin-bottom: 5px;">🎉 v2.0.29 Released!
                             </div>
-                            <div style="font-size: 13px; opacity: 0.95;">NEW: DNS Snooping for hostname correlation, smart resolver attribution, and LAN broadcast auto-allow. Plus inbound protection, mDNS auto-allow, and eBPF process tracking.</div>
+                            <div style="font-size: 13px; opacity: 0.95;">NEW: DNS Snooping for hostname correlation,
+                                smart resolver attribution, and LAN broadcast auto-allow. Plus inbound protection, mDNS
+                                auto-allow, and eBPF process tracking.</div>
                         </div>
 
                         <!-- Dynamic Release Cards -->
