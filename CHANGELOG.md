@@ -5,13 +5,18 @@ All notable changes to Bastion Firewall will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.28] - 2026-01-07
+## [2.0.28] - 2026-01-10
 
 ### Features
-- **LAN Broadcast Auto-Allow**: Automatically allows all broadcast traffic (addresses ending in `.255` or `255.255.255.255`)
-  - Fixes repeated popups for Steam LAN discovery, DLNA, printers, and gaming protocols
-  - Broadcast packets never leave the local network - safe for all discovery protocols
-  - No more "unknown" app popups for local network traffic
+- **DNS Cache Integration**: Full userspace DNS snooping integrated with eBPF process tracking.
+- **Smart Resolver Attribution**: Correctly attributes network connections to the originating application even when DNS queries are handled by `systemd-resolved` or other local resolvers.
+- **LAN Broadcast Auto-Allow**: Automatically allows all broadcast traffic (addresses ending in `.255` or `255.255.255.255`).
+  - Fixes repeated popups for Steam LAN discovery, DLNA, printers, and gaming protocols.
+
+### Improvements
+- **GUI Robustness**: Fixed `AttributeError` crashes in the Control Panel when filtering empty log or rule tables.
+- **Codebase Sanitization**: Removed decorative symbols and AI-style comments for a more professional development environment.
+- **Startup Experience**: Simplified and updated the daemon startup banner with accurate versioning.
 
 ## [2.0.26] - 2026-01-03
 

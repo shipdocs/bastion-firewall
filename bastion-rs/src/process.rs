@@ -345,7 +345,7 @@ impl ProcessCache {
 
         if let Some(info) = &process_info {
             if let Some(domain) = &info.domain_name {
-                info!("✓ Process identified: {} ({})", info.name, domain);
+                info!("Process identified: {} ({})", info.name, domain);
             }
         }
 

@@ -186,13 +186,13 @@ To create a new release (update versions, build packages, tag git, release on Gi
 ```bash
 # 1. Update CHANGELOG.md with new notes
 # 2. Run the release tool
-./release_tool.sh 1.4.8
+./release_tool.sh 2.0.28
 ```
 This requires `rpm` and `gh` CLI to be installed and authenticated.
 
 ## Roadmap
 
-- [ ] **DNS Proxy/Sniffing** - Implement a local DNS proxy or eBPF DNS sniffer to attribute connections to hostnames and processes more robustly.
+- [x] **DNS Proxy/Sniffing** - Implement a local DNS proxy or eBPF DNS sniffer to attribute connections to hostnames and processes more robustly.
 - [ ] **Advanced Rule Grouping** - Group rules by application suites or categories.
 - [ ] **Network Profiles** - Different rule sets for Home, Work, and Public networks.
 

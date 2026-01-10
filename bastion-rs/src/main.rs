@@ -34,10 +34,7 @@ const QUEUE_NUM: u16 = 1;
 async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    info!("╔════════════════════════════════════════╗");
-    info!("║  Bastion Firewall Daemon (Rust) v0.5  ║");
-    info!("║         With Popup Support!           ║");
-    info!("╚════════════════════════════════════════╝");
+    info!("Bastion Firewall Daemon v2.0.28 starting...");
 
     let config = Arc::new(ConfigManager::new());
     let rules = Arc::new(RuleManager::new());

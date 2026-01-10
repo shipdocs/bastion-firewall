@@ -54,7 +54,7 @@ impl DnsSnooper {
             .filter("udp port 53", true)
             .context("Failed to set BPF filter")?;
 
-        info!("✓ DNS snooper initialized successfully");
+        info!("DNS snooper initialized successfully");
 
         Ok(Self {
             capture,
@@ -213,7 +213,7 @@ impl DnsSnooper {
 
                     ip_count += 1;
                     info!(
-                        "✓ DNS cache: {} → {} (PID {}, domain: {}, TTL: {}s)",
+                        "DNS cache: {} -> {} (PID {}, domain: {}, TTL: {}s)",
                         ip, process_name, query.pid, domain, ttl
                     );
                 }
@@ -233,7 +233,7 @@ impl DnsSnooper {
 
                     ip_count += 1;
                     info!(
-                        "✓ DNS cache: {} → {} (PID {}, domain: {}, TTL: {}s)",
+                        "DNS cache: {} -> {} (PID {}, domain: {}, TTL: {}s)",
                         ip, process_name, query.pid, domain, ttl
                     );
                 }

@@ -64,7 +64,7 @@ impl EbpfMetrics {
         if lookups > 0 {
             let hit_rate = (hits as f64 / lookups as f64) * 100.0;
             info!(
-                "📊 eBPF Metrics: {} lookups, {:.1}% hit rate ({} hits, {} misses)",
+                "eBPF Metrics: {} lookups, {:.1}% hit rate ({} hits, {} misses)",
                 lookups, hit_rate, hits, misses
             );
         }
@@ -258,7 +258,7 @@ impl EbpfManager {
         program
             .attach("tcp_v4_connect", 0)
             .map_err(|e| anyhow::anyhow!("Failed to attach tcp_v4_connect: {}", e))?;
-        info!("✓ tcp_v4_connect kprobe attached");
+        info!("tcp_v4_connect kprobe attached");
 
         // Attach tcp_v4_connect_ret kretprobe
         debug!("Attaching tcp_v4_connect_ret...");
@@ -270,7 +270,7 @@ impl EbpfManager {
         program
             .attach("tcp_v4_connect", 0)
             .map_err(|e| anyhow::anyhow!("Failed to attach tcp_v4_connect_ret: {}", e))?;
-        info!("✓ tcp_v4_connect_ret kretprobe attached");
+        info!("tcp_v4_connect_ret kretprobe attached");
 
         // Attach tcp_v6_connect kprobe
         debug!("Attaching tcp_v6_connect...");
@@ -282,7 +282,7 @@ impl EbpfManager {
         program
             .attach("tcp_v6_connect", 0)
             .map_err(|e| anyhow::anyhow!("Failed to attach tcp_v6_connect: {}", e))?;
-        info!("✓ tcp_v6_connect kprobe attached");
+        info!("tcp_v6_connect kprobe attached");
 
         // Attach udp_sendmsg kprobe
         debug!("Attaching udp_sendmsg...");
@@ -294,7 +294,7 @@ impl EbpfManager {
         program
             .attach("udp_sendmsg", 0)
             .map_err(|e| anyhow::anyhow!("Failed to attach udp_sendmsg: {}", e))?;
-        info!("✓ udp_sendmsg kprobe attached");
+        info!("udp_sendmsg kprobe attached");
 
         // Attach udpv6_sendmsg kprobe
         debug!("Attaching udpv6_sendmsg...");
@@ -306,7 +306,7 @@ impl EbpfManager {
         program
             .attach("udpv6_sendmsg", 0)
             .map_err(|e| anyhow::anyhow!("Failed to attach udpv6_sendmsg: {}", e))?;
-        info!("✓ udpv6_sendmsg kprobe attached");
+        info!("udpv6_sendmsg kprobe attached");
 
         // Attach udp_recvmsg kprobe (for DNS responses) - optional
         if let Some(program_result) = bpf.program_mut("udp_recvmsg") {
@@ -316,7 +316,7 @@ impl EbpfManager {
                     if program.load().is_ok()
                         && program.attach("udp_recvmsg", 0).is_ok()
                     {
-                        info!("✓ udp_recvmsg kprobe attached");
+                        info!("udp_recvmsg kprobe attached");
                     } else {
                         warn!("udp_recvmsg available but failed to attach (DNS response tracking disabled)");
                     }
@@ -408,7 +408,7 @@ impl EbpfManager {
                 if ip_matches {
                     let pid = info.pid;
                     let comm = info.comm_str();
-                    debug!("✓ eBPF src_port=0 match: PID {} ({})", pid, comm);
+                    debug!("eBPF src_port=0 match: PID {} ({})", pid, comm);
                     return Some((pid, comm));
                 }
             }
@@ -452,7 +452,7 @@ impl EbpfManager {
                 if ip_matches {
                     let pid = info.pid;
                     let comm = info.comm_str();
-                    debug!("✓ eBPF exact match: PID {} ({})", pid, comm);
+                    debug!("eBPF exact match: PID {} ({})", pid, comm);
                     return Some((pid, comm));
                 }
             }
@@ -493,7 +493,7 @@ impl EbpfManager {
             if matches {
                 let elapsed = start.elapsed();
                 warn!(
-                    "⚠ eBPF iteration took {:?} - found PID {} ({})",
+                    "eBPF iteration took {:?} - found PID {} ({})",
                     elapsed,
                     info.pid,
                     info.comm_str()
@@ -543,7 +543,7 @@ impl EbpfManager {
 
         dns_ip_map.get(&ip_key, 0).ok().map(|value| {
             debug!(
-                "✓ DNS IP match: {} -> PID {} ({}), domain_hash={}",
+                "DNS IP match: {} -> PID {} ({}), domain_hash={}",
                 dst_ip,
                 value.pid,
                 value.comm_str(),

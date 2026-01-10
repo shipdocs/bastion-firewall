@@ -19,14 +19,15 @@ pytest tests/
 ## Project Structure
 
 ```
-bastion/
-├── daemon.py          # Root daemon (packet interception)
-├── gui.py             # GUI client (user prompts)
-├── gui_manager.py     # GUI/daemon coordination
-├── ebpf.py            # eBPF process identification
-├── firewall_core.py   # Packet processing
-├── rules.py           # Rule storage
-└── config.py          # Configuration
+bastion/               # Python GUI Package
+├── gui_qt.py          # Main Qt 6 dashboard
+├── gui/               # GUI subcomponents (dialogs, themes)
+└── log_parser.py      # Systemd journal parsing
+bastion-rs/            # Rust Daemon (Core)
+├── src/               # Daemon source (rules, process tracking)
+└── ebpf/              # eBPF source (kernel-level hooks)
+debian/                # Debian packaging configuration
+docs/                  # GitHub Pages source (website)
 ```
 
 ## Code Style

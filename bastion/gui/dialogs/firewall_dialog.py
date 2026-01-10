@@ -155,7 +155,7 @@ class FirewallDialog(QDialog):
 
         # Show warning when path unavailable
         if not app_path or app_path in ('Unknown', 'unknown', ''):
-            warning_label = QLabel("⚠ Path unavailable - rules will be based on application name only (less secure)")
+            warning_label = QLabel("Warning: Path unavailable - rules will be based on application name only (less secure)")
             warning_label.setStyleSheet(f"font-size: 11px; color: {COLORS['warning']}; padding: 8px; background-color: rgba(229, 192, 123, 0.1); border-radius: 4px; margin-top: 8px;")
             warning_label.setWordWrap(True)
             info_layout.addWidget(warning_label)
@@ -175,7 +175,7 @@ class FirewallDialog(QDialog):
         trust_layout.setContentsMargins(15, 12, 15, 12)
         trust_layout.setSpacing(8)
 
-        trust_header = QLabel("🔐 Trust This Application")
+        trust_header = QLabel("Trust This Application")
         trust_header.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {COLORS['accent']};")
         trust_layout.addWidget(trust_header)
 
@@ -187,11 +187,11 @@ class FirewallDialog(QDialog):
         trust_desc.setStyleSheet(f"color: {COLORS['text_primary']}; font-size: 12px;")
         trust_layout.addWidget(trust_desc)
 
-        trust_warning = QLabel("⚠️ Only use for applications you fully trust")
+        trust_warning = QLabel("Only use for applications you fully trust")
         trust_warning.setStyleSheet(f"color: {COLORS['warning']}; font-size: 11px; font-weight: bold;")
         trust_layout.addWidget(trust_warning)
 
-        btn_trust = QPushButton("✓ Trust & Allow All Connections")
+        btn_trust = QPushButton("Trust & Allow All Connections")
         btn_trust.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS['accent']};
