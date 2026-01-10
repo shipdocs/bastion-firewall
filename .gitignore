@@ -48,7 +48,7 @@ debian/usr/
 debian/etc/
 debian/lib/
 debian/var/
-~/rpmbuild/
+rpmbuild/
 
 # Backup files
 *.bak
