@@ -10,3 +10,9 @@ aya-log-ebpf = "0.1.0"
 [[bin]]
 name = "bastion-ebpf"
 path = "src/main.rs"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

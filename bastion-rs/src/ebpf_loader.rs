@@ -90,6 +90,7 @@ pub struct ConnectionKey {
     pub ip_version: u8,
     pub _pad: [u8; 1],
     pub dst_port: u16,
+    pub pid: u32,            // Disambiguator to prevent collisions between processes
     pub dst_ip_v4: u32,
     pub dst_ip_v6: [u8; 16],
 }
@@ -107,6 +108,115 @@ pub struct ConnectionInfo {
 unsafe impl Pod for ConnectionInfo {}
 
 impl ConnectionInfo {
+    pub fn comm_str(&self) -> String {
+        let end = self.comm.iter().position(|&b| b == 0).unwrap_or(16);
+        String::from_utf8_lossy(&self.comm[..end]).to_string()
+    }
+}
+
+// DNS tracking structures
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct DnsQueryKey {
+    pub domain_hash: u32,
+    pub _pad: [u8; 4],
+}
+
+unsafe impl Pod for DnsQueryKey {}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct DnsQueryValue {
+    pub pid: u32,
+    pub comm: [u8; 16],
+    pub timestamp: u64,
+}
+
+unsafe impl Pod for DnsQueryValue {}
+
+impl DnsQueryValue {
+    pub fn comm_str(&self) -> String {
+        let end = self.comm.iter().position(|&b| b == 0).unwrap_or(16);
+        String::from_utf8_lossy(&self.comm[..end]).to_string()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct DnsTxKey {
+    pub txid: u16,
+    pub src_port: u16,
+    pub _pad: [u8; 4],
+}
+
+unsafe impl Pod for DnsTxKey {}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct DnsTxValue {
+    pub pid: u32,
+    pub comm: [u8; 16],
+    pub domain_hash: u32,
+}
+
+unsafe impl Pod for DnsTxValue {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct DnsIpKey {
+    pub ip_version: u8,
+    pub _pad: [u8; 3],
+    pub ip_bytes: [u8; 16],
+}
+
+unsafe impl Pod for DnsIpKey {}
+
+impl DnsIpKey {
+    pub fn from_v4(ip: u32) -> Self {
+        let mut bytes = [0u8; 16];
+        bytes[0..4].copy_from_slice(&ip.to_be_bytes());
+        Self {
+            ip_version: 4,
+            _pad: [0u8; 3],
+            ip_bytes: bytes,
+        }
+    }
+
+    pub fn from_v6(ip: [u8; 16]) -> Self {
+        Self {
+            ip_version: 6,
+            _pad: [0u8; 3],
+            ip_bytes: ip,
+        }
+    }
+
+    pub fn to_ip_addr(&self) -> Option<std::net::IpAddr> {
+        use std::net::{Ipv4Addr, Ipv6Addr};
+        match self.ip_version {
+            4 => {
+                let ip = u32::from_be_bytes(self.ip_bytes[0..4].try_into().ok()?);
+                Some(std::net::IpAddr::V4(Ipv4Addr::from(ip)))
+            }
+            6 => Some(std::net::IpAddr::V6(Ipv6Addr::from(self.ip_bytes))),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct DnsIpValue {
+    pub pid: u32,
+    pub comm: [u8; 16],
+    pub domain_hash: u32,
+    pub timestamp: u64,
+    pub ttl: u32,
+}
+
+unsafe impl Pod for DnsIpValue {}
+
+impl DnsIpValue {
     pub fn comm_str(&self) -> String {
         let end = self.comm.iter().position(|&b| b == 0).unwrap_or(16);
         String::from_utf8_lossy(&self.comm[..end]).to_string()
@@ -192,6 +302,27 @@ impl EbpfManager {
             .map_err(|e| anyhow::anyhow!("Failed to attach udpv6_sendmsg: {}", e))?;
         info!("✓ udpv6_sendmsg kprobe attached");
 
+        // Attach udp_recvmsg kprobe (for DNS responses) - optional
+        if let Some(program_result) = bpf.program_mut("udp_recvmsg") {
+            match program_result.try_into() {
+                Ok(program) => {
+                    let program: &mut KProbe = program;
+                    if program.load().is_ok()
+                        && program.attach("udp_recvmsg", 0).is_ok()
+                    {
+                        info!("✓ udp_recvmsg kprobe attached");
+                    } else {
+                        warn!("udp_recvmsg available but failed to attach (DNS response tracking disabled)");
+                    }
+                }
+                Err(_) => {
+                    warn!("udp_recvmsg program type mismatch (DNS response tracking disabled)");
+                }
+            }
+        } else {
+            debug!("udp_recvmsg program not found (DNS response tracking disabled)");
+        }
+
         self.bpf = Some(bpf);
         info!("eBPF program loaded and all probes attached successfully");
         Ok(())
@@ -236,7 +367,8 @@ impl EbpfManager {
         None
     }
 
-    /// Strategy 1: Lookup with src_port=0 (O(1)) - should be most common
+    /// Strategy 1: Lookup with src_port=0 - iterate to find any matching connection
+    /// Since key includes pid, we need to iterate to find any process connecting to this destination
     fn lookup_conn_map_pending(
         &mut self,
         ip_version: u8,
@@ -251,24 +383,42 @@ impl EbpfManager {
                 None => return None,
             };
 
-        let key = ConnectionKey {
-            src_port: 0,
-            ip_version,
-            _pad: [0u8; 1],
-            dst_port,
-            dst_ip_v4,
-            dst_ip_v6,
-        };
+        // Iterate to find src_port=0 entries matching dst_ip:dst_port (any pid)
+        let mut count = 0u32;
+        for (key, info) in conn_map.iter().flatten() {
+            count += 1;
+            if count <= 3 {
+                debug!("eBPF map entry {}: src_port={}, ip_ver={}, dst_port={}, pid={}, comm={}",
+                    count, key.src_port, key.ip_version, key.dst_port, info.pid, info.comm_str());
+            }
 
-        conn_map.get(&key, 0).ok().map(|info| {
-            let pid = info.pid;
-            let comm = info.comm_str();
-            debug!("✓ eBPF src_port=0 match: PID {} ({})", pid, comm);
-            (pid, comm)
-        })
+            if key.src_port == 0 && key.ip_version == ip_version && key.dst_port == dst_port {
+                let ip_matches = match ip_version {
+                    4 => key.dst_ip_v4 == dst_ip_v4,
+                    6 => key.dst_ip_v6 == dst_ip_v6,
+                    _ => false,
+                };
+
+                if ip_matches {
+                    let pid = info.pid;
+                    let comm = info.comm_str();
+                    debug!("✓ eBPF src_port=0 match: PID {} ({})", pid, comm);
+                    return Some((pid, comm));
+                }
+            }
+        }
+
+        if count == 0 {
+            debug!("eBPF CONN_MAP is empty!");
+        } else {
+            debug!("eBPF CONN_MAP has {} entries, no match found for {}:{}",
+                count, dst_ip_v4, dst_port);
+        }
+
+        None
     }
 
-    /// Strategy 2: Exact match with source port (O(1))
+    /// Strategy 2: Exact match with source port - iterate to find matching connection
     fn lookup_conn_map_exact(
         &mut self,
         src_port: u16,
@@ -284,21 +434,25 @@ impl EbpfManager {
                 None => return None,
             };
 
-        let key = ConnectionKey {
-            src_port,
-            ip_version,
-            _pad: [0u8; 1],
-            dst_port,
-            dst_ip_v4,
-            dst_ip_v6,
-        };
+        // Iterate to find entries matching full 4-tuple (any pid)
+        for (key, info) in conn_map.iter().flatten() {
+            if key.src_port == src_port && key.ip_version == ip_version && key.dst_port == dst_port {
+                let ip_matches = match ip_version {
+                    4 => key.dst_ip_v4 == dst_ip_v4,
+                    6 => key.dst_ip_v6 == dst_ip_v6,
+                    _ => false,
+                };
 
-        conn_map.get(&key, 0).ok().map(|info| {
-            let pid = info.pid;
-            let comm = info.comm_str();
-            debug!("✓ eBPF exact match: PID {} ({})", pid, comm);
-            (pid, comm)
-        })
+                if ip_matches {
+                    let pid = info.pid;
+                    let comm = info.comm_str();
+                    debug!("✓ eBPF exact match: PID {} ({})", pid, comm);
+                    return Some((pid, comm));
+                }
+            }
+        }
+
+        None
     }
 
     /// Strategy 3: Full iteration of CONN_MAP (slow, comprehensive fallback)
@@ -353,6 +507,93 @@ impl EbpfManager {
             bpf.map("CONN_MAP").and_then(|m| HashMap::try_from(m).ok())?;
 
         Some(conn_map.iter().flatten().count())
+    }
+
+    /// Lookup DNS IP mapping - returns (pid, comm, domain_hash) for an IP
+    pub fn lookup_dns_ip(&mut self, dst_ip: &str) -> Option<(u32, String, u32)> {
+        let bpf = self.bpf.as_ref()?;
+
+        let (ip_version, dst_ip_v4, dst_ip_v6) = parse_dst_ip(dst_ip)?;
+
+        let dns_ip_map: HashMap<_, DnsIpKey, DnsIpValue> =
+            match bpf.map("DNS_IP_MAP").and_then(|m| HashMap::try_from(m).ok()) {
+                Some(m) => m,
+                None => return None,
+            };
+
+        let ip_key = DnsIpKey {
+            ip_version,
+            _pad: [0u8; 3],
+            ip_bytes: match ip_version {
+                4 => {
+                    let mut bytes = [0u8; 16];
+                    bytes[0..4].copy_from_slice(&dst_ip_v4.to_be_bytes());
+                    bytes
+                }
+                6 => dst_ip_v6,
+                _ => return None,
+            },
+        };
+
+        dns_ip_map.get(&ip_key, 0).ok().map(|value| {
+            debug!(
+                "✓ DNS IP match: {} -> PID {} ({}), domain_hash={}",
+                dst_ip,
+                value.pid,
+                value.comm_str(),
+                value.domain_hash
+            );
+            (value.pid, value.comm_str(), value.domain_hash)
+        })
+    }
+
+    /// Poll DNS query map - returns all DNS query entries
+    pub fn poll_dns_queries(&self) -> Vec<(u32, String, u32)> {
+        let mut results = Vec::new();
+
+        let Some(bpf) = self.bpf.as_ref() else {
+            return results;
+        };
+
+        let Some(dns_query_map): Option<HashMap<_, DnsQueryKey, DnsQueryValue>> =
+            bpf.map("DNS_QUERY_MAP").and_then(|m| HashMap::try_from(m).ok())
+        else {
+            return results;
+        };
+
+        for (key, value) in dns_query_map.iter().flatten() {
+            results.push((value.pid, value.comm_str(), key.domain_hash));
+        }
+
+        results
+    }
+
+    /// Poll DNS IP map - returns all IP->process mappings
+    pub fn poll_dns_ips(&self) -> Vec<(std::net::IpAddr, u32, String, u32)> {
+        let mut results = Vec::new();
+
+        let Some(bpf) = self.bpf.as_ref() else {
+            return results;
+        };
+
+        let Some(dns_ip_map): Option<HashMap<_, DnsIpKey, DnsIpValue>> =
+            bpf.map("DNS_IP_MAP").and_then(|m| HashMap::try_from(m).ok())
+        else {
+            return results;
+        };
+
+        for (key, value) in dns_ip_map.iter().flatten() {
+            if let Some(ip_addr) = key.to_ip_addr() {
+                results.push((
+                    ip_addr,
+                    value.pid,
+                    value.comm_str(),
+                    value.domain_hash,
+                ));
+            }
+        }
+
+        results
     }
 }
 
