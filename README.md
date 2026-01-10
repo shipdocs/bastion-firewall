@@ -196,6 +196,29 @@ This requires `rpm` and `gh` CLI to be installed and authenticated.
 - [ ] **Advanced Rule Grouping** - Group rules by application suites or categories.
 - [ ] **Network Profiles** - Different rule sets for Home, Work, and Public networks.
 
+## Security & Privacy
+
+Bastion Firewall is designed with transparency and user privacy as its core principles. Below are details on technical implementations that involve system-level monitoring:
+
+### eBPF Process Identification
+Traditional process identification (via `/proc` scanning) is prone to timing attacks where short-lived processes (like `curl` or `wget`) complete their network request and exit before the firewall can identify them.
+- **How we use it**: Bastion uses kernel-level eBPF kprobes to capture process metadata at the exact nanosecond a connection is requested.
+- **Privacy Focus**: These hooks only capture the PID and the command name (comm) of the initiating process. No other system activity is monitored.
+
+### DNS Snooping (Hostname Correlation)
+To provide meaningful popups, the firewall needs to know that an IP like `142.250.190.46` is actually `google.com`.
+- **How we use it**: The daemon captures DNS responses locally to maintain a short-lived mapping of IP addresses to hostnames.
+- **Privacy Focus**: This mapping is entirely local, transient (cleared on exit), and is only used to populate the "Destination" field in your alerts. No browsing history is logged or transmitted.
+
+### External IP Lookups
+When an application connects to a raw IP address (not via DNS), Bastion may perform an optional lookup to identify the Organization/ISP.
+- **How we use it**: An anonymous request is sent to a public IP-API.
+- **Privacy Focus**: These lookups are only performed for unknown IPs to provide security context. No local identity tokens or tracking information are included in these requests.
+
+### Root Privileges
+The `bastion-daemon` requires root privileges (`CAP_NET_ADMIN` and `CAP_BPF`) to manage `iptables` rules and attach eBPF probes.
+- **Security Design**: The GUI dashboard and tray icon run as a regular user. Communication between the GUI and the root daemon occurs over a hardened Unix socket with peer credential verification (`SO_PEERCRED`), ensuring only you can authorize firewall decisions.
+
 ## License
 
 GPL-3.0. See [LICENSE](LICENSE) for details.
