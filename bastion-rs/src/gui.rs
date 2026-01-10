@@ -44,6 +44,10 @@ pub enum GuiCommand {
     Response(#[allow(dead_code)] GuiResponse),
     #[serde(rename = "add_rule")]
     AddRule(AddRuleRequest),
+    #[serde(rename = "delete_rule")]
+    DeleteRule(DeleteRuleRequest),
+    #[serde(rename = "list_rules")]
+    ListRules,
 }
 
 #[derive(Deserialize)]
@@ -55,6 +59,11 @@ pub struct AddRuleRequest {
     pub all_ports: bool,
     #[serde(default)]
     pub dest_ip: String,
+}
+
+#[derive(Deserialize)]
+pub struct DeleteRuleRequest {
+    pub key: String,  // Format: "app_path:port" or "@name:app:port" or "@dest:ip:port"
 }
 
 #[derive(Deserialize, Default)]
@@ -81,6 +90,21 @@ pub struct StatsData {
     pub learning_mode: bool,
 }
 
+#[derive(Serialize)]
+pub struct RuleDeletedResponse {
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub key: String,
+    pub success: bool,
+}
+
+#[derive(Serialize)]
+pub struct RulesListResponse {
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub rules: serde_json::Value,
+}
+
 #[derive(Clone, Copy)]
 pub struct UnknownDecision {
     pub allow: bool,
@@ -99,6 +123,8 @@ pub struct GuiState {
     pub pending_cache: HashMap<String, Instant>,
     pub unknown_decisions: HashMap<String, UnknownDecision>,
     pub session_decisions: HashMap<String, SessionDecision>,
+    /// Cache for popup responses from the GUI (to handle race condition with handler thread)
+    pub pending_response: Option<GuiResponse>,
 }
 
 impl GuiState {
@@ -109,6 +135,7 @@ impl GuiState {
             pending_cache: HashMap::new(),
             unknown_decisions: HashMap::new(),
             session_decisions: HashMap::new(),
+            pending_response: None,
         }
     }
 
@@ -217,40 +244,22 @@ impl GuiState {
             return None;
         }
 
-        if let Some(ref mut reader) = self.reader {
-            let mut line = String::new();
-            match reader.read_line(&mut line) {
-                Ok(0) => {
-                    self.disconnect();
-                    return None;
-                }
-                Ok(_) => match serde_json::from_str::<GuiResponse>(&line) {
-                    Ok(resp) => {
-                        return Some(resp);
-                    }
-                    Err(e) => {
-                        debug!(
-                            "Failed to parse GUI response: {} - line: {}",
-                            e,
-                            line.trim()
-                        );
-                        return None;
-                    }
-                },
-                Err(e) => {
-                    if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut
-                    {
-                        debug!("GUI timeout - no response, allowing retry");
-                    } else {
-                        debug!("GUI read error: {}", e);
-                        self.disconnect();
-                    }
-                    return None;
-                }
-            }
+        // Check if there's already a pending response (from a previous race condition)
+        if let Some(resp) = self.pending_response.take() {
+            info!("[GUI:IMMEDIATE] Using existing cached response: allow={}", resp.allow);
+            return Some(resp);
         }
 
+        // Return None - caller should check response cache after releasing lock
+        // This prevents deadlock where we hold lock while waiting for handler to cache response
+        info!("[GUI:POLL] Returning to caller to poll for response without holding lock");
         None
+    }
+
+    /// Check if a response has been cached by the handler thread
+    /// This should be called repeatedly after ask_gui returns None
+    pub fn check_response_cache(&mut self) -> Option<GuiResponse> {
+        self.pending_response.take()
     }
 
     pub fn check_unknown_decision(&self, dest_ip: &str, dest_port: u16) -> Option<bool> {
@@ -419,8 +428,10 @@ pub fn handle_gui_connection(
             Ok(_) => {
                 if let Ok(cmd) = serde_json::from_str::<GuiCommand>(&line) {
                     match cmd {
-                        GuiCommand::Response(_) => {
-                            debug!("GUI handler: Received late response, ignoring");
+                        GuiCommand::Response(resp) => {
+                            // Cache the response for ask_gui() to retrieve (fixes race condition)
+                            info!("[GUI:RESPONSE] Caching popup response: allow={}, permanent={}", resp.allow, resp.permanent);
+                            gui_state.lock().pending_response = Some(resp);
                         }
                         GuiCommand::AddRule(req) => {
                             info!(
@@ -445,6 +456,38 @@ pub fn handle_gui_connection(
                                 Some(req.port)
                             };
                             rules.add_rule(&rule_key, port, req.allow, req.all_ports);
+                        }
+                        GuiCommand::DeleteRule(req) => {
+                            info!(
+                                "[ASYNC:DELETE] Deleting rule from GUI: {}",
+                                req.key
+                            );
+                            let success = rules.delete_rule(&req.key);
+
+                            // Send confirmation response
+                            let response = RuleDeletedResponse {
+                                msg_type: "rule_deleted".to_string(),
+                                key: req.key.clone(),
+                                success,
+                            };
+                            if let Ok(json) = serde_json::to_string(&response) {
+                                if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
+                                    debug!("Failed to send deletion confirmation: {}", e);
+                                }
+                            }
+                        }
+                        GuiCommand::ListRules => {
+                            info!("[ASYNC:LIST] Sending rules list to GUI");
+                            let rules_json = rules.get_all_rules();
+                            let response = RulesListResponse {
+                                msg_type: "rules_list".to_string(),
+                                rules: rules_json,
+                            };
+                            if let Ok(json) = serde_json::to_string(&response) {
+                                if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
+                                    debug!("Failed to send rules list: {}", e);
+                                }
+                            }
                         }
                     }
                 }

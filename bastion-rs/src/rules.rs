@@ -141,6 +141,67 @@ impl RuleManager {
         }
     }
 
+    pub fn delete_rule(&self, key: &str) -> bool {
+        // Parse "path:port" format (port can be * for wildcard)
+        if let Some(colon_pos) = key.rfind(':') {
+            let app_path = &key[..colon_pos];
+            let port_str = &key[colon_pos + 1..];
+
+            // Handle wildcard port (stored as 0 internally)
+            let port = if port_str == "*" {
+                Some(0u16)
+            } else if let Ok(p) = port_str.parse::<u16>() {
+                Some(p)
+            } else {
+                // Invalid port format - try deleting all ports for this app
+                // This handles @dest:IP:PORT format where port is embedded in key
+                None
+            };
+
+            let mut rules = self.rules.write();
+            let removed = if let Some(p) = port {
+                rules.remove(&(app_path.to_string(), p)).is_some()
+            } else {
+                // Delete all rules for this app path (for @dest:IP:PORT format)
+                let initial_len = rules.len();
+                rules.retain(|(path, _), _| path != app_path);
+                rules.len() < initial_len
+            };
+
+            if removed {
+                drop(rules); // Release write lock before save
+                self.save_rules();
+                info!("Deleted rule: {}", key);
+                true
+            } else {
+                warn!("Rule not found for deletion: {}", key);
+                false
+            }
+        } else {
+            warn!("Invalid rule key format for deletion: {}", key);
+            false
+        }
+    }
+
+    pub fn get_all_rules(&self) -> serde_json::Value {
+        let rules = self.rules.read();
+        let mut map = serde_json::Map::new();
+        map.insert("applications".to_string(), serde_json::json!({}));
+        map.insert("services".to_string(), serde_json::json!({}));
+
+        for ((path, port), &allow) in rules.iter() {
+            let port_str = if *port == 0 {
+                "*".to_string()
+            } else {
+                port.to_string()
+            };
+            let key = format!("{}:{}", path, port_str);
+            map.insert(key, serde_json::Value::Bool(allow));
+        }
+
+        serde_json::Value::Object(map)
+    }
+
     fn save_rules(&self) {
         let rules = self.rules.read();
         let path = Path::new(RULES_PATH);

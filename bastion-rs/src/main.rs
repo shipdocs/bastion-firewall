@@ -13,7 +13,7 @@ mod whitelist;
 use etherparse::{Ipv4HeaderSlice, Ipv6HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};
 use nfq::{Queue, Verdict};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
 use parking_lot::Mutex;
@@ -408,18 +408,51 @@ fn process_packet(
     };
 
     if gui.is_connected() {
-        if let Some(response) = gui.ask_gui(&request) {
-            gui.cache_session_decision(&session_cache_key, response.allow);
+        // Send the popup request
+        let sent_request = gui.ask_gui(&request);
+        drop(gui);  // Release lock before waiting for response!
+
+        if sent_request.is_some() {
+            // Response was immediately available (learning mode or cached)
+            // This shouldn't happen in normal flow, but handle it
+            return if learning_mode {
+                Verdict::Accept
+            } else {
+                Verdict::Drop
+            };
+        }
+
+        // Poll for response WITHOUT holding the lock (prevents deadlock)
+        let start = Instant::now();
+        let timeout = Duration::from_secs(60);  // Match GUI dialog timeout
+        let mut response = None;
+
+        while start.elapsed() < timeout {
+            // Briefly acquire lock just to check cache
+            let mut gui = gui_state.lock();
+            response = gui.check_response_cache();
+            drop(gui);
+
+            if response.is_some() {
+                break;
+            }
+            // Sleep briefly to avoid busy-waiting
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        if let Some(resp) = response {
+            let mut gui = gui_state.lock();
+            gui.cache_session_decision(&session_cache_key, resp.allow);
             debug!(
                 "[SESSION] Cached decision for {} (allow: {})",
-                session_cache_key, response.allow
+                session_cache_key, resp.allow
             );
 
             if app_name == "unknown" || app_path == "unknown" {
-                gui.cache_unknown_decision(&dst_ip_str, dst_port, response.allow);
+                gui.cache_unknown_decision(&dst_ip_str, dst_port, resp.allow);
             }
 
-            if response.permanent && app_name != "unknown" && !app_name.is_empty() {
+            if resp.permanent && app_name != "unknown" && !app_name.is_empty() {
                 let rule_key = if !app_path.is_empty() && app_path != "unknown" {
                     app_path.clone()
                 } else {
@@ -433,10 +466,10 @@ fn process_packet(
                 rules.add_rule(
                     &rule_key,
                     Some(dst_port),
-                    response.allow,
-                    response.all_ports,
+                    resp.allow,
+                    resp.all_ports,
                 );
-                let port_display = if response.all_ports {
+                let port_display = if resp.all_ports {
                     "*".to_string()
                 } else {
                     dst_port.to_string()
@@ -445,12 +478,12 @@ fn process_packet(
                     "[RULE] Created permanent rule: {} -> port {}",
                     rule_key, port_display
                 );
-            } else if response.permanent {
+            } else if resp.permanent {
                 warn!("[SECURITY] Cannot create permanent rule for unidentified process");
             }
 
             drop(gui);
-            return if response.allow {
+            return if resp.allow {
                 info!(
                     "[USER:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}",
                     display_name, dst_ip_str, dst_port, app_uid
@@ -463,9 +496,12 @@ fn process_packet(
                 );
                 Verdict::Drop
             };
+        } else {
+            info!("[GUI:TIMEOUT] No response received after 30s");
         }
+    } else {
+        drop(gui);
     }
-    drop(gui);
 
     if learning_mode {
         Verdict::Accept

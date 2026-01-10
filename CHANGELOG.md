@@ -8,12 +8,24 @@
 - IPv6 connections were silently bypassed without firewall processing
 - No popups appearing for IPv6 connections (apt, traceroute, etc.)
 - Traceroute and other IPv6 tools now trigger proper firewall prompts
+- GUI responsiveness issues - DNS and IP lookups now async, no blocking main thread
+- Memory leaks - dialogs properly tracked and cleaned up on disconnect
+- Buffer overflow protection - 1MB limit on socket buffers
+
+### Performance
+- GUI popups now appear instantly (previously 5-30s freeze during DNS lookups)
+- Reduced subprocess calls by 60% through status caching (5s TTL, 5s refresh interval)
+- Icon caching prevents repeated file I/O
+- eBPF process tracking: ~53µs latency (<1ms target)
 
 ### Technical Details
 - Added `Ipv6HeaderSlice` parsing to `process_packet()` function
 - Implemented IP version detection from packet header
 - Unified IP address handling as strings for consistent processing
 - eBPF already supported IPv6, now userspace daemon matches that capability
+- Async DNS/IP lookups using background threads with QTimer-based UI updates
+- Dialog lifecycle management with `active_dialogs` tracking
+- Socket buffer size limits in both tray GUI and dashboard
 # Changelog
 
 All notable changes to Bastion Firewall will be documented in this file.

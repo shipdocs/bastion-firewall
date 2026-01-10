@@ -60,6 +60,9 @@ def acquire_lock():
         return None
 
 class BastionClient(QObject):
+    # Max buffer size to prevent memory issues (1MB)
+    MAX_BUFFER_SIZE = 1024 * 1024
+
     def __init__(self, app):
         super().__init__()
         self.app = app
@@ -69,6 +72,7 @@ class BastionClient(QObject):
         self.buffer = ""
         self.connected = False
         self.learning_mode = False  # Track current learning mode state
+        self.active_dialogs = []  # Track dialogs for cleanup
 
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
@@ -202,8 +206,14 @@ class BastionClient(QObject):
                 # Disconnected
                 self.handle_disconnect()
                 return
-                
+
             self.buffer += data
+
+            # Prevent unbounded buffer growth
+            if len(self.buffer) > self.MAX_BUFFER_SIZE:
+                print(f"[GUI] WARNING: Buffer exceeded max size ({len(self.buffer)} > {self.MAX_BUFFER_SIZE}), clearing")
+                self.buffer = self.buffer[-self.MAX_BUFFER_SIZE:]
+
             while '\n' in self.buffer:
                 line, self.buffer = self.buffer.split('\n', 1)
                 self.process_message(line)
@@ -221,8 +231,21 @@ class BastionClient(QObject):
             self.sock.close()
             self.sock = None
 
+        # Clean up any active dialogs
+        self._cleanup_dialogs()
+
         self.update_status("Disconnected", "disconnected")
         self.connect_timer.start(2000)
+
+    def _cleanup_dialogs(self):
+        """Clean up any active dialogs to prevent memory leaks"""
+        for dialog in getattr(self, 'active_dialogs', []):
+            try:
+                if dialog and not dialog.isHidden():
+                    dialog.deleteLater()
+            except Exception as e:
+                print(f"[GUI] Error cleaning up dialog: {e}")
+        self.active_dialogs = []
 
     def process_message(self, line):
         try:
@@ -258,48 +281,80 @@ class BastionClient(QObject):
 
     def handle_connection_request(self, req):
         print(f"[GUI] Popup request: app_name='{req.get('app_name')}' app_path='{req.get('app_path')}' dst={req.get('dest_ip')}:{req.get('dest_port')}")
+        print(f"[GUI] Connection status: connected={self.connected}, sock={self.sock is not None}")
         dialog = FirewallDialog(req, timeout=60)
         decision_id = req.get('decision_id', 0)
 
+        # Track dialog for cleanup
+        self.active_dialogs.append(dialog)
+
         # Handle dialog completion (non-modal)
         learning_mode = req.get('learning_mode', False)
-        
+        print(f"[GUI] Learning mode: {learning_mode}")
+
         def on_dialog_finished():
+            # Remove from active dialogs
+            if dialog in self.active_dialogs:
+                self.active_dialogs.remove(dialog)
+
             decision = (dialog.decision == 'allow')
             permanent = dialog.permanent
             all_ports = dialog.all_ports  # Wildcard port support (issue #13)
 
+            # Check if we're connected to daemon
+            if not self.connected or not self.sock:
+                print(f"[GUI] WARNING: Not connected to daemon, cannot send response")
+                # Show error to user
+                self.tray_icon.showMessage(
+                    "Bastion Firewall - Connection Error",
+                    "Not connected to daemon. Your decision could not be saved.\n"
+                    "Please check if the daemon is running: sudo systemctl status bastion-firewall",
+                    QSystemTrayIcon.MessageIcon.Critical,
+                    10000
+                )
+                dialog.deleteLater()
+                return
+
             # Send response
-            if self.connected and self.sock:
-                if learning_mode:
-                    # In learning mode, we only care about permanent rules
-                    if permanent:
-                        resp = json.dumps({
-                            'type': 'add_rule',
-                            'app_name': req.get('app_name'),
-                            'app_path': req.get('app_path'),
-                            'port': req.get('dest_port'),
-                            'dest_ip': req.get('dest_ip'),  # For @dest rules on unknown apps
-                            'allow': decision,
-                            'all_ports': all_ports
-                        }) + '\n'
-                        print(f"[GUI] Sending async rule addition: {req.get('app_name')} -> {req.get('dest_port')}")
-                    else:
-                        return # No-op for temporary decisions in learning mode
-                else:
-                    # Normal enforcement mode - response to blocking request
+            if learning_mode:
+                # In learning mode, we only care about permanent rules
+                if permanent:
                     resp = json.dumps({
-                        'type': 'gui_response',
+                        'type': 'add_rule',
+                        'app_name': req.get('app_name'),
+                        'app_path': req.get('app_path'),
+                        'port': req.get('dest_port'),
+                        'dest_ip': req.get('dest_ip'),  # For @dest rules on unknown apps
                         'allow': decision,
-                        'permanent': permanent,
-                        'all_ports': all_ports,
-                        'decision_id': decision_id
+                        'all_ports': all_ports
                     }) + '\n'
-                
-                try:
-                    self.sock.sendall(resp.encode())
-                except (OSError, BrokenPipeError, ConnectionResetError):
-                    self.handle_disconnect()
+                    print(f"[GUI] Sending async rule addition: {req.get('app_name')} -> {req.get('dest_port')}")
+                else:
+                    dialog.deleteLater()
+                    return # No-op for temporary decisions in learning mode
+            else:
+                # Normal enforcement mode - response to blocking request
+                resp = json.dumps({
+                    'type': 'gui_response',
+                    'allow': decision,
+                    'permanent': permanent,
+                    'all_ports': all_ports,
+                    'decision_id': decision_id
+                }) + '\n'
+
+            try:
+                self.sock.sendall(resp.encode())
+                print(f"[GUI] Sent response: decision={'allow' if decision else 'deny'}, permanent={permanent}, all_ports={all_ports}")
+            except (OSError, BrokenPipeError, ConnectionResetError) as e:
+                print(f"[GUI] ERROR: Failed to send response: {e}")
+                self.handle_disconnect()
+                # Show error to user
+                self.tray_icon.showMessage(
+                    "Bastion Firewall - Communication Error",
+                    "Failed to send decision to daemon. Your decision may not have been saved.",
+                    QSystemTrayIcon.MessageIcon.Critical,
+                    10000
+                )
 
             dialog.deleteLater()  # Clean up dialog
 

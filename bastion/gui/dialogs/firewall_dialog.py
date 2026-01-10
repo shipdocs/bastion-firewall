@@ -6,9 +6,10 @@ Displays connection requests and allows user to allow/deny.
 
 import logging
 import socket
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+import threading
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                             QPushButton, QFrame, QProgressBar, QCheckBox)
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QMetaObject, Q_ARG
 from PyQt6.QtGui import QGuiApplication
 
 from ..platform import is_wayland
@@ -124,32 +125,24 @@ class FirewallDialog(QDialog):
         details_layout = QVBoxLayout()
         app_path = self.conn_info.get('app_path', 'Unknown')
         self.add_detail_row(details_layout, "Path", app_path)
-        
-        # Enhanced Destination identification
+
+        # Enhanced Destination identification - non-blocking
         dest_ip = self.conn_info.get('dest_ip', '')
         dest_port = self.conn_info.get('dest_port', '')
         dest_display = f"{dest_ip}:{dest_port}"
-        
-        # 1. Try Reverse DNS (Fast, local cache usually)
-        try:
-            hostname = socket.gethostbyaddr(dest_ip)[0]
-            dest_display = f"{hostname} ({dest_ip}):{dest_port}"
-        except (socket.herror, socket.gaierror, OSError):
-            # 2. Try Organization/ISP lookup (External, 1s timeout)
-            try:
-                import urllib.request
-                import json
-                # Fields: 16 (org), 512 (as) -> 528
-                with urllib.request.urlopen(f"http://ip-api.com/json/{dest_ip}?fields=org,as", timeout=1.0) as response:
-                    data = json.loads(response.read().decode())
-                    org = data.get('org') or data.get('as', '').split(' ', 1)[-1]
-                    if org:
-                        dest_display = f"{org} - {dest_ip}:{dest_port}"
-            except Exception as e:
-                # Silently fall back to IP if lookup fails or times out
-                logger.debug(f"IP info lookup failed for {dest_ip}: {e}")
-                
-        self.add_detail_row(details_layout, "Destination", dest_display)
+
+        # Create destination label (will be updated async)
+        self.dest_label = QLabel(dest_display)
+        self.dest_label.setWordWrap(True)
+        dest_row = QHBoxLayout()
+        lbl_dest = QLabel("Destination:")
+        lbl_dest.setStyleSheet(f"color: {COLORS['text_secondary']}; font-weight: bold; min-width: 80px;")
+        dest_row.addWidget(lbl_dest)
+        dest_row.addWidget(self.dest_label)
+        details_layout.addLayout(dest_row)
+
+        # Perform async lookup after dialog is shown
+        QTimer.singleShot(50, lambda: self._lookup_dest_info_async(dest_ip, dest_port))
         self.add_detail_row(details_layout, "Protocol", self.conn_info.get('protocol', 'TCP'))
         info_layout.addLayout(details_layout)
 
@@ -394,4 +387,46 @@ class FirewallDialog(QDialog):
     def closeEvent(self, event):
         """Prevent accidental dismissal - only allow closing via buttons or timeout"""
         event.ignore()  # Ignore all close requests (clicking away, Alt+F4, etc.)
+
+    def _lookup_dest_info_async(self, dest_ip, dest_port):
+        """Perform DNS and IP info lookup in background thread to avoid blocking UI"""
+        def lookup_worker():
+            result = f"{dest_ip}:{dest_port}"
+            try:
+                # 1. Try Reverse DNS (Fast, local cache usually)
+                hostname = socket.gethostbyaddr(dest_ip)[0]
+                result = f"{hostname} ({dest_ip}):{dest_port}"
+            except (socket.herror, socket.gaierror, OSError):
+                # 2. Try Organization/ISP lookup (External, 1s timeout)
+                try:
+                    import urllib.request
+                    import json
+                    # Fields: 16 (org), 512 (as) -> 528
+                    with urllib.request.urlopen(f"http://ip-api.com/json/{dest_ip}?fields=org,as", timeout=1.0) as response:
+                        data = json.loads(response.read().decode())
+                        org = data.get('org') or data.get('as', '').split(' ', 1)[-1]
+                        if org:
+                            result = f"{org} - {dest_ip}:{dest_port}"
+                except Exception as e:
+                    # Silently fall back to IP if lookup fails or times out
+                    logger.debug(f"IP info lookup failed for {dest_ip}: {e}")
+            return result
+
+        def on_lookup_complete():
+            """Thread-safe UI update using QTimer"""
+            # Start background thread
+            def run_thread():
+                result = lookup_worker()
+                # Schedule UI update on main thread
+                QTimer.singleShot(0, lambda: self._update_dest_label(result))
+
+            thread = threading.Thread(target=run_thread, daemon=True)
+            thread.start()
+
+        on_lookup_complete()
+
+    def _update_dest_label(self, text):
+        """Thread-safe update of destination label"""
+        if hasattr(self, 'dest_label') and self.dest_label:
+            self.dest_label.setText(text)
 

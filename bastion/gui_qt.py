@@ -1776,12 +1776,34 @@ X-GNOME-Autostart-enabled=true
             key = item.data(Qt.ItemDataRole.UserRole)
             keys_to_delete.append(key)
 
+        # Send deletion requests via socket to daemon (avoids race condition)
         for k in keys_to_delete:
-            if k in self.data_rules:
-                del self.data_rules[k]
+            if not self._send_daemon_command({
+                'type': 'delete_rule',
+                'key': k
+            }):
+                QMessageBox.warning(self, "Error", f"Failed to delete rule: {k}")
+                break
 
-        self.save_rules_to_disk()
-        self.refresh_rules_table()
+        # Refresh after a short delay to let daemon process
+        QTimer.singleShot(100, self.load_data)
+        QTimer.singleShot(150, self.refresh_rules_table)
+
+    def _send_daemon_command(self, command):
+        """Send a command to the daemon via socket and wait for response"""
+        try:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(1)  # Short timeout for command sending
+            sock.connect(DAEMON_SOCKET_PATH)
+
+            msg = json.dumps(command) + '\n'
+            sock.sendall(msg.encode())
+            logger.info(f"Sent command to daemon: {command.get('type')}")
+            sock.close()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send command to daemon: {e}")
+            return False
 
     def show_manual_rule_dialog(self):
         """Show the manual rule entry dialog"""
@@ -1924,12 +1946,21 @@ X-GNOME-Autostart-enabled=true
         )
 
         if reply == QMessageBox.StandardButton.Yes:
+            # Send delete command for each rule via socket
+            keys_to_delete = list(self.data_rules.keys())
+            for k in keys_to_delete:
+                self._send_daemon_command({
+                    'type': 'delete_rule',
+                    'key': k
+                })
+
+            # Clear local cache and refresh
             self.data_rules.clear()
-            self.save_rules_to_disk()
-            self.refresh_rules_table()
+            QTimer.singleShot(200, self.load_data)
+            QTimer.singleShot(250, self.refresh_rules_table)
 
             from .notification import show_notification
-            show_notification(self, "Success", "All rules deleted")
+            show_notification(self, "Success", f"All {len(keys_to_delete)} rules deleted")
 
     def save_rules_to_disk(self):
         try:

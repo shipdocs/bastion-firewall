@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import threading
 import socket
+import time
 from pathlib import Path
 from datetime import datetime
 from functools import partial
@@ -39,6 +40,11 @@ class DashboardWindow(QMainWindow):
     Main Control Panel Dashboard with Sidebar.
     Connects to live system data.
     """
+    # Cache timeout in seconds
+    STATUS_CACHE_TTL = 5
+    # Max buffer size to prevent memory issues (1MB)
+    MAX_BUFFER_SIZE = 1024 * 1024
+
     def __init__(self):
         super().__init__()
         self.config_path = Path("/etc/bastion/config.json")
@@ -56,16 +62,23 @@ class DashboardWindow(QMainWindow):
         self.buffer = ""
         self.daemon_connected = False
 
+        # Status cache to reduce subprocess calls
+        self._status_cache = {}
+        self._status_cache_time = 0
+
         self.init_ui()
 
         # Initial Data Load
         self.load_data()
         self.refresh_ui()
 
-        # Auto Refresh
+        # Auto Refresh - reduced frequency and only refresh when on status page
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.refresh_status)
-        self.timer.start(3000)
+        self.timer.timeout.connect(self._smart_refresh)
+        self.timer.start(5000)  # Increased from 3s to 5s
+
+        # Track current page
+        self._current_page = "Status"
 
         # Connect to daemon for stats updates
         self.connect_to_daemon()
@@ -105,6 +118,12 @@ class DashboardWindow(QMainWindow):
                 return
 
             self.buffer += data
+
+            # Prevent unbounded buffer growth
+            if len(self.buffer) > self.MAX_BUFFER_SIZE:
+                logger.warning(f"Buffer exceeded max size ({len(self.buffer)} > {self.MAX_BUFFER_SIZE}), clearing")
+                self.buffer = self.buffer[-self.MAX_BUFFER_SIZE:]
+
             while '\n' in self.buffer:
                 line, self.buffer = self.buffer.split('\n', 1)
                 self.process_daemon_message(line)
@@ -127,7 +146,9 @@ class DashboardWindow(QMainWindow):
         """Process JSON messages from daemon."""
         try:
             msg = json.loads(line)
-            if msg.get('type') == 'stats_update':
+            msg_type = msg.get('type')
+
+            if msg_type == 'stats_update':
                 stats = msg.get('stats', {})
                 total = stats.get('total_connections', 0)
                 allowed = stats.get('allowed_connections', 0)
@@ -138,6 +159,24 @@ class DashboardWindow(QMainWindow):
                 self.stat_blocked_label.setText(str(blocked))
 
                 logger.debug(f"Stats update: {total} total, {allowed} allowed, {blocked} blocked")
+
+            elif msg_type == 'rule_deleted':
+                key = msg.get('key', '')
+                success = msg.get('success', False)
+                if success:
+                    logger.info(f"Rule deleted successfully: {key}")
+                    # Refresh rules from disk to get current state
+                    QTimer.singleShot(50, self.load_data)
+                    QTimer.singleShot(100, self.refresh_rules_table)
+                else:
+                    logger.warning(f"Failed to delete rule: {key}")
+                    show_notification(self, "Delete Failed", f"Could not delete rule: {key}")
+
+            elif msg_type == 'rules_list':
+                # Update rules from daemon's current state
+                self.data_rules = msg.get('rules', {})
+                self.refresh_rules_table()
+
         except json.JSONDecodeError as e:
             logger.debug(f"Failed to parse daemon message: {e}")
 
@@ -256,6 +295,7 @@ class DashboardWindow(QMainWindow):
         for btn in self.nav_btns:
             btn.setChecked(False)
         sender.setChecked(True)
+        self._current_page = page_name
         if page_name == "Status":
             self.stack.setCurrentWidget(self.page_status)
             self.refresh_status()
@@ -267,6 +307,18 @@ class DashboardWindow(QMainWindow):
             self.refresh_logs()
         elif page_name == "Settings":
             self.stack.setCurrentWidget(self.page_settings)
+
+    def _smart_refresh(self):
+        """Only refresh status if currently on status page, using cache"""
+        if self._current_page == "Status":
+            self._refresh_status_cached()
+
+    def _refresh_status_cached(self):
+        """Refresh status only if cache is expired"""
+        current_time = time.time()
+        if current_time - self._status_cache_time > self.STATUS_CACHE_TTL:
+            self.refresh_status()
+            self._status_cache_time = current_time
 
     # --- PAGES ---
 
@@ -962,12 +1014,28 @@ X-GNOME-Autostart-enabled=true
             key = item.data(Qt.ItemDataRole.UserRole)
             keys_to_delete.append(key)
 
-        for k in keys_to_delete:
-            if k in self.data_rules:
-                del self.data_rules[k]
+        # Send deletion requests via socket to daemon (avoids race condition)
+        if not self.daemon_connected or not self.sock:
+            QMessageBox.warning(self, "Not Connected",
+                              "Not connected to daemon. Please ensure bastion-firewall is running.")
+            return
 
-        self.save_rules_to_disk()
-        self.refresh_rules_table()
+        for k in keys_to_delete:
+            # Send delete_rule command via socket
+            msg = json.dumps({
+                'type': 'delete_rule',
+                'key': k
+            }) + '\n'
+            try:
+                self.sock.sendall(msg.encode())
+                logger.info(f"Sent deletion request for rule: {k}")
+            except Exception as e:
+                logger.error(f"Failed to send deletion request: {e}")
+                QMessageBox.warning(self, "Error", f"Failed to delete rule {k}: {e}")
+                break
+
+        # Refresh after a short delay to let daemon process
+        QTimer.singleShot(100, self.refresh_rules_table)
 
     def save_rules_to_disk(self):
         try:

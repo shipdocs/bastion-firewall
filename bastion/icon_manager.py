@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class IconManager:
-    """Manages application icons"""
+    """Manages application icons with caching to prevent repeated file I/O"""
 
     # Icon paths
     ICON_DIR = Path(__file__).parent / 'resources'
@@ -52,13 +52,17 @@ class IconManager:
         'learning': '#61afef',     # Blue
         'warning': '#e5c07b'       # Orange
     }
+
+    # Class-level icon cache to prevent repeated file I/O
+    _icon_cache = {}
     
     @classmethod
     def get_icon(cls, status='connected'):
         """
-        Get icon for given status.
+        Get icon for given status with caching.
 
         Uses direct QIcon() loading which handles both PNG and SVG natively.
+        Results are cached to prevent repeated file I/O.
 
         Args:
             status: 'connected', 'disconnected', 'error', 'learning', 'warning'
@@ -66,6 +70,11 @@ class IconManager:
         Returns:
             QIcon object
         """
+        # Check cache first
+        cache_key = f"icon_{status}"
+        if cache_key in cls._icon_cache:
+            return cls._icon_cache[cache_key]
+
         # Try status-specific icons (SVG first - they have the colored variants)
         if status in cls.STATUS_ICONS_SVG:
             icon_path = cls.STATUS_ICONS_SVG[status]
@@ -74,6 +83,7 @@ class IconManager:
                     icon = QIcon(str(icon_path))
                     if not icon.isNull():
                         logger.debug(f"Loaded status icon from {icon_path}")
+                        cls._icon_cache[cache_key] = icon
                         return icon
                 except Exception as e:
                     logger.warning(f"Failed to load status icon: {e}")
@@ -86,6 +96,7 @@ class IconManager:
                     icon = QIcon(str(icon_path))
                     if not icon.isNull():
                         logger.debug(f"Loaded status PNG icon from {icon_path}")
+                        cls._icon_cache[cache_key] = icon
                         return icon
                 except Exception as e:
                     logger.warning(f"Failed to load status PNG: {e}")
@@ -97,6 +108,7 @@ class IconManager:
                     icon = QIcon(str(icon_path))
                     if not icon.isNull():
                         logger.debug(f"Loaded generic icon from {icon_path}")
+                        cls._icon_cache[cache_key] = icon
                         return icon
                 except Exception as e:
                     logger.warning(f"Failed to load icon {icon_path}: {e}")
@@ -118,6 +130,7 @@ class IconManager:
         # Try theme icon
         icon = QIcon.fromTheme(icon_name)
         if not icon.isNull():
+            cls._icon_cache[cache_key] = icon
             return icon
 
         # If theme icon fails, try other fallbacks
@@ -133,10 +146,12 @@ class IconManager:
             icon = QIcon.fromTheme(fallback)
             if not icon.isNull():
                 logger.debug(f"Using fallback icon: {fallback}")
+                cls._icon_cache[cache_key] = icon
                 return icon
 
         # Last resort: return empty icon
         logger.warning("No suitable icon found, returning empty icon")
+        cls._icon_cache[cache_key] = QIcon()
         return QIcon()
     
     @classmethod
