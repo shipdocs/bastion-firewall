@@ -39,7 +39,8 @@ pub struct DnsQueryKey {
 pub struct DnsQueryValue {
     pub pid: u32,
     pub comm: [u8; 16],
-    pub timestamp: u64,
+    pub dest_ip: u32,      // DNS server IP (for correlation with responses)
+    pub timestamp_ns: u64, // Nanosecond precision timestamp
 }
 
 #[map(name = "DNS_QUERY_MAP")]
@@ -706,14 +707,18 @@ fn try_tcp_v4_connect_ret(ctx: RetProbeContext) -> Result<(), i32> {
 /// UDP sendmsg handler
 #[kprobe]
 fn udp_sendmsg(ctx: KProbe) -> u32 {
+    info!(&ctx, "udp_sendmsg entry");
     inc_metric(2); // udp_sends
-    match try_udp_sendmsg(ctx) {
+    match try_udp_sendmsg(&ctx) {
         Ok(_) => 0,
-        Err(_) => 0,
+        Err(e) => {
+            info!(&ctx, "udp_sendmsg error: {}", e);
+            0
+        }
     }
 }
 
-fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
+fn try_udp_sendmsg(ctx: &KProbe) -> Result<(), i32> {
     let pid = (aya_ebpf::helpers::bpf_get_current_pid_tgid() >> 32) as u32;
 
     let msg = unsafe {
@@ -735,15 +740,68 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
 
     // Handle connected UDP sockets (msg_name == 0)
     if msg_name == 0 {
-        // For connected UDP, try to get destination from sock struct
-        // This is kernel-version dependent, so we'll skip for now
+        // Try to get destination from sock struct (rdi)
+        let sk = unsafe {
+            let regs = ctx.regs;
+            (*regs).rdi
+        };
+        
+        // In most modern kernels, daddr is at offset 0 of sk->skc_daddr (the first member of sk_common)
+        // This is a bit risky but we can try common offsets
+        let daddr: u32 = unsafe {
+            match aya_ebpf::helpers::bpf_probe_read(sk as *const u32) {
+                Ok(val) => val,
+                Err(_) => 0,
+            }
+        };
+        
+        // Try to get destination port from sock struct (dport is usually at offset 12 in sock_common)
+        let dport_be: u16 = unsafe {
+            match aya_ebpf::helpers::bpf_probe_read((sk as *const u8).add(12) as *const u16) {
+                Ok(val) => val,
+                Err(_) => 0,
+            }
+        };
+        let dst_port = u16::from_be(dport_be);
+
+        // daddr is already read from offset 0
+        if daddr == 0 {
+            return Ok(());
+        }
+
+        if dst_port == 53 {
+            let comm = match aya_ebpf::helpers::bpf_get_current_comm() {
+                Ok(c) => c,
+                Err(_) => [0u8; 16],
+            };
+            let timestamp = unsafe { aya_ebpf::helpers::bpf_ktime_get_ns() };
+
+            let dns_key = DnsQueryKey {
+                domain_hash: pid,
+                _pad: [0u8; 4],
+            };
+            let dns_value = DnsQueryValue {
+                pid,
+                comm,
+                dest_ip: daddr,
+                timestamp_ns: timestamp,
+            };
+            unsafe {
+                let _ = DNS_QUERY_MAP.insert(&dns_key, &dns_value, 0);
+            }
+            info!(ctx, "DNS query (connected): PID {} -> DNS server {}", pid, daddr);
+        }
+
         return Ok(());
     }
 
     let sockaddr: [u8; 16] = unsafe {
-        match aya_ebpf::helpers::bpf_probe_read_user(msg_name as *const [u8; 16]) {
+        match aya_ebpf::helpers::bpf_probe_read(msg_name as *const [u8; 16]) {
             Ok(val) => val,
-            Err(_) => return Err(3),
+            Err(_) => match aya_ebpf::helpers::bpf_probe_read_user(msg_name as *const [u8; 16]) {
+                Ok(val) => val,
+                Err(_) => return Err(3),
+            },
         }
     };
 
@@ -782,16 +840,17 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
     // Note: Full DNS domain parsing is disabled due to eBPF verifier limitations
     // We track that DNS occurred, but don't parse the domain name
     if dst_port == 53 {
-        // Store a simple DNS query marker (hash of PID + timestamp as placeholder)
+        // Store a simple DNS query marker
         let dns_key = DnsQueryKey {
-            domain_hash: pid.wrapping_mul(31).wrapping_add(timestamp as u32),
+            domain_hash: pid, // Use PID as key to avoid map bloat
             _pad: [0u8; 4],
         };
 
         let dns_value = DnsQueryValue {
             pid,
             comm,
-            timestamp,
+            dest_ip: dst_ip,      // Store DNS server IP for correlation
+            timestamp_ns: timestamp, // Already in nanoseconds from bpf_ktime_get_ns()
         };
 
         unsafe {
@@ -799,13 +858,13 @@ fn try_udp_sendmsg(ctx: KProbe) -> Result<(), i32> {
         }
 
         info!(
-            &ctx,
-            "DNS query detected: PID {} port 53", pid
+            ctx,
+            "DNS query detected: PID {} -> DNS server {}", pid, dst_ip
         );
     }
 
     info!(
-        &ctx,
+        ctx,
         "UDPv4 sendmsg: PID {} -> {}:{}", pid, dst_ip, dst_port
     );
 
@@ -923,9 +982,12 @@ fn try_udpv6_sendmsg(ctx: KProbe) -> Result<(), i32> {
     }
 
     let sockaddr: [u8; 28] = unsafe {
-        match aya_ebpf::helpers::bpf_probe_read_user(msg_name as *const [u8; 28]) {
+        match aya_ebpf::helpers::bpf_probe_read(msg_name as *const [u8; 28]) {
             Ok(val) => val,
-            Err(_) => return Err(3),
+            Err(_) => match aya_ebpf::helpers::bpf_probe_read_user(msg_name as *const [u8; 28]) {
+                Ok(val) => val,
+                Err(_) => return Err(3),
+            },
         }
     };
 

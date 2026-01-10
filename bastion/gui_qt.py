@@ -1632,11 +1632,20 @@ X-GNOME-Autostart-enabled=true
         action_filter = self.logs_action_filter
 
         for row in range(self.table_logs.rowCount()):
-            # Get values
-            app_name = self.table_logs.item(row, 3).text().lower()
-            dest = self.table_logs.item(row, 4).text().lower()
-            event_type = self.table_logs.item(row, 1).text()
-            action = self.table_logs.item(row, 2).text()
+            # Get values (with safety checks for None items)
+            item_app = self.table_logs.item(row, 3)
+            item_dest = self.table_logs.item(row, 4)
+            item_type = self.table_logs.item(row, 1)
+            item_action = self.table_logs.item(row, 2)
+
+            if not all([item_app, item_dest, item_type, item_action]):
+                # Skip placeholder rows or incomplete rows
+                continue
+
+            app_name = item_app.text().lower()
+            dest = item_dest.text().lower()
+            event_type = item_type.text()
+            action = item_action.text()
 
             # Check search match
             matches_search = (search_text == "" or
@@ -1963,14 +1972,23 @@ X-GNOME-Autostart-enabled=true
         filter_mode = self.rules_filter_mode
 
         for row in range(self.table_rules.rowCount()):
-            # Get values from all columns
-            app_name = self.table_rules.item(row, 0).text().lower()
-            path = self.table_rules.item(row, 1).text().lower()
-            port = self.table_rules.item(row, 2).text().lower()
-            action = self.table_rules.item(row, 3).text().lower()
+            # Get items (with safety checks)
+            item_name = self.table_rules.item(row, 0)
+            item_path = self.table_rules.item(row, 1)
+            item_port = self.table_rules.item(row, 2)
+            item_action = self.table_rules.item(row, 3)
+
+            if not all([item_name, item_path, item_port, item_action]):
+                continue
+
+            # Get values
+            app_name = item_name.text().lower()
+            path = item_path.text().lower()
+            port = item_port.text().lower()
+            action = item_action.text().lower()
 
             # Get allow status from UserRole
-            allow = self.table_rules.item(row, 3).data(Qt.ItemDataRole.UserRole)
+            allow = item_action.data(Qt.ItemDataRole.UserRole)
 
             # Check if row matches search text
             matches_search = (search_text == "" or

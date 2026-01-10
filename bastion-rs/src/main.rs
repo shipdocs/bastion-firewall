@@ -2,6 +2,7 @@
 //! Handles packet filtering, GUI interaction, and rule enforcement.
 
 mod config;
+mod dns_snooper;
 mod ebpf_loader;
 mod gui;
 mod proc_parser;
@@ -21,6 +22,7 @@ use signal_hook::iterator::Signals;
 use std::thread;
 
 use config::ConfigManager;
+use dns_snooper::DnsSnooper;
 use gui::{run_socket_server, ConnectionRequest, GuiState, Stats};
 use process::ProcessCache;
 use rules::RuleManager;
@@ -28,7 +30,8 @@ use whitelist::should_auto_allow;
 
 const QUEUE_NUM: u16 = 1;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     info!("╔════════════════════════════════════════╗");
@@ -123,7 +126,37 @@ fn main() -> anyhow::Result<()> {
     });
 
     // Process cache
-    let process_cache = Mutex::new(ProcessCache::new(120));
+    let process_cache = Arc::new(Mutex::new(ProcessCache::new(120)));
+
+    // DNS snooper thread - requires shared eBPF manager and DNS cache
+    // Extract eBPF manager and DNS cache from ProcessCache for sharing
+    let ebpf_manager = {
+        let cache = process_cache.lock();
+        cache.get_ebpf_manager()
+    };
+
+    let dns_cache = {
+        let cache = process_cache.lock();
+        cache.get_dns_cache()
+    };
+
+    if let (Some(ebpf_mgr), Some(dns_c)) = (ebpf_manager, dns_cache) {
+        thread::spawn(move || {
+            match DnsSnooper::new(ebpf_mgr, dns_c) {
+                Ok(mut snooper) => {
+                    info!("DNS snooper thread started");
+                    if let Err(e) = snooper.run() {
+                        error!("DNS snooper error: {}", e);
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to start DNS snooper: {} (DNS tracking disabled)", e);
+                }
+            }
+        });
+    } else {
+        warn!("DNS snooper not started (eBPF not available)");
+    }
 
     // Main packet processing loop
     loop {
@@ -201,9 +234,15 @@ fn process_packet(
         cache.find_process_by_socket(&src_ip_str, src_port, &dst_ip_str, dst_port, protocol_str);
     drop(cache);
 
-    let (app_name, app_path, app_uid) = match &process_info {
-        Some(info) => (info.name.clone(), info.exe_path.clone(), info.uid),
-        None => ("unknown".to_string(), "unknown".to_string(), 0),
+    let (app_name, app_path, app_uid, domain_name) = match &process_info {
+        Some(info) => (info.name.clone(), info.exe_path.clone(), info.uid, info.domain_name.clone()),
+        None => ("unknown".to_string(), "unknown".to_string(), 0, None),
+    };
+
+    let display_name = if let Some(domain) = &domain_name {
+        format!("{} ({})", app_name, domain)
+    } else {
+        app_name.clone()
     };
 
     // Check whitelist
@@ -219,17 +258,17 @@ fn process_packet(
             if allow {
                 debug!(
                     "[RULE:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}",
-                    app_name, dst_ip, dst_port, app_uid
+                    display_name, dst_ip, dst_port, app_uid
                 );
                 return Verdict::Accept;
             } else if !learning_mode {
                 info!(
                     "[RULE:BLOCK] app=\"{}\" dst=\"{}:{}\" user={}",
-                    app_name, dst_ip, dst_port, app_uid
+                    display_name, dst_ip, dst_port, app_uid
                 );
                 return Verdict::Drop;
             } else {
-                info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (would block in enforcement)", app_name, dst_ip, dst_port);
+                info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (would block in enforcement)", display_name, dst_ip, dst_port);
             }
         }
     }
@@ -332,7 +371,7 @@ fn process_packet(
 
     let request = ConnectionRequest {
         msg_type: "connection_request".to_string(),
-        app_name: app_name.clone(),
+        app_name: display_name.clone(),
         app_path: app_path.clone(),
         app_category: "unknown".to_string(),
         dest_ip: dst_ip_str.clone(),
@@ -387,13 +426,13 @@ fn process_packet(
             return if response.allow {
                 info!(
                     "[USER:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}",
-                    app_name, dst_ip, dst_port, app_uid
+                    display_name, dst_ip, dst_port, app_uid
                 );
                 Verdict::Accept
             } else {
                 info!(
                     "[USER:BLOCK] app=\"{}\" dst=\"{}:{}\" user={}",
-                    app_name, dst_ip, dst_port, app_uid
+                    display_name, dst_ip, dst_port, app_uid
                 );
                 Verdict::Drop
             };

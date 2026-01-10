@@ -130,7 +130,8 @@ unsafe impl Pod for DnsQueryKey {}
 pub struct DnsQueryValue {
     pub pid: u32,
     pub comm: [u8; 16],
-    pub timestamp: u64,
+    pub dest_ip: u32,      // DNS server IP (for correlation)
+    pub timestamp_ns: u64, // Nanosecond precision timestamp
 }
 
 unsafe impl Pod for DnsQueryValue {}
@@ -241,6 +242,11 @@ impl EbpfManager {
         debug!("Loading eBPF program from: {}", path);
         let mut bpf = aya::Ebpf::load_file(path)?;
         debug!("eBPF program loaded successfully");
+
+        // Initialize eBPF logging
+        if let Err(e) = aya_log::EbpfLogger::init(&mut bpf) {
+            warn!("Failed to initialize eBPF logging: {}", e);
+        }
 
         // Attach tcp_v4_connect kprobe
         debug!("Attaching tcp_v4_connect...");
@@ -568,6 +574,47 @@ impl EbpfManager {
         results
     }
 
+    /// Poll DNS queries for a specific DNS server within a time window
+    /// Used by DNS snooper to correlate responses with queries
+    pub fn poll_dns_queries_by_dest_ip(&self, dns_server_ip: u32, window_ns: u64) -> Vec<DnsQueryValue> {
+        let mut results = Vec::new();
+
+        let Some(bpf) = self.bpf.as_ref() else {
+            return results;
+        };
+
+        let Some(dns_query_map): Option<HashMap<_, DnsQueryKey, DnsQueryValue>> =
+            bpf.map("DNS_QUERY_MAP").and_then(|m| HashMap::try_from(m).ok())
+        else {
+            return results;
+        };
+
+        // Get current monotonic time in nanoseconds
+        let now_ns = get_monotonic_ns();
+
+        // Filter queries by DNS server IP and time window
+        let mut count = 0;
+        for (_key, value) in dns_query_map.iter().flatten() {
+            count += 1;
+            if value.dest_ip == dns_server_ip {
+                let age_ns = now_ns.saturating_sub(value.timestamp_ns);
+                if age_ns < window_ns {
+                    results.push(value);
+                }
+            }
+        }
+
+        if !results.is_empty() {
+            info!("Polled {} queries for DNS server {}, found {} matches (map size: {})", 
+                results.len(), dns_server_ip, results.len(), count);
+        } else if count > 0 {
+            info!("Polled {} queries for DNS server {}, found 0 matches (map size: {})", 
+                results.len(), dns_server_ip, count);
+        }
+
+        results
+    }
+
     /// Poll DNS IP map - returns all IP->process mappings
     pub fn poll_dns_ips(&self) -> Vec<(std::net::IpAddr, u32, String, u32)> {
         let mut results = Vec::new();
@@ -601,6 +648,18 @@ impl Default for EbpfManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Get current monotonic time in nanoseconds (matching bpf_ktime_get_ns)
+pub fn get_monotonic_ns() -> u64 {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    unsafe {
+        libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts);
+    }
+    (ts.tv_sec as u64) * 1_000_000_000 + (ts.tv_nsec as u64)
 }
 
 /// Parse destination IP into version-specific components

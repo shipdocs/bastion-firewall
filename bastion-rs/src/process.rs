@@ -5,7 +5,7 @@ use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
-use std::thread;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::ebpf_loader::EbpfManager;
@@ -15,6 +15,7 @@ use crate::proc_parser;
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
     pub name: String,
+    pub domain_name: Option<String>,
     pub exe_path: String,
     pub uid: u32,
 }
@@ -80,25 +81,22 @@ impl DnsCache {
         self.hash_to_entry.insert(domain_hash, entry);
     }
 
-    /// Insert a DNS IP mapping from eBPF
+    /// Insert a DNS IP mapping from DNS snooper or eBPF
     pub fn insert_ip_mapping(
         &mut self,
         ip: String,
-        domain_hash: u32,
         pid: u32,
         comm: String,
+        domain: String,
         ttl: u32,
     ) {
-        let domain_hint = self
-            .hash_to_entry
-            .get(&domain_hash)
-            .map(|e| e.domain.clone())
-            .unwrap_or_else(|| format!("<hash:{}>", domain_hash));
+        // Compute domain hash for consistency
+        let domain_hash = jhash_string(&domain);
 
         let entry = DnsIpEntry {
             ip: ip.clone(),
             domain_hash,
-            domain_hint,
+            domain_hint: domain,
             process_name: comm,
             pid,
             timestamp: Instant::now(),
@@ -109,10 +107,8 @@ impl DnsCache {
     }
 
     /// Lookup process info by IP address (from DNS cache)
-    pub fn lookup_by_ip(&self, ip: &str) -> Option<(&DnsIpEntry, &DnsQueryEntry)> {
-        let ip_entry = self.ip_map.get(ip)?;
-        let query_entry = self.hash_to_entry.get(&ip_entry.domain_hash)?;
-        Some((ip_entry, query_entry))
+    pub fn lookup_by_ip(&self, ip: &str) -> Option<&DnsIpEntry> {
+        self.ip_map.get(ip)
     }
 
     /// Get domain for an IP address
@@ -196,12 +192,12 @@ struct CachedEbpfInfo {
 pub struct ProcessCache {
     inode_to_process: HashMap<u64, ProcessInfo>,
     last_scan: Instant,
-    ebpf: Option<EbpfManager>,
+    ebpf: Option<Arc<parking_lot::Mutex<EbpfManager>>>,
     // Cache for eBPF connection info with longer TTL than kernel map
     ebpf_connection_cache: HashMap<ConnectionKey, CachedEbpfInfo>,
     last_ebpf_cleanup: Instant,
     // DNS cache for tracking DNS queries and IP mappings
-    dns_cache: DnsCache,
+    dns_cache: Arc<parking_lot::Mutex<DnsCache>>,
 }
 
 impl ProcessCache {
@@ -230,16 +226,34 @@ impl ProcessCache {
             warn!("eBPF not available - falling back to /proc scanning");
         }
 
+        let ebpf_arc = if ebpf_loaded {
+            Some(Arc::new(parking_lot::Mutex::new(ebpf)))
+        } else {
+            None
+        };
+
+        let dns_cache = Arc::new(parking_lot::Mutex::new(DnsCache::new()));
+
         let mut cache = Self {
             inode_to_process: HashMap::new(),
             last_scan: Instant::now(),
-            ebpf: if ebpf_loaded { Some(ebpf) } else { None },
+            ebpf: ebpf_arc,
             ebpf_connection_cache: HashMap::new(),
             last_ebpf_cleanup: Instant::now(),
-            dns_cache: DnsCache::new(),
+            dns_cache,
         };
         cache.scan_processes();
         cache
+    }
+
+    /// Get shared reference to eBPF manager for DNS snooper
+    pub fn get_ebpf_manager(&self) -> Option<Arc<parking_lot::Mutex<EbpfManager>>> {
+        self.ebpf.clone()
+    }
+
+    /// Get shared reference to DNS cache for DNS snooper
+    pub fn get_dns_cache(&self) -> Option<Arc<parking_lot::Mutex<DnsCache>>> {
+        Some(self.dns_cache.clone())
     }
 
     fn scan_processes(&mut self) {
@@ -276,68 +290,19 @@ impl ProcessCache {
 
     pub fn find_process_by_socket(
         &mut self,
-        src_ip: &str,
+        _src_ip: &str,
         src_port: u16,
         dest_ip: &str,
         dest_port: u16,
         protocol: &str,
     ) -> Option<ProcessInfo> {
-        // Periodic cleanup of eBPF and DNS cache (every 60 seconds)
+        // Periodic cleanup
         if self.last_ebpf_cleanup.elapsed() > Duration::from_secs(60) {
             self.cleanup_ebpf_cache();
             self.last_ebpf_cleanup = Instant::now();
         }
-
-        // DNS cache cleanup
-        if self.dns_cache.needs_cleanup() {
-            self.dns_cache.cleanup_expired();
-        }
-
-        // Poll eBPF DNS maps periodically (first, before other lookups)
-        let dns_match = if let Some(ebpf) = self.ebpf.as_mut() {
-            // Check if DNS IP map has the destination IP
-            let match_result = ebpf.lookup_dns_ip(dest_ip);
-
-            // Poll DNS maps and update cache
-            for (ip_addr, query_pid, query_comm, query_domain_hash) in ebpf.poll_dns_ips() {
-                self.dns_cache.insert_ip_mapping(
-                    ip_addr.to_string(),
-                    query_domain_hash,
-                    query_pid,
-                    query_comm,
-                    60, // Default TTL if not in eBPF value
-                );
-            }
-
-            match_result
-        } else {
-            None
-        };
-
-        // Process DNS match result (outside the mutable borrow)
-        if let Some((pid, comm, _domain_hash)) = dns_match {
-            // Get domain name from DNS cache if available
-            let domain = self.dns_cache.get_domain_for_ip(dest_ip);
-
-            info!(
-                "✓ DNS cache hit: {} -> PID {} ({}), domain: {}",
-                dest_ip,
-                pid,
-                comm,
-                domain.as_deref().unwrap_or("<unknown>")
-            );
-
-            if let Some(mut info) = self.get_process_info_by_pid(pid) {
-                info.name = comm.clone();
-                return Some(info);
-            }
-            if !comm.is_empty() {
-                return Some(ProcessInfo {
-                    name: comm.clone(),
-                    exe_path: self.find_exe_by_name(&comm).unwrap_or_default(),
-                    uid: 0,
-                });
-            }
+        if self.dns_cache.lock().needs_cleanup() {
+            self.dns_cache.lock().cleanup_expired();
         }
 
         let cache_key = ConnectionKey {
@@ -345,109 +310,110 @@ impl ProcessCache {
             dst_port: dest_port,
         };
 
-        // 1. Check eBPF connection cache first (fast, has comm name)
-        if let Some(cached) = self.ebpf_connection_cache.get(&cache_key) {
+        // --- STEP 1: Find the actual process owner of the socket ---
+        let mut process_info = self.lookup_socket_owner(src_port, dest_ip, dest_port, protocol, &cache_key);
+
+        // --- STEP 2: Enrich with DNS domain if available ---
+        let domain_info = self.dns_cache.lock().lookup_by_ip(dest_ip).cloned();
+        
+        if let Some(entry) = &domain_info {
+            if let Some(ref mut info) = process_info {
+                // We have a process AND a domain! Perfect.
+                info.domain_name = Some(entry.domain_hint.clone());
+                debug!("Enriched process {} with domain {}", info.name, entry.domain_hint);
+            } else {
+                // We don't have a live process, but we have a DNS record for this IP.
+                // Fallback to the process that made the DNS query (likely the resolver).
+                if let Some(mut info) = self.get_process_info_by_pid(entry.pid) {
+                    info.domain_name = Some(entry.domain_hint.clone());
+                    if info.name == "systemd-resolve" || info.name == "systemd-network" {
+                        if !entry.process_name.is_empty() {
+                            info.name = entry.process_name.clone();
+                        }
+                    }
+                    process_info = Some(info);
+                } else if !entry.process_name.is_empty() {
+                    process_info = Some(ProcessInfo {
+                        name: entry.process_name.clone(),
+                        domain_name: Some(entry.domain_hint.clone()),
+                        exe_path: self.find_exe_by_name(&entry.process_name).unwrap_or_default(),
+                        uid: 0,
+                    });
+                }
+            }
+        }
+
+        if let Some(info) = &process_info {
+            if let Some(domain) = &info.domain_name {
+                info!("✓ Process identified: {} ({})", info.name, domain);
+            }
+        }
+
+        process_info
+    }
+
+    fn lookup_socket_owner(
+        &mut self,
+        src_port: u16,
+        dest_ip: &str,
+        dest_port: u16,
+        protocol: &str,
+        cache_key: &ConnectionKey,
+    ) -> Option<ProcessInfo> {
+        // 1. Check eBPF connection cache first
+        if let Some(cached) = self.ebpf_connection_cache.get(cache_key) {
             if cached.timestamp.elapsed() < Duration::from_secs(60) {
-                // Cache entry is still valid (within 60 seconds)
-                // Try to get full process info from /proc
                 if let Some(mut info) = self.get_process_info_by_pid(cached.pid) {
-                    info.name = cached.comm.clone(); // Use eBPF-captured name
+                    info.name = cached.comm.clone();
                     return Some(info);
                 }
-                // Process has exited, but we have the name from eBPF
-                info!(
-                    "✓ eBPF cache hit: Process {} (PID {}) exited, using cached name",
-                    cached.comm, cached.pid
-                );
                 return Some(ProcessInfo {
                     name: cached.comm.clone(),
+                    domain_name: None,
                     exe_path: self.find_exe_by_name(&cached.comm).unwrap_or_default(),
                     uid: 0,
                 });
             }
         }
 
-        // 2. Query live eBPF map with retry logic
-        // Retry up to 3 times with 1ms delay to handle race conditions
-        // where packet arrives before eBPF kprobe completes
-        let ebpf_result = if let Some(ebpf) = self.ebpf.as_mut() {
-            let mut retry_count = 0;
-            let max_retries = 3;
+        // 2. Query live eBPF map
+        if let Some(ebpf_arc) = &self.ebpf {
+            let mut ebpf = ebpf_arc.lock();
+            if let Some((pid, comm)) = ebpf.lookup_process_info(src_port, dest_ip, dest_port) {
+                // Cache it
+                self.ebpf_connection_cache.insert(
+                    cache_key.clone(),
+                    CachedEbpfInfo {
+                        pid,
+                        comm: comm.clone(),
+                        timestamp: Instant::now(),
+                    },
+                );
 
-            let mut result = None;
-            loop {
-                if let Some((pid, comm)) = ebpf.lookup_process_info(src_port, dest_ip, dest_port) {
-                    debug!("eBPF lookup found: PID {} ({}) for {}:{} (retry {})",
-                        pid, comm, dest_ip, dest_port, retry_count);
-
-                    // Cache this result for future lookups
-                    self.ebpf_connection_cache.insert(
-                        cache_key.clone(),
-                        CachedEbpfInfo {
-                            pid,
-                            comm: comm.clone(),
-                            timestamp: Instant::now(),
-                        },
-                    );
-
-                    // Clone values to release the ebpf borrow before calling other self methods
-                    let pid_clone = pid;
-                    let comm_clone = comm.clone();
-
-                    result = Some((pid_clone, comm_clone));
-                    break;
+                if let Some(mut info) = self.get_process_info_by_pid(pid) {
+                    info.name = comm.clone();
+                    return Some(info);
                 }
-
-                retry_count += 1;
-                if retry_count >= max_retries {
-                    debug!("eBPF lookup failed after {} retries for {}:{}",
-                        retry_count, dest_ip, dest_port);
-                    break;
-                }
-
-                // Small sleep to give eBPF kprobe time to complete
-                // Only sleep on first retry to avoid excessive delays
-                if retry_count == 1 {
-                    thread::sleep(Duration::from_millis(1));
-                }
-            }
-            result
-        } else {
-            None
-        };
-
-        // Now process the result after releasing the ebpf borrow
-        if let Some((pid, comm)) = ebpf_result {
-            if let Some(mut info) = self.get_process_info_by_pid(pid) {
-                info.name = comm.clone(); // Use eBPF-captured name
-                return Some(info);
-            }
-            if !comm.is_empty() {
                 return Some(ProcessInfo {
                     name: comm.clone(),
+                    domain_name: None,
                     exe_path: self.find_exe_by_name(&comm).unwrap_or_default(),
                     uid: 0,
                 });
             }
         }
 
-        // 3. /proc fallback (for when eBPF misses or isn't available)
-        // Scan every 20ms to catch short-lived processes (was 100ms)
         if self.last_scan.elapsed() > Duration::from_millis(20) {
             self.scan_processes();
         }
 
-        let src_addr: IpAddr = src_ip.parse().unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let dest_addr: IpAddr = dest_ip.parse().unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
-
         let entries = proc_parser::read_net_entries(protocol);
 
-        // Exact match
         for entry in &entries {
-            if entry.local_addr == src_addr
-                && entry.local_port == src_port
-                && entry.remote_addr == dest_addr
-                && entry.remote_port == dest_port
+            if entry.local_port == src_port && 
+               (entry.remote_port == dest_port || dest_port == 0) &&
+               (entry.remote_addr == dest_addr || entry.remote_addr.is_unspecified())
             {
                 if let Some(info) = self.inode_to_process.get(&entry.inode) {
                     return Some(info.clone());
@@ -455,17 +421,6 @@ impl ProcessCache {
             }
         }
 
-        // Loose match
-        for entry in &entries {
-            if entry.local_port == src_port
-                && (entry.local_addr == src_addr
-                    || entry.local_addr == IpAddr::V4(Ipv4Addr::UNSPECIFIED))
-            {
-                if let Some(info) = self.inode_to_process.get(&entry.inode) {
-                    return Some(info.clone());
-                }
-            }
-        }
         None
     }
 
@@ -489,6 +444,7 @@ impl ProcessCache {
 
         Some(ProcessInfo {
             name,
+            domain_name: None,
             exe_path,
             uid,
         })
@@ -519,7 +475,6 @@ impl ProcessCache {
         }
     }
 }
-
 fn clean_exe_path(path: &str) -> String {
     let path = path.split('\0').next().unwrap_or("");
     if let Some(space_idx) = path.find(' ') {
