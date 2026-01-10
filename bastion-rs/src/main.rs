@@ -10,7 +10,7 @@ mod process;
 mod rules;
 mod whitelist;
 
-use etherparse::{Ipv4HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};
+use etherparse::{Ipv4HeaderSlice, Ipv6HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};
 use nfq::{Queue, Verdict};
 use std::sync::Arc;
 use std::time::Duration;
@@ -192,21 +192,55 @@ fn process_packet(
     gui_state: &Arc<Mutex<GuiState>>,
 ) -> Verdict {
     let learning_mode = config.is_learning_mode();
-    let ip_header = match Ipv4HeaderSlice::from_slice(payload) {
-        Ok(h) => h,
-        Err(_) => return Verdict::Accept,
+    
+    // Detect IP version from first byte (version is in high nibble)
+    if payload.is_empty() {
+        return Verdict::Accept;
+    }
+    
+    let ip_version = (payload[0] >> 4) & 0x0F;
+    
+    // Parse IP header and extract addresses, protocol, and transport offset
+    let (src_ip_str, dst_ip_str, proto, transport_offset) = match ip_version {
+        4 => {
+            // IPv4
+            let ip_header = match Ipv4HeaderSlice::from_slice(payload) {
+                Ok(h) => h,
+                Err(_) => return Verdict::Accept,
+            };
+            
+            let src_ip = ip_header.source_addr();
+            let dst_ip = ip_header.destination_addr();
+            let proto = ip_header.protocol();
+            let ip_len = ip_header.slice().len();
+            
+            (format!("{}", src_ip), format!("{}", dst_ip), proto, ip_len)
+        }
+        6 => {
+            // IPv6
+            let ip_header = match Ipv6HeaderSlice::from_slice(payload) {
+                Ok(h) => h,
+                Err(_) => return Verdict::Accept,
+            };
+            
+            let src_ip = ip_header.source_addr();
+            let dst_ip = ip_header.destination_addr();
+            let proto = ip_header.next_header();
+            let ip_len = ip_header.slice().len();
+            
+            (format!("{}", src_ip), format!("{}", dst_ip), proto, ip_len)
+        }
+        _ => {
+            // Unknown IP version, accept
+            return Verdict::Accept;
+        }
     };
 
-    let dst_ip = ip_header.destination_addr();
-    let dst_ip_str = format!("{}", dst_ip);
-    let proto = ip_header.protocol();
-
-    let ip_len = ip_header.slice().len();
-    if payload.len() <= ip_len {
+    if payload.len() <= transport_offset {
         return Verdict::Accept;
     }
 
-    let transport_slice = &payload[ip_len..];
+    let transport_slice = &payload[transport_offset..];
 
     // Parse transport layer
     let (src_port, dst_port, protocol_str) = match proto {
@@ -220,10 +254,6 @@ fn process_packet(
         },
         _ => return Verdict::Accept,
     };
-
-    // Get source IP
-    let src_ip = ip_header.source_addr();
-    let src_ip_str = format!("{}", src_ip);
 
     // Identify process
     let mut cache = process_cache.lock();
@@ -255,17 +285,17 @@ fn process_packet(
             if allow {
                 debug!(
                     "[RULE:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}",
-                    display_name, dst_ip, dst_port, app_uid
+                    display_name, dst_ip_str, dst_port, app_uid
                 );
                 return Verdict::Accept;
             } else if !learning_mode {
                 info!(
                     "[RULE:BLOCK] app=\"{}\" dst=\"{}:{}\" user={}",
-                    display_name, dst_ip, dst_port, app_uid
+                    display_name, dst_ip_str, dst_port, app_uid
                 );
                 return Verdict::Drop;
             } else {
-                info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (would block in enforcement)", display_name, dst_ip, dst_port);
+                info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (would block in enforcement)", display_name, dst_ip_str, dst_port);
             }
         }
     }
@@ -277,17 +307,17 @@ fn process_packet(
             if allow {
                 debug!(
                     "[RULE:ALLOW:NAME] app=\"{}\" dst=\"{}:{}\" user={}",
-                    app_name, dst_ip, dst_port, app_uid
+                    app_name, dst_ip_str, dst_port, app_uid
                 );
                 return Verdict::Accept;
             } else if !learning_mode {
                 info!(
                     "[RULE:BLOCK:NAME] app=\"{}\" dst=\"{}:{}\" user={}",
-                    app_name, dst_ip, dst_port, app_uid
+                    app_name, dst_ip_str, dst_port, app_uid
                 );
                 return Verdict::Drop;
             } else {
-                info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"@name:{}\" dst=\"{}:{}\" (would block in enforcement)", app_name, dst_ip, dst_port);
+                info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"@name:{}\" dst=\"{}:{}\" (would block in enforcement)", app_name, dst_ip_str, dst_port);
             }
         }
     }
@@ -295,18 +325,18 @@ fn process_packet(
     // For unknown apps: check destination-based rules (@dest:IP:PORT)
     // This is more secure than @name:unknown which would allow any unknown app
     if app_name == "unknown" || app_path == "unknown" {
-        let dest_key = format!("@dest:{}:{}", dst_ip, dst_port);
+        let dest_key = format!("@dest:{}:{}", dst_ip_str, dst_port);
         if let Some(allow) = rules.get_decision(&dest_key, 0) {
             if allow {
                 debug!(
                     "[RULE:ALLOW:DEST] dst=\"{}:{}\" (unknown app)",
-                    dst_ip, dst_port
+                    dst_ip_str, dst_port
                 );
                 return Verdict::Accept;
             } else if !learning_mode {
                 info!(
                     "[RULE:BLOCK:DEST] dst=\"{}:{}\" (unknown app)",
-                    dst_ip, dst_port
+                    dst_ip_str, dst_port
                 );
                 return Verdict::Drop;
             }
@@ -328,20 +358,20 @@ fn process_packet(
             drop(gui);
             debug!(
                 "[SESSION:ALLOW] app=\"{}\" dst=\"{}:{}\"",
-                app_name, dst_ip, dst_port
+                app_name, dst_ip_str, dst_port
             );
             return Verdict::Accept;
         } else if !learning_mode {
             drop(gui);
             debug!(
                 "[SESSION:BLOCK] app=\"{}\" dst=\"{}:{}\"",
-                app_name, dst_ip, dst_port
+                app_name, dst_ip_str, dst_port
             );
             return Verdict::Drop;
         } else {
             info!(
                 "[LEARN:SESSION-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (cached deny ignored)",
-                app_name, dst_ip, dst_port
+                app_name, dst_ip_str, dst_port
             );
         }
     }
@@ -351,16 +381,16 @@ fn process_packet(
         if let Some(cached_decision) = gui.check_unknown_decision(&dst_ip_str, dst_port) {
             if cached_decision {
                 drop(gui);
-                debug!("[CACHED:ALLOW] unknown app dst=\"{}:{}\"", dst_ip, dst_port);
+                debug!("[CACHED:ALLOW] unknown app dst=\"{}:{}\"", dst_ip_str, dst_port);
                 return Verdict::Accept;
             } else if !learning_mode {
                 drop(gui);
-                debug!("[CACHED:BLOCK] unknown app dst=\"{}:{}\"", dst_ip, dst_port);
+                debug!("[CACHED:BLOCK] unknown app dst=\"{}:{}\"", dst_ip_str, dst_port);
                 return Verdict::Drop;
             } else {
                 info!(
                     "[LEARN:UNKNOWN-DENIED-BUT-ALLOWED] dst=\"{}:{}\" (cached deny ignored)",
-                    dst_ip, dst_port
+                    dst_ip_str, dst_port
                 );
             }
         }
@@ -423,13 +453,13 @@ fn process_packet(
             return if response.allow {
                 info!(
                     "[USER:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}",
-                    display_name, dst_ip, dst_port, app_uid
+                    display_name, dst_ip_str, dst_port, app_uid
                 );
                 Verdict::Accept
             } else {
                 info!(
                     "[USER:BLOCK] app=\"{}\" dst=\"{}:{}\" user={}",
-                    display_name, dst_ip, dst_port, app_uid
+                    display_name, dst_ip_str, dst_port, app_uid
                 );
                 Verdict::Drop
             };

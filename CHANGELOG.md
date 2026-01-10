@@ -1,3 +1,19 @@
+## [2.0.30] - 2026-01-10
+
+### Added
+- IPv6 packet processing support - daemon now properly handles both IPv4 and IPv6 traffic
+- IP version detection in packet processing to route packets correctly
+
+### Fixed
+- IPv6 connections were silently bypassed without firewall processing
+- No popups appearing for IPv6 connections (apt, traceroute, etc.)
+- Traceroute and other IPv6 tools now trigger proper firewall prompts
+
+### Technical Details
+- Added `Ipv6HeaderSlice` parsing to `process_packet()` function
+- Implemented IP version detection from packet header
+- Unified IP address handling as strings for consistent processing
+- eBPF already supported IPv6, now userspace daemon matches that capability
 # Changelog
 
 All notable changes to Bastion Firewall will be documented in this file.
