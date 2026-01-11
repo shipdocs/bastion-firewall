@@ -165,14 +165,25 @@ BuildArch:      x86_64
 %global __os_install_post %{nil}
 %define debug_package %{nil}
 
+# Disable automatic shared library dependency detection
+# The daemon is built on Debian (libpcap.so.0.8) but Fedora provides libpcap.so.1
+# We manually specify libpcap as a package dependency instead
+AutoReqProv:    no
+
+Requires:       libpcap
+Requires:       glibc
 Requires:       python3
 Requires:       python3-gobject
 Requires:       python3-pillow
 Requires:       python3-psutil
+Requires:       python3-pyqt6
 Requires:       iptables
 Requires:       polkit
 Requires:       gtk3
 Requires:       libayatana-appindicator-gtk3
+
+# Soft dependency - installed if available (for GNOME tray icon support)
+Recommends:     gnome-shell-extension-appindicator
 
 %description
 🏰 Bastion Firewall - Your Last Line of Defense
@@ -202,8 +213,7 @@ rm -rf $RPM_BUILD_ROOT
 
 # Create directories
 mkdir -p $RPM_BUILD_ROOT/usr/bin
-mkdir -p $RPM_BUILD_ROOT/usr/lib/python3/dist-packages/bastion
-mkdir -p $RPM_BUILD_ROOT/usr/share/bastion-firewall
+mkdir -p $RPM_BUILD_ROOT/usr/share/bastion-firewall/bastion
 mkdir -p $RPM_BUILD_ROOT/usr/share/applications
 mkdir -p $RPM_BUILD_ROOT/usr/share/metainfo
 mkdir -p $RPM_BUILD_ROOT/usr/share/polkit-1/actions
@@ -225,8 +235,8 @@ install -m 755 bastion-cleanup-inbound $RPM_BUILD_ROOT/usr/bin/
 # Install eBPF binary
 install -m 644 bastion-ebpf.o $RPM_BUILD_ROOT/usr/share/bastion-firewall/
 
-# Install Python modules
-cp -r bastion/* $RPM_BUILD_ROOT/usr/lib/python3/dist-packages/bastion/
+# Install Python modules (to /usr/share/bastion-firewall for cross-distro compatibility)
+cp -r bastion/* $RPM_BUILD_ROOT/usr/share/bastion-firewall/bastion/
 
 # Install systemd service
 install -m 644 bastion-firewall.service $RPM_BUILD_ROOT/lib/systemd/system/
@@ -260,8 +270,7 @@ install -m 644 LICENSE $RPM_BUILD_ROOT/usr/share/doc/bastion-firewall/
 /usr/bin/bastion-reload-config
 /usr/bin/bastion-setup-inbound
 /usr/bin/bastion-cleanup-inbound
-/usr/share/bastion-firewall/bastion-ebpf.o
-/usr/lib/python3/dist-packages/bastion/
+/usr/share/bastion-firewall/
 /lib/systemd/system/bastion-firewall.service
 /usr/share/applications/com.bastion.firewall.desktop
 /usr/share/applications/bastion-control-panel.desktop
@@ -289,6 +298,18 @@ echo ""
 # Install Python dependencies
 echo "Installing Python dependencies..."
 pip3 install --quiet psutil tabulate pystray pillow 2>/dev/null || true
+
+# Create libpcap compatibility symlink if needed
+# The daemon is built on Debian (libpcap.so.0.8) but Fedora/RHEL has libpcap.so.1
+if [ ! -f /usr/lib64/libpcap.so.0.8 ] && [ ! -f /usr/lib/libpcap.so.0.8 ]; then
+    if [ -f /usr/lib64/libpcap.so.1 ]; then
+        echo "Creating libpcap compatibility symlink..."
+        ln -sf /usr/lib64/libpcap.so.1 /usr/lib64/libpcap.so.0.8
+    elif [ -f /usr/lib64/libpcap.so ]; then
+        echo "Creating libpcap compatibility symlink..."
+        ln -sf /usr/lib64/libpcap.so /usr/lib64/libpcap.so.0.8
+    fi
+fi
 
 # Reload systemd
 systemctl daemon-reload
@@ -349,6 +370,11 @@ fi
 if [ $1 -eq 0 ]; then
     # Complete removal
     systemctl daemon-reload 2>/dev/null || true
+    
+    # Remove libpcap compatibility symlink if we created it
+    if [ -L /usr/lib64/libpcap.so.0.8 ]; then
+        rm -f /usr/lib64/libpcap.so.0.8
+    fi
     
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database -q 2>/dev/null || true

@@ -5,6 +5,11 @@ Bastion Firewall Control Panel - Main GUI window
 import sys
 import os
 import fcntl
+
+# Support private module install (RPM/Fedora)
+if os.path.exists("/usr/share/bastion-firewall"):
+    sys.path.insert(0, "/usr/share/bastion-firewall")
+
 from bastion.gui_qt import run_dashboard
 
 # Lock file to prevent multiple control panel instances
