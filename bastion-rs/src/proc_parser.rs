@@ -6,7 +6,6 @@ use std::io::{BufRead, BufReader};
 /// Connection info from /proc/net/tcp or /proc/net/udp
 #[derive(Debug, Clone)]
 pub struct NetEntry {
-    pub local_addr: IpAddr,
     pub local_port: u16,
     pub remote_addr: IpAddr,
     pub remote_port: u16,
@@ -40,12 +39,11 @@ fn parse_net_line(line: &str) -> Option<NetEntry> {
         return None;
     }
 
-    let (local_addr, local_port) = parse_hex_address(parts[1])?;
+    let (_, local_port) = parse_hex_address(parts[1])?;
     let (remote_addr, remote_port) = parse_hex_address(parts[2])?;
     let inode = parts[9].parse::<u64>().ok()?;
 
     Some(NetEntry {
-        local_addr,
         local_port,
         remote_addr,
         remote_port,

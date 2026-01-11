@@ -20,21 +20,9 @@ pub struct ProcessInfo {
     pub uid: u32,
 }
 
-/// DNS query entry for caching
-#[derive(Debug, Clone)]
-pub struct DnsQueryEntry {
-    pub domain: String,
-    pub process_name: String,
-    pub pid: u32,
-    pub exe_path: String,
-    pub timestamp: Instant,
-}
-
 /// DNS IP mapping entry
 #[derive(Debug, Clone)]
 pub struct DnsIpEntry {
-    pub ip: String,
-    pub domain_hash: u32,
     pub domain_hint: String,
     pub process_name: String,
     pub pid: u32,
@@ -45,8 +33,6 @@ pub struct DnsIpEntry {
 /// DNS cache for tracking DNS queries and IP mappings
 #[derive(Debug)]
 pub struct DnsCache {
-    /// Domain hash -> query entry mapping
-    hash_to_entry: HashMap<u32, DnsQueryEntry>,
     /// IP address -> process/domain mapping
     ip_map: HashMap<String, DnsIpEntry>,
     last_cleanup: Instant,
@@ -55,33 +41,12 @@ pub struct DnsCache {
 impl DnsCache {
     pub fn new() -> Self {
         Self {
-            hash_to_entry: HashMap::new(),
             ip_map: HashMap::new(),
             last_cleanup: Instant::now(),
         }
     }
 
-    /// Insert a DNS query entry from eBPF
-    pub fn insert_from_ebpf(
-        &mut self,
-        domain_hash: u32,
-        pid: u32,
-        comm: String,
-        domain_hint: Option<String>,
-    ) {
-        let entry = DnsQueryEntry {
-            domain: domain_hint.unwrap_or_else(|| format!("<hash:{}>", domain_hash)),
-            process_name: comm.clone(),
-            pid,
-            exe_path: String::new(), // Fill in later from /proc
-            timestamp: Instant::now(),
-        };
-
-        // Store by hash
-        self.hash_to_entry.insert(domain_hash, entry);
-    }
-
-    /// Insert a DNS IP mapping from DNS snooper or eBPF
+    /// Insert a DNS IP mapping from DNS snooper
     pub fn insert_ip_mapping(
         &mut self,
         ip: String,
@@ -90,12 +55,7 @@ impl DnsCache {
         domain: String,
         ttl: u32,
     ) {
-        // Compute domain hash for consistency
-        let domain_hash = jhash_string(&domain);
-
         let entry = DnsIpEntry {
-            ip: ip.clone(),
-            domain_hash,
             domain_hint: domain,
             process_name: comm,
             pid,
@@ -111,34 +71,20 @@ impl DnsCache {
         self.ip_map.get(ip)
     }
 
-    /// Get domain for an IP address
-    pub fn get_domain_for_ip(&self, ip: &str) -> Option<String> {
-        self.ip_map.get(ip).map(|e| e.domain_hint.clone())
-    }
-
     /// Cleanup expired entries
     pub fn cleanup_expired(&mut self) {
         let now = Instant::now();
 
         // Cleanup IP entries based on their TTL
-        let initial_ip_size = self.ip_map.len();
+        let initial_size = self.ip_map.len();
         self.ip_map.retain(|_, entry| {
             let ttl_duration = Duration::from_secs(entry.ttl as u64);
             now.duration_since(entry.timestamp) < ttl_duration
         });
-        let removed_ip = initial_ip_size - self.ip_map.len();
+        let removed = initial_size - self.ip_map.len();
 
-        // Cleanup query entries (older than 5 minutes)
-        let initial_query_size = self.hash_to_entry.len();
-        self.hash_to_entry
-            .retain(|_, entry| now.duration_since(entry.timestamp) < Duration::from_secs(300));
-        let removed_query = initial_query_size - self.hash_to_entry.len();
-
-        if removed_ip > 0 || removed_query > 0 {
-            debug!(
-                "DNS cache cleanup: removed {} IP entries, {} query entries",
-                removed_ip, removed_query
-            );
+        if removed > 0 {
+            debug!("DNS cache cleanup: removed {} IP entries", removed);
         }
 
         self.last_cleanup = now;
@@ -148,11 +94,6 @@ impl DnsCache {
     pub fn needs_cleanup(&self) -> bool {
         self.last_cleanup.elapsed() > Duration::from_secs(60)
     }
-
-    /// Get cache statistics
-    pub fn stats(&self) -> (usize, usize) {
-        (self.hash_to_entry.len(), self.ip_map.len())
-    }
 }
 
 impl Default for DnsCache {
@@ -161,15 +102,6 @@ impl Default for DnsCache {
     }
 }
 
-/// Compute FNV-1a hash of a string (matches eBPF implementation)
-fn jhash_string(domain: &str) -> u32 {
-    let mut hash: u32 = 0xDEADBEEF;
-    for byte in domain.bytes() {
-        hash = hash ^ byte as u32;
-        hash = hash.wrapping_mul(0x01000193);
-    }
-    hash
-}
 
 /// Cache key for eBPF connection lookups
 /// Uses destination IP and port to match connections
@@ -326,11 +258,10 @@ impl ProcessCache {
                 // Fallback to the process that made the DNS query (likely the resolver).
                 if let Some(mut info) = self.get_process_info_by_pid(entry.pid) {
                     info.domain_name = Some(entry.domain_hint.clone());
-                    if info.name == "systemd-resolve" || info.name == "systemd-network" {
-                        if !entry.process_name.is_empty() {
+                    if (info.name == "systemd-resolve" || info.name == "systemd-network")
+                        && !entry.process_name.is_empty() {
                             info.name = entry.process_name.clone();
                         }
-                    }
                     process_info = Some(info);
                 } else if !entry.process_name.is_empty() {
                     process_info = Some(ProcessInfo {

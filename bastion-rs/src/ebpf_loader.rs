@@ -13,11 +13,6 @@ use std::time::{Duration, Instant};
 // Metrics tracking
 #[derive(Debug)]
 pub struct EbpfMetrics {
-    pub connect_attempts: Arc<AtomicU64>,
-    pub connect_failures: Arc<AtomicU64>,
-    pub udp_sends: Arc<AtomicU64>,
-    pub map_insertions: Arc<AtomicU64>,
-    pub map_insert_failures: Arc<AtomicU64>,
     pub lookups: Arc<AtomicU64>,
     pub lookup_hits: Arc<AtomicU64>,
     pub lookup_misses: Arc<AtomicU64>,
@@ -27,11 +22,6 @@ pub struct EbpfMetrics {
 impl Default for EbpfMetrics {
     fn default() -> Self {
         Self {
-            connect_attempts: Arc::new(AtomicU64::new(0)),
-            connect_failures: Arc::new(AtomicU64::new(0)),
-            udp_sends: Arc::new(AtomicU64::new(0)),
-            map_insertions: Arc::new(AtomicU64::new(0)),
-            map_insert_failures: Arc::new(AtomicU64::new(0)),
             lookups: Arc::new(AtomicU64::new(0)),
             lookup_hits: Arc::new(AtomicU64::new(0)),
             lookup_misses: Arc::new(AtomicU64::new(0)),
@@ -136,93 +126,6 @@ pub struct DnsQueryValue {
 
 unsafe impl Pod for DnsQueryValue {}
 
-impl DnsQueryValue {
-    pub fn comm_str(&self) -> String {
-        let end = self.comm.iter().position(|&b| b == 0).unwrap_or(16);
-        String::from_utf8_lossy(&self.comm[..end]).to_string()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(C)]
-pub struct DnsTxKey {
-    pub txid: u16,
-    pub src_port: u16,
-    pub _pad: [u8; 4],
-}
-
-unsafe impl Pod for DnsTxKey {}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct DnsTxValue {
-    pub pid: u32,
-    pub comm: [u8; 16],
-    pub domain_hash: u32,
-}
-
-unsafe impl Pod for DnsTxValue {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(C)]
-pub struct DnsIpKey {
-    pub ip_version: u8,
-    pub _pad: [u8; 3],
-    pub ip_bytes: [u8; 16],
-}
-
-unsafe impl Pod for DnsIpKey {}
-
-impl DnsIpKey {
-    pub fn from_v4(ip: u32) -> Self {
-        let mut bytes = [0u8; 16];
-        bytes[0..4].copy_from_slice(&ip.to_be_bytes());
-        Self {
-            ip_version: 4,
-            _pad: [0u8; 3],
-            ip_bytes: bytes,
-        }
-    }
-
-    pub fn from_v6(ip: [u8; 16]) -> Self {
-        Self {
-            ip_version: 6,
-            _pad: [0u8; 3],
-            ip_bytes: ip,
-        }
-    }
-
-    pub fn to_ip_addr(&self) -> Option<std::net::IpAddr> {
-        use std::net::{Ipv4Addr, Ipv6Addr};
-        match self.ip_version {
-            4 => {
-                let ip = u32::from_be_bytes(self.ip_bytes[0..4].try_into().ok()?);
-                Some(std::net::IpAddr::V4(Ipv4Addr::from(ip)))
-            }
-            6 => Some(std::net::IpAddr::V6(Ipv6Addr::from(self.ip_bytes))),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct DnsIpValue {
-    pub pid: u32,
-    pub comm: [u8; 16],
-    pub domain_hash: u32,
-    pub timestamp: u64,
-    pub ttl: u32,
-}
-
-unsafe impl Pod for DnsIpValue {}
-
-impl DnsIpValue {
-    pub fn comm_str(&self) -> String {
-        let end = self.comm.iter().position(|&b| b == 0).unwrap_or(16);
-        String::from_utf8_lossy(&self.comm[..end]).to_string()
-    }
-}
 
 pub struct EbpfManager {
     bpf: Option<aya::Ebpf>,
@@ -384,10 +287,7 @@ impl EbpfManager {
     ) -> Option<(u32, String)> {
         let bpf = self.bpf.as_ref()?;
         let conn_map: HashMap<_, ConnectionKey, ConnectionInfo> =
-            match bpf.map("CONN_MAP").and_then(|m| HashMap::try_from(m).ok()) {
-                Some(m) => m,
-                None => return None,
-            };
+            bpf.map("CONN_MAP").and_then(|m| HashMap::try_from(m).ok())?;
 
         // Iterate to find src_port=0 entries matching dst_ip:dst_port (any pid)
         let mut count = 0u32;
@@ -435,10 +335,7 @@ impl EbpfManager {
     ) -> Option<(u32, String)> {
         let bpf = self.bpf.as_ref()?;
         let conn_map: HashMap<_, ConnectionKey, ConnectionInfo> =
-            match bpf.map("CONN_MAP").and_then(|m| HashMap::try_from(m).ok()) {
-                Some(m) => m,
-                None => return None,
-            };
+            bpf.map("CONN_MAP").and_then(|m| HashMap::try_from(m).ok())?;
 
         // Iterate to find entries matching full 4-tuple (any pid)
         for (key, info) in conn_map.iter().flatten() {
@@ -471,10 +368,7 @@ impl EbpfManager {
     ) -> Option<(u32, String)> {
         let bpf = self.bpf.as_ref()?;
         let conn_map: HashMap<_, ConnectionKey, ConnectionInfo> =
-            match bpf.map("CONN_MAP").and_then(|m| HashMap::try_from(m).ok()) {
-                Some(m) => m,
-                None => return None,
-            };
+            bpf.map("CONN_MAP").and_then(|m| HashMap::try_from(m).ok())?;
 
         // Only log this occasionally since it's the slow path
         let start = Instant::now();
@@ -503,75 +397,6 @@ impl EbpfManager {
         }
 
         None
-    }
-
-    /// Get current map size for monitoring
-    pub fn get_map_size(&self) -> Option<usize> {
-        let bpf = self.bpf.as_ref()?;
-
-        let conn_map: HashMap<_, ConnectionKey, ConnectionInfo> =
-            bpf.map("CONN_MAP").and_then(|m| HashMap::try_from(m).ok())?;
-
-        Some(conn_map.iter().flatten().count())
-    }
-
-    /// Lookup DNS IP mapping - returns (pid, comm, domain_hash) for an IP
-    pub fn lookup_dns_ip(&mut self, dst_ip: &str) -> Option<(u32, String, u32)> {
-        let bpf = self.bpf.as_ref()?;
-
-        let (ip_version, dst_ip_v4, dst_ip_v6) = parse_dst_ip(dst_ip)?;
-
-        let dns_ip_map: HashMap<_, DnsIpKey, DnsIpValue> =
-            match bpf.map("DNS_IP_MAP").and_then(|m| HashMap::try_from(m).ok()) {
-                Some(m) => m,
-                None => return None,
-            };
-
-        let ip_key = DnsIpKey {
-            ip_version,
-            _pad: [0u8; 3],
-            ip_bytes: match ip_version {
-                4 => {
-                    let mut bytes = [0u8; 16];
-                    bytes[0..4].copy_from_slice(&dst_ip_v4.to_be_bytes());
-                    bytes
-                }
-                6 => dst_ip_v6,
-                _ => return None,
-            },
-        };
-
-        dns_ip_map.get(&ip_key, 0).ok().map(|value| {
-            debug!(
-                "DNS IP match: {} -> PID {} ({}), domain_hash={}",
-                dst_ip,
-                value.pid,
-                value.comm_str(),
-                value.domain_hash
-            );
-            (value.pid, value.comm_str(), value.domain_hash)
-        })
-    }
-
-    /// Poll DNS query map - returns all DNS query entries
-    pub fn poll_dns_queries(&self) -> Vec<(u32, String, u32)> {
-        let mut results = Vec::new();
-
-        let Some(bpf) = self.bpf.as_ref() else {
-            return results;
-        };
-
-        let Some(dns_query_map): Option<HashMap<_, DnsQueryKey, DnsQueryValue>> =
-            bpf.map("DNS_QUERY_MAP").and_then(|m| HashMap::try_from(m).ok())
-        else {
-            return results;
-        };
-
-        for (key, value) in dns_query_map.iter().flatten() {
-            results.push((value.pid, value.comm_str(), key.domain_hash));
-        }
-
-        results
     }
 
     /// Poll DNS queries for a specific DNS server within a time window
@@ -610,34 +435,6 @@ impl EbpfManager {
         } else if count > 0 {
             info!("Polled {} queries for DNS server {}, found 0 matches (map size: {})", 
                 results.len(), dns_server_ip, count);
-        }
-
-        results
-    }
-
-    /// Poll DNS IP map - returns all IP->process mappings
-    pub fn poll_dns_ips(&self) -> Vec<(std::net::IpAddr, u32, String, u32)> {
-        let mut results = Vec::new();
-
-        let Some(bpf) = self.bpf.as_ref() else {
-            return results;
-        };
-
-        let Some(dns_ip_map): Option<HashMap<_, DnsIpKey, DnsIpValue>> =
-            bpf.map("DNS_IP_MAP").and_then(|m| HashMap::try_from(m).ok())
-        else {
-            return results;
-        };
-
-        for (key, value) in dns_ip_map.iter().flatten() {
-            if let Some(ip_addr) = key.to_ip_addr() {
-                results.push((
-                    ip_addr,
-                    value.pid,
-                    value.comm_str(),
-                    value.domain_hash,
-                ));
-            }
         }
 
         results

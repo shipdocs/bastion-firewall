@@ -150,12 +150,8 @@ impl RuleManager {
             // Handle wildcard port (stored as 0 internally)
             let port = if port_str == "*" {
                 Some(0u16)
-            } else if let Ok(p) = port_str.parse::<u16>() {
-                Some(p)
             } else {
-                // Invalid port format - try deleting all ports for this app
-                // This handles @dest:IP:PORT format where port is embedded in key
-                None
+                port_str.parse::<u16>().ok()
             };
 
             let mut rules = self.rules.write();

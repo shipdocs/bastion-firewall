@@ -174,8 +174,8 @@ impl DnsSnooper {
         let best_match = recent_queries
             .iter()
             .min_by_key(|q| {
-                let age_ns = now_ns.saturating_sub(q.timestamp_ns);
-                age_ns
+                
+                now_ns.saturating_sub(q.timestamp_ns)
             });
 
         let Some(query) = best_match else {
