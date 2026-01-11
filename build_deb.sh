@@ -245,7 +245,23 @@ print_step "Copying documentation..."
 cp README.md debian/usr/share/doc/bastion-firewall/
 cp CONTRIBUTING.md debian/usr/share/doc/bastion-firewall/
 cp SECURITY.md debian/usr/share/doc/bastion-firewall/
-cp config.json debian/usr/share/doc/bastion-firewall/config.json.example
+# Create config.json example if not present
+if [ -f "config.json" ]; then
+    cp config.json debian/usr/share/doc/bastion-firewall/config.json.example
+else
+    cat > debian/usr/share/doc/bastion-firewall/config.json.example << 'CONFIGEOF'
+{
+    "mode": "learning",
+    "cache_decisions": true,
+    "default_action": "deny",
+    "timeout_seconds": 30,
+    "allow_localhost": true,
+    "allow_lan": false,
+    "log_decisions": true,
+    "inbound_protection": true
+}
+CONFIGEOF
+fi
 
 # Copy logrotate configuration
 cp debian/bastion-firewall.logrotate debian/usr/share/doc/bastion-firewall/
