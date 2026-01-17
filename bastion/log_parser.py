@@ -40,23 +40,29 @@ class LogParser:
     POPUP_PATTERN = re.compile(r'\[POPUP\] (.+?) \((.+?)\) -> (.+?):(\d+)')
 
     # Pattern 2: [RULE:ALLOW] app="X" path="Y" dst="IP:PORT" user=UID protocol="PROTO"
+    # Also support optional path and missing user/protocol
     RULE_PATTERN = re.compile(
-        r'\[RULE:(ALLOW|BLOCK)\] app="(.+?)" path="(.+?)" dst="(.+?):(\d+)" user=(\d+)'
+        r'\[RULE:(ALLOW|BLOCK)\] app="(.+?)"(?: path="(.+?)")? dst="(.+?):(\d+)"(?: user=(\d+))?'
     )
 
     # Pattern 3: [RULE:ALLOW:NAME] app="X" dst="IP:PORT" user=UID protocol="PROTO"
     RULE_NAME_PATTERN = re.compile(
-        r'\[RULE:(ALLOW|BLOCK):NAME\] app="(.+?)" dst="(.+?):(\d+)" user=(\d+)'
+        r'\[RULE:(ALLOW|BLOCK):NAME\] app="(.+?)" dst="(.+?):(\d+)"(?: user=(\d+))?'
     )
 
     # Pattern 4: [USER:ALLOW] app="X" dst="IP:PORT" user=UID protocol="PROTO"
     USER_PATTERN = re.compile(
-        r'\[USER:(ALLOW|BLOCK)\] app="(.+?)" dst="(.+?):(\d+)" user=(\d+)'
+        r'\[USER:(ALLOW|BLOCK)\] app="(.+?)" dst="(.+?):(\d+)"(?: user=(\d+))?'
     )
 
     # Pattern 5: [SESSION:ALLOW] app="X" dst="IP:PORT"
     SESSION_PATTERN = re.compile(
         r'\[SESSION:(ALLOW|BLOCK)\] app="(.+?)" dst="(.+?):(\d+)'
+    )
+
+    # Pattern 11: [SESSION] Cached decision for ...
+    SESSION_CACHED_PATTERN = re.compile(
+        r'\[SESSION\] Cached decision for (.+?) \(allow: (true|false)\)'
     )
 
     # Pattern 6: [CACHED:ALLOW] unknown app dst="IP:PORT"
@@ -66,12 +72,12 @@ class LogParser:
 
     # Pattern 7: [LEARN] app="X" path="Y" dst="IP:PORT" user=UID
     LEARN_PATTERN = re.compile(
-        r'\[LEARN\] app="(.+?)" path="(.+?)" dst="(.+?):(\d+)" user=(\d+)'
+        r'\[LEARN\] app="(.+?)"(?: path="(.+?)")? dst="(.+?):(\d+)"(?: user=(\d+))?'
     )
 
     # Pattern 8: [BLOCK] app="X" dst="IP:PORT" user=UID
     BLOCK_PATTERN = re.compile(
-        r'\[BLOCK\] app="(.+?)" dst="(.+?):(\d+)" user=(\d+)'
+        r'\[BLOCK\] app="(.+?)" dst="(.+?):(\d+)"(?: user=(\d+))?'
     )
 
     # Pattern 9: [AUTO] app_name - reason
@@ -92,13 +98,21 @@ class LogParser:
             LogEntry if parsing successful, None otherwise
         """
         try:
-            # Extract timestamp from journalctl format (first part before the log message)
-            parts = line.strip().split(' ', 1)
-            if len(parts) < 2:
-                return None
-
-            timestamp = parts[0]
-            log_message = parts[1]
+            # Extract timestamp from journalctl format
+            # Format is typically: Jan 17 15:15:15 hostname process[pid]: message
+            # We want to pick the last part after the pid header
+            if ']: ' in line:
+                header, log_message = line.split(']: ', 1)
+                # Jan 17 15:15:15 hostname process
+                header_parts = header.split(' ')
+                # Timestamp is the first 3 parts
+                timestamp = " ".join(header_parts[:3])
+            else:
+                parts = line.strip().split(' ', 1)
+                if len(parts) < 2:
+                    return None
+                timestamp = parts[0]
+                log_message = parts[1]
 
             # Try each pattern
             # Pattern 1: POPUP
@@ -127,11 +141,11 @@ class LogParser:
                     event_type='RULE',
                     action=action,
                     app_name=app_name,
-                    app_path=app_path,
+                    app_path=app_path or '-',
                     dest_ip=dest_ip,
                     dest_port=dest_port,
-                    protocol='TCP',  # Default to TCP
-                    user_id=user_id,
+                    protocol='TCP',
+                    user_id=user_id or '-',
                     raw_line=line.strip()
                 )
 
@@ -148,7 +162,7 @@ class LogParser:
                     dest_ip=dest_ip,
                     dest_port=dest_port,
                     protocol='TCP',
-                    user_id=user_id,
+                    user_id=user_id or '-',
                     raw_line=line.strip()
                 )
 
@@ -165,7 +179,7 @@ class LogParser:
                     dest_ip=dest_ip,
                     dest_port=dest_port,
                     protocol='TCP',
-                    user_id=user_id,
+                    user_id=user_id or '-',
                     raw_line=line.strip()
                 )
 
@@ -181,6 +195,24 @@ class LogParser:
                     app_path='-',
                     dest_ip=dest_ip,
                     dest_port=dest_port,
+                    protocol='TCP',
+                    user_id='-',
+                    raw_line=line.strip()
+                )
+
+            # Pattern 11: SESSION_CACHED
+            match = cls.SESSION_CACHED_PATTERN.search(log_message)
+            if match:
+                cache_key, allow_str = match.groups()
+                action = 'ALLOW' if allow_str == 'true' else 'BLOCK'
+                return LogEntry(
+                    timestamp=timestamp,
+                    event_type='SESSION',
+                    action=action,
+                    app_name=cache_key.split(':')[0],
+                    app_path='-',
+                    dest_ip='-',
+                    dest_port=cache_key.split(':')[-1],
                     protocol='TCP',
                     user_id='-',
                     raw_line=line.strip()
@@ -212,11 +244,11 @@ class LogParser:
                     event_type='LEARN',
                     action='ALLOW',
                     app_name=app_name,
-                    app_path=app_path,
+                    app_path=app_path or '-',
                     dest_ip=dest_ip,
                     dest_port=dest_port,
                     protocol='TCP',
-                    user_id=user_id,
+                    user_id=user_id or '-',
                     raw_line=line.strip()
                 )
 
@@ -233,7 +265,7 @@ class LogParser:
                     dest_ip=dest_ip,
                     dest_port=dest_port,
                     protocol='TCP',
-                    user_id=user_id,
+                    user_id=user_id or '-',
                     raw_line=line.strip()
                 )
 

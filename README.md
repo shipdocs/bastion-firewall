@@ -8,11 +8,9 @@ An application firewall for Linux that gives you control over outbound network c
 
 ![Bastion Firewall Control Panel](screenshots/status.png)
 
-## Overview
-
 Bastion intercepts outbound connections and prompts you to allow or deny them per application. It features a **high-performance Rust daemon** with **kernel-level eBPF process tracking** and a Qt 6 control panel.
 
-**NEW in v2.0.31:** Full IPv6 support - both IPv4 and IPv6 connections are now protected by the firewall.
+**NEW in v2.0.33:** One-Click Auto-Update - Easily install the latest version directly from the tray icon!
 
 **Target Platform:** Zorin OS 18 / Ubuntu 24.04 LTS (Debian-based distributions)
 
@@ -43,9 +41,9 @@ Bastion intercepts outbound connections and prompts you to allow or deny them pe
 - **Wildcard Port Rules** - Apply rules to all ports for an application (e.g., Zoom, Slack)
 - **Rule Search & Filtering** - Quickly find rules by app name, path, port, or action
 - **Import/Export Rules** - Backup and restore your firewall rules
-- **Manual Rule Entry** - Add custom rules without waiting for prompts
-- **Inline Action Toggle** - Double-click rules to toggle allow/deny
+- **Double-Click Actions** - Toggle allow/deny directly in the rules table
 - **App Icons** - Visual identification in rules table
+- **One-Click Auto-Update** - Install the latest version instantly from the system tray menu
 
 ## Installation
 

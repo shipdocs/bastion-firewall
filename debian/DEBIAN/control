@@ -1,5 +1,5 @@
 Package: bastion-firewall
-Version: 2.0.32
+Version: 2.0.33
 Section: net
 Priority: optional
 Architecture: amd64

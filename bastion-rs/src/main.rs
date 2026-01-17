@@ -276,7 +276,7 @@ fn process_packet(
     // Check whitelist
     let (auto_allow, reason) = should_auto_allow(&app_path, &app_name, dst_port, &dst_ip_str);
     if auto_allow {
-        debug!("[AUTO] {} - {}", app_name, reason);
+        info!("[AUTO] {} - {}", app_name, reason);
         return Verdict::Accept;
     }
 
@@ -284,7 +284,7 @@ fn process_packet(
     if app_path != "unknown" && !app_path.is_empty() {
         if let Some(allow) = rules.get_decision(&app_path, dst_port) {
             if allow {
-                debug!(
+                info!(
                     "[RULE:ALLOW] app=\"{}\" dst=\"{}:{}\" user={}",
                     display_name, dst_ip_str, dst_port, app_uid
                 );
@@ -306,7 +306,7 @@ fn process_packet(
         let name_based_key = format!("@name:{}", app_name);
         if let Some(allow) = rules.get_decision(&name_based_key, dst_port) {
             if allow {
-                debug!(
+                info!(
                     "[RULE:ALLOW:NAME] app=\"{}\" dst=\"{}:{}\" user={}",
                     app_name, dst_ip_str, dst_port, app_uid
                 );
@@ -329,7 +329,7 @@ fn process_packet(
         let dest_key = format!("@dest:{}:{}", dst_ip_str, dst_port);
         if let Some(allow) = rules.get_decision(&dest_key, 0) {
             if allow {
-                debug!(
+                info!(
                     "[RULE:ALLOW:DEST] dst=\"{}:{}\" (unknown app)",
                     dst_ip_str, dst_port
                 );
@@ -357,14 +357,14 @@ fn process_packet(
     if let Some(cached_allow) = gui.get_session_decision(&session_cache_key) {
         if cached_allow {
             drop(gui);
-            debug!(
+            info!(
                 "[SESSION:ALLOW] app=\"{}\" dst=\"{}:{}\"",
                 app_name, dst_ip_str, dst_port
             );
             return Verdict::Accept;
         } else if !learning_mode {
             drop(gui);
-            debug!(
+            info!(
                 "[SESSION:BLOCK] app=\"{}\" dst=\"{}:{}\"",
                 app_name, dst_ip_str, dst_port
             );
@@ -382,11 +382,11 @@ fn process_packet(
         if let Some(cached_decision) = gui.check_unknown_decision(&dst_ip_str, dst_port) {
             if cached_decision {
                 drop(gui);
-                debug!("[CACHED:ALLOW] unknown app dst=\"{}:{}\"", dst_ip_str, dst_port);
+                info!("[CACHED:ALLOW] unknown app dst=\"{}:{}\"", dst_ip_str, dst_port);
                 return Verdict::Accept;
             } else if !learning_mode {
                 drop(gui);
-                debug!("[CACHED:BLOCK] unknown app dst=\"{}:{}\"", dst_ip_str, dst_port);
+                info!("[CACHED:BLOCK] unknown app dst=\"{}:{}\"", dst_ip_str, dst_port);
                 return Verdict::Drop;
             } else {
                 info!(
@@ -464,7 +464,7 @@ fn process_packet(
         if let Some(resp) = response {
             let mut gui = gui_state.lock();
             gui.cache_session_decision(&session_cache_key, resp.allow);
-            debug!(
+            info!(
                 "[SESSION] Cached decision for {} (allow: {})",
                 session_cache_key, resp.allow
             );

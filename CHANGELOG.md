@@ -1,4 +1,21 @@
-## [2.0.31] - 2026-01-17
+## [2.0.33] - 2026-01-17
+
+### Added
+- **One-Click Auto-Update**: Added simplified, in-app auto-update directly from the tray menu via `pkexec`. Updates are now faster and more user-friendly.
+
+### Fixed
+- **Empty Connection Logs**: Resolved high-priority issue where the logs section in the control panel was persistently empty.
+- **Log Level Promotion**: Promoted connection decision logs from `DEBUG` to `INFO` level to ensure they are captured by the systemd journal under default configurations.
+- **Enhanced Log Parser**: Rewrote the GUI log parsing logic to support modern daemon output formats and ensure accurate timestamp extraction from `journalctl`.
+
+## [2.0.32] - 2026-01-17
+
+### Added
+- Redesigned firewall popup dialog for improved clarity and user experience
+- Faster process identification in popups
+
+### Fixed
+- Intermittent crashes in tray icon on certain desktop environments
 
 ### Fixed
 - **Steam Popup Spam**: Resolved race condition where multiple simultaneous connections (common during Steam startup) triggered redundant popups.

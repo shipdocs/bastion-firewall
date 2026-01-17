@@ -126,7 +126,7 @@ impl GuiState {
 
         if let Some(time) = self.pending_cache.get(&cache_key) {
             if time.elapsed() < Duration::from_secs(30) {
-                debug!(
+                info!(
                     "Dedup: already asked for {} (waiting for response)",
                     cache_key
                 );
@@ -156,7 +156,7 @@ impl GuiState {
         }
 
         if request.learning_mode {
-            debug!(
+            info!(
                 "Learning mode: fired-and-forgot popup request for {}",
                 cache_key
             );
@@ -171,7 +171,7 @@ impl GuiState {
 
         // Return None - caller should check response cache after releasing lock
         // This prevents deadlock where we hold lock while waiting for handler to cache response
-        debug!("[GUI:POLL] Returning to caller to poll for response without holding lock (request_id={})", request.request_id);
+        info!("[GUI:POLL] Returning to caller to poll for response without holding lock (request_id={})", request.request_id);
         None
     }
 
@@ -202,7 +202,7 @@ impl GuiState {
         let key = format!("{}:{}", dest_ip, dest_port);
         if let Some(decision) = self.unknown_decisions.get(&key) {
             if decision.timestamp.elapsed() < Duration::from_secs(60) {
-                debug!(
+                info!(
                     "Using cached unknown decision for {}:{} -> {}",
                     dest_ip,
                     dest_port,
@@ -377,7 +377,7 @@ pub fn handle_gui_connection(
                         }
                         GuiCommand::CancelPopup(req) => {
                             // Daemon received cancel from GUI? (Not common, usually other way)
-                            debug!("[GUI:CANCEL] Cancel request received for {}", req.request_id);
+                            info!("[GUI:CANCEL] Cancel request received for {}", req.request_id);
                         }
                         GuiCommand::AddRule(req) => {
                             info!(
