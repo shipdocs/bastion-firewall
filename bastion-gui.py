@@ -15,10 +15,12 @@ import socket
 import signal
 import fcntl
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer, QSocketNotifier
 from bastion.gui.dialogs.firewall_dialog import FirewallDialog
 from bastion.icon_manager import IconManager
+from bastion import __version__ as BASTION_VERSION
+import urllib.request
 
 # Lock file to prevent multiple instances
 LOCK_FILE = f'/tmp/bastion-gui-{os.getuid()}.lock'
@@ -73,6 +75,8 @@ class BastionClient(QObject):
         self.connected = False
         self.learning_mode = False  # Track current learning mode state
         self.active_dialogs = {}  # Map request_id -> dialog
+        self.latest_update_version = None # Store latest version found
+        self.update_check_url = "https://raw.githubusercontent.com/shipdocs/bastion-firewall/master/VERSION"
 
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
@@ -132,6 +136,12 @@ class BastionClient(QObject):
         
         # Initial connection attempt
         self.try_connect()
+
+        # Update Check Timer (check every 6 hours, initial check after 5s)
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.check_for_updates)
+        self.update_timer.start(6 * 60 * 60 * 1000)
+        QTimer.singleShot(5000, self.check_for_updates)
 
     def try_connect(self):
         if self.connected:
@@ -420,6 +430,87 @@ class BastionClient(QObject):
             QTimer.singleShot(2500, self.try_connect)
         elif action == 'stop':
             QTimer.singleShot(1000, lambda: self.update_status("Stopped", "disconnected"))
+
+    def check_for_updates(self):
+        """Fetch VERSION file and notify if update is available"""
+        print(f"[UPDATE] Checking for updates (current: {BASTION_VERSION})...")
+        def _check():
+            try:
+                with urllib.request.urlopen(self.update_check_url, timeout=10) as response:
+                    new_version = response.read().decode().strip()
+                    
+                    if new_version and self._is_newer(new_version, BASTION_VERSION):
+                        print(f"[UPDATE] New version available: {new_version}")
+                        self.latest_update_version = new_version
+                        # Schedule menu update on main thread
+                        QTimer.singleShot(0, self.show_update_notification)
+            except Exception as e:
+                print(f"[UPDATE] Check failed: {e}")
+
+        import threading
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _is_newer(self, new_v, current_v):
+        """Simple semantic version comparison"""
+        try:
+            return [int(x) for x in new_v.split('.')] > [int(x) for x in current_v.split('.')]
+        except:
+            return new_v > current_v
+
+    def show_update_notification(self):
+        """Notify user and add update option to menu"""
+        if not self.latest_update_version:
+            return
+            
+        version = self.latest_update_version
+        self.tray_icon.showMessage(
+            "Update Available",
+            f"Bastion Firewall v{version} is now available. Click the tray menu to install.",
+            QSystemTrayIcon.MessageIcon.Information,
+            10000
+        )
+        
+        # Add to menu if not already there
+        if not hasattr(self, 'action_update'):
+            self.action_update = QAction(f"Install Update v{version}", self.menu)
+            self.menu.insertAction(self.action_cp, self.action_update)
+            self.action_update.triggered.connect(self.perform_update)
+            # Make it look distinct
+            font = self.action_update.font()
+            font.setBold(True)
+            self.action_update.setFont(font)
+
+    def perform_update(self):
+        """Execute the update as a one-liner via pkexec"""
+        if not self.latest_update_version:
+            return
+            
+        version = self.latest_update_version
+        url = f"https://github.com/shipdocs/bastion-firewall/releases/download/v{version}/bastion-firewall_{version}_all.deb"
+        
+        print(f"[UPDATE] Launching update command for v{version}...")
+        
+        import subprocess
+        try:
+            # One-liner update command: create temp file, download, install, cleanup
+            update_cmd = (
+                f'TMP_FILE=$(mktemp /tmp/bastion-update.XXXXXX.deb); '
+                f'echo "Downloading v{version}..."; '
+                f'wget -q --show-progress -O "$TMP_FILE" "{url}" && '
+                f'chmod 644 "$TMP_FILE" && '
+                f'echo "Installing..." && '
+                f'apt-get install -y "$TMP_FILE"; '
+                f'RES=$?; rm -f "$TMP_FILE"; exit $RES'
+            )
+            
+            # Run in terminal to show progress
+            # Using pkexec for the whole bash command
+            subprocess.Popen(['x-terminal-emulator', '-e', 'bash', '-c', 
+                             f'pkexec bash -c \'{update_cmd}\'; echo; echo "Press Enter to close..."; read'],
+                            start_new_session=True)
+        except Exception as e:
+            print(f"[UPDATE] Failed to launch update: {e}")
+            QMessageBox.critical(None, "Update Error", f"Failed to launch update: {e}")
 
 if __name__ == '__main__':
     # Prevent multiple instances
