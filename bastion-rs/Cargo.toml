@@ -7,6 +7,15 @@ edition = "2021"
 name = "bastion-daemon"
 path = "src/main.rs"
 
+[[bin]]
+name = "bastion-gui"
+path = "src/bin/bastion_gui.rs"
+
+[lib]
+name = "bastion_rs"
+path = "src/lib.rs"
+
+
 [dependencies]
 nfq = "0.2"
 etherparse = "0.13"
@@ -24,7 +33,14 @@ signal-hook = "0.3"
 pcap = "0.11"
 hickory-proto = "0.24"
 aya-log = "0.2"
-tokio = { version = "1.35", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.35", features = ["rt", "rt-multi-thread", "macros", "net", "time", "sync"] }
+
+# GUI dependencies
+iced = { version = "0.13", features = ["tokio"] }
+tray-icon = "0.19"
+muda = "0.15"
+image = "0.25"
+gtk = "0.18"
 
 [dev-dependencies]
 tempfile = "3.8"

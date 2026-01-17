@@ -3,7 +3,6 @@ use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
 use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -11,6 +10,7 @@ use std::thread;
 
 use crate::config::ConfigManager;
 use crate::rules::RuleManager;
+use bastion_rs::protocol::*;
 
 pub const SOCKET_PATH: &str = "/var/run/bastion/bastion-daemon.sock";
 pub const GUI_TIMEOUT_SECS: u64 = 60;
@@ -21,97 +21,6 @@ pub struct Stats {
     pub allowed_connections: u64,
     pub blocked_connections: u64,
     pub learning_mode: bool,
-}
-
-#[derive(Serialize)]
-pub struct ConnectionRequest {
-    #[serde(rename = "type")]
-    pub msg_type: String,
-    pub app_name: String,
-    pub app_path: String,
-    pub app_category: String,
-    pub dest_ip: String,
-    pub dest_port: u16,
-    pub protocol: String,
-    #[serde(default)]
-    pub learning_mode: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type")]
-pub enum GuiCommand {
-    #[serde(rename = "gui_response")]
-    Response(#[allow(dead_code)] GuiResponse),
-    #[serde(rename = "add_rule")]
-    AddRule(AddRuleRequest),
-    #[serde(rename = "delete_rule")]
-    DeleteRule(DeleteRuleRequest),
-    #[serde(rename = "list_rules")]
-    ListRules,
-    #[serde(rename = "clear_cache")]
-    ClearCache(ClearCacheRequest),
-}
-
-#[derive(Deserialize)]
-pub struct ClearCacheRequest {
-    pub cache_key: String,
-}
-
-#[derive(Deserialize)]
-pub struct AddRuleRequest {
-    pub app_path: String,
-    pub app_name: String,
-    pub port: u16,
-    pub allow: bool,
-    pub all_ports: bool,
-    #[serde(default)]
-    pub dest_ip: String,
-}
-
-#[derive(Deserialize)]
-pub struct DeleteRuleRequest {
-    pub key: String,  // Format: "app_path:port" or "@name:app:port" or "@dest:ip:port"
-}
-
-#[derive(Deserialize, Default)]
-pub struct GuiResponse {
-    pub allow: bool,
-    #[serde(default)]
-    pub permanent: bool,
-    #[serde(default)]
-    pub all_ports: bool,
-    #[serde(default)]  // Defaults to empty string for backwards compatibility
-    pub duration: String,
-}
-
-#[derive(Serialize)]
-pub struct StatsUpdate {
-    #[serde(rename = "type")]
-    pub msg_type: String,
-    pub stats: StatsData,
-}
-
-#[derive(Serialize)]
-pub struct StatsData {
-    pub total_connections: u64,
-    pub allowed_connections: u64,
-    pub blocked_connections: u64,
-    pub learning_mode: bool,
-}
-
-#[derive(Serialize)]
-pub struct RuleDeletedResponse {
-    #[serde(rename = "type")]
-    pub msg_type: String,
-    pub key: String,
-    pub success: bool,
-}
-
-#[derive(Serialize)]
-pub struct RulesListResponse {
-    #[serde(rename = "type")]
-    pub msg_type: String,
-    pub rules: serde_json::Value,
 }
 
 #[derive(Clone, Copy)]
@@ -133,7 +42,8 @@ pub struct GuiState {
     pub unknown_decisions: HashMap<String, UnknownDecision>,
     pub session_decisions: HashMap<String, SessionDecision>,
     /// Cache for popup responses from the GUI (to handle race condition with handler thread)
-    pub pending_response: Option<GuiResponse>,
+    /// Keyed by request_id
+    pub pending_responses: HashMap<String, GuiResponse>,
 }
 
 impl GuiState {
@@ -144,7 +54,7 @@ impl GuiState {
             pending_cache: HashMap::new(),
             unknown_decisions: HashMap::new(),
             session_decisions: HashMap::new(),
-            pending_response: None,
+            pending_responses: HashMap::new(),
         }
     }
 
@@ -254,21 +164,38 @@ impl GuiState {
         }
 
         // Check if there's already a pending response (from a previous race condition)
-        if let Some(resp) = self.pending_response.take() {
+        if let Some(resp) = self.pending_responses.values().next().cloned() {
             info!("[GUI:IMMEDIATE] Using existing cached response: allow={}", resp.allow);
             return Some(resp);
         }
 
         // Return None - caller should check response cache after releasing lock
         // This prevents deadlock where we hold lock while waiting for handler to cache response
-        info!("[GUI:POLL] Returning to caller to poll for response without holding lock");
+        debug!("[GUI:POLL] Returning to caller to poll for response without holding lock (request_id={})", request.request_id);
         None
     }
 
+    /// Notify GUI to cancel a specific popup
+    pub fn cancel_popup(&mut self, request_id: &str) {
+        if !self.is_connected() {
+            return;
+        }
+
+        let cancel = GuiNotification {
+            msg_type: "cancel_popup".to_string(),
+            request_id: request_id.to_string(),
+        };
+
+        if let Ok(json) = serde_json::to_string(&cancel) {
+            if let Some(ref mut stream) = self.stream {
+                let _ = stream.write_all((json + "\n").as_bytes());
+            }
+        }
+    }
+
     /// Check if a response has been cached by the handler thread
-    /// This should be called repeatedly after ask_gui returns None
-    pub fn check_response_cache(&mut self) -> Option<GuiResponse> {
-        self.pending_response.take()
+    pub fn check_response_cache(&mut self, request_id: &str) -> Option<GuiResponse> {
+        self.pending_responses.remove(request_id)
     }
 
     pub fn check_unknown_decision(&self, dest_ip: &str, dest_port: u16) -> Option<bool> {
@@ -445,8 +372,12 @@ pub fn handle_gui_connection(
                                 resp.duration.as_str()
                             };
                             // Cache the response for ask_gui() to retrieve (fixes race condition)
-                            info!("[GUI:RESPONSE] Caching popup response: allow={}, duration={}", resp.allow, duration);
-                            gui_state.lock().pending_response = Some(resp);
+                            info!("[GUI:RESPONSE] Caching response for {}: allow={}, duration={}", resp.request_id, resp.allow, duration);
+                            gui_state.lock().pending_responses.insert(resp.request_id.clone(), resp);
+                        }
+                        GuiCommand::CancelPopup(req) => {
+                            // Daemon received cancel from GUI? (Not common, usually other way)
+                            debug!("[GUI:CANCEL] Cancel request received for {}", req.request_id);
                         }
                         GuiCommand::AddRule(req) => {
                             info!(

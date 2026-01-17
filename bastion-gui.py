@@ -72,7 +72,7 @@ class BastionClient(QObject):
         self.buffer = ""
         self.connected = False
         self.learning_mode = False  # Track current learning mode state
-        self.active_dialogs = []  # Track dialogs for cleanup
+        self.active_dialogs = {}  # Map request_id -> dialog
 
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
@@ -239,13 +239,9 @@ class BastionClient(QObject):
 
     def _cleanup_dialogs(self):
         """Clean up any active dialogs to prevent memory leaks"""
-        for dialog in getattr(self, 'active_dialogs', []):
-            try:
-                if dialog and not dialog.isHidden():
-                    dialog.deleteLater()
-            except Exception as e:
-                print(f"[GUI] Error cleaning up dialog: {e}")
-        self.active_dialogs = []
+        for req_id in list(self.active_dialogs.keys()):
+            self.cancel_dialog(req_id)
+        self.active_dialogs = {}
 
     def process_message(self, line):
         try:
@@ -261,6 +257,8 @@ class BastionClient(QObject):
                     # Update icon to reflect new learning mode
                     self.update_status("Connected" if self.connected else "Disconnected",
                                       "connected" if self.connected else "disconnected")
+            elif req['type'] == 'cancel_popup':
+                self.cancel_dialog(req.get('request_id'))
             elif req['type'] == 'notification':
                 self.handle_notification(req)
         except json.JSONDecodeError:
@@ -280,13 +278,16 @@ class BastionClient(QObject):
         self.tray_icon.showMessage(title, message, icon, 5000)
 
     def handle_connection_request(self, req):
-        print(f"[GUI] Popup request: app_name='{req.get('app_name')}' app_path='{req.get('app_path')}' dst={req.get('dest_ip')}:{req.get('dest_port')}")
-        print(f"[GUI] Connection status: connected={self.connected}, sock={self.sock is not None}")
-        dialog = FirewallDialog(req, timeout=60)
-        decision_id = req.get('decision_id', 0)
+        request_id = req.get('request_id')
+        print(f"[GUI] Popup request: id={request_id} app_name='{req.get('app_name')}' dst={req.get('dest_ip')}:{req.get('dest_port')}")
+        
+        # If a dialog for this request is already open, ignore
+        if request_id in self.active_dialogs:
+            return
 
-        # Track dialog for cleanup
-        self.active_dialogs.append(dialog)
+        dialog = FirewallDialog(req, timeout=60)
+        # Store in map
+        self.active_dialogs[request_id] = dialog
 
         # Handle dialog completion (non-modal)
         learning_mode = req.get('learning_mode', False)
@@ -294,8 +295,8 @@ class BastionClient(QObject):
 
         def on_dialog_finished():
             # Remove from active dialogs
-            if dialog in self.active_dialogs:
-                self.active_dialogs.remove(dialog)
+            if request_id in self.active_dialogs:
+                del self.active_dialogs[request_id]
 
             decision = (dialog.decision == 'allow')
             permanent = dialog.permanent
@@ -337,11 +338,11 @@ class BastionClient(QObject):
                 # Normal enforcement mode - response to blocking request
                 resp = json.dumps({
                     'type': 'gui_response',
+                    'request_id': request_id,
                     'allow': decision,
                     'permanent': permanent,
                     'all_ports': all_ports,
                     'duration': duration,  # once/session/always
-                    'decision_id': decision_id
                 }) + '\n'
 
             try:
@@ -362,6 +363,22 @@ class BastionClient(QObject):
 
         dialog.finished.connect(on_dialog_finished)
         dialog.show()  # Non-modal - doesn't steal focus!
+
+    def cancel_dialog(self, request_id):
+        """Close a specific dialog by request_id"""
+        if not request_id:
+            return
+            
+        dialog = self.active_dialogs.get(request_id)
+        if dialog:
+            print(f"[GUI] Cancelling popup for request {request_id}")
+            try:
+                dialog.close()
+                dialog.deleteLater()
+            except Exception as e:
+                print(f"[GUI] Error cancelling dialog: {e}")
+            if request_id in self.active_dialogs:
+                del self.active_dialogs[request_id]
 
     def open_control_panel(self):
         import subprocess

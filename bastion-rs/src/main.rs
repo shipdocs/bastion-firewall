@@ -21,9 +21,10 @@ use signal_hook::consts::SIGHUP;
 use signal_hook::iterator::Signals;
 use std::thread;
 
+use bastion_rs::protocol::ConnectionRequest;
 use config::ConfigManager;
 use dns_snooper::DnsSnooper;
-use gui::{run_socket_server, ConnectionRequest, GuiState, Stats};
+use gui::{run_socket_server, GuiState, Stats};
 use process::ProcessCache;
 use rules::RuleManager;
 use whitelist::should_auto_allow;
@@ -396,8 +397,10 @@ fn process_packet(
         }
     }
 
+    let request_id = format!("{}-{}", app_name, uuid_simple());
     let request = ConnectionRequest {
         msg_type: "connection_request".to_string(),
+        request_id: request_id.clone(),
         app_name: display_name.clone(),
         app_path: app_path.clone(),
         app_category: "unknown".to_string(),
@@ -428,9 +431,27 @@ fn process_packet(
         let mut response = None;
 
         while start.elapsed() < timeout {
+            // briefly check rules first - another thread might have added a rule
+            if let Some(allow) = rules.get_decision(&app_path, dst_port) {
+                info!("[DAEMON:RACE] Another thread added rule for {}: allow={}", app_name, allow);
+                // Try to cancel OUR popup if it's still pending
+                let mut gui = gui_state.lock();
+                gui.cancel_popup(&request_id);
+                drop(gui);
+                return if allow { Verdict::Accept } else { Verdict::Drop };
+            }
+
             // Briefly acquire lock just to check cache
             let mut gui = gui_state.lock();
-            response = gui.check_response_cache();
+            // Check session decision for this app:port specifically (might have been added by another thread)
+            if let Some(cached_allow) = gui.get_session_decision(&session_cache_key) {
+                info!("[DAEMON:RACE] Another thread added session decision for {}: allow={}", app_name, cached_allow);
+                gui.cancel_popup(&request_id);
+                drop(gui);
+                return if cached_allow { Verdict::Accept } else { Verdict::Drop };
+            }
+
+            response = gui.check_response_cache(&request_id);
             drop(gui);
 
             if response.is_some() {
@@ -508,4 +529,11 @@ fn process_packet(
     } else {
         Verdict::Drop
     }
+}
+
+/// Simple unique ID generator since we don't want a heavy UUID dependency
+fn uuid_simple() -> String {
+    use std::time::SystemTime;
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
+    format!("{:x}{:x}", now.as_secs(), now.subsec_nanos())
 }

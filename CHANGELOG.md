@@ -1,3 +1,11 @@
+## [2.0.31] - 2026-01-17
+
+### Fixed
+- **Steam Popup Spam**: Resolved race condition where multiple simultaneous connections (common during Steam startup) triggered redundant popups.
+- **Rule Persistence**: Fixed critical bug where rules for "unknown" processes (using `@dest:IP:PORT`) were not saved to disk.
+- **Concurrent Decision Awareness**: Daemon now asynchronously checks for new rules while waiting for a user decision, allowing all pending connections for an app to be satisfied by a single "Allow All" click.
+- **GUI-Daemon Protocol**: Added unique request IDs and popup cancellation support to the IPC protocol.
+
 ## [2.0.30] - 2026-01-10
 
 ### Added

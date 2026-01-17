@@ -130,15 +130,19 @@ impl RuleManager {
     }
 
     pub fn add_rule(&self, app_path: &str, port: Option<u16>, allow: bool, all_ports: bool) {
-        if let Some(p) = port {
-            // Use port 0 as wildcard marker when all_ports is true
-            let stored_port = if all_ports { 0 } else { p };
-            {
-                let mut rules = self.rules.write();
-                rules.insert((app_path.to_string(), stored_port), allow);
-            }
-            self.save_rules();
+        let stored_port = if all_ports {
+            0 // Wildcard marker for "All ports" checkbox
+        } else if let Some(p) = port {
+            p
+        } else {
+            0 // Default to 0 for @dest rules where port is already in the app_path
+        };
+
+        {
+            let mut rules = self.rules.write();
+            rules.insert((app_path.to_string(), stored_port), allow);
         }
+        self.save_rules();
     }
 
     pub fn delete_rule(&self, key: &str) -> bool {
