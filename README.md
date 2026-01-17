@@ -12,7 +12,7 @@ An application firewall for Linux that gives you control over outbound network c
 
 Bastion intercepts outbound connections and prompts you to allow or deny them per application. It features a **high-performance Rust daemon** with **kernel-level eBPF process tracking** and a Qt 6 control panel.
 
-**NEW in v2.0.30:** Full IPv6 support - both IPv4 and IPv6 connections are now protected by the firewall.
+**NEW in v2.0.31:** Full IPv6 support - both IPv4 and IPv6 connections are now protected by the firewall.
 
 **Target Platform:** Zorin OS 18 / Ubuntu 24.04 LTS (Debian-based distributions)
 
