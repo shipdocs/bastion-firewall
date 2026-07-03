@@ -281,7 +281,7 @@ fn peer_is_authorized(peer_uid: libc::uid_t) -> bool {
             return false;
         }
         let mut members = (*grp).gr_mem;
-        while !(*members).is_null() {
+        while !members.is_null() && !(*members).is_null() {
             if std::ffi::CStr::from_ptr(*members) == user_cstr {
                 return true;
             }
@@ -388,7 +388,15 @@ pub fn run_socket_server(
                         drop(s);
                         continue;
                     }
-                    state.set_connection(s.try_clone().expect("Failed to clone stream"));
+                    match s.try_clone() {
+                        Ok(c) => state.set_connection(c),
+                        Err(e) => {
+                            error!("Failed to clone GUI stream: {}", e);
+                            drop(state);
+                            drop(s);
+                            continue;
+                        }
+                    }
                 }
 
                 let stats_clone = stats.clone();
