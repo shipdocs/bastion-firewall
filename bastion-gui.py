@@ -481,36 +481,54 @@ class BastionClient(QObject):
             self.action_update.setFont(font)
 
     def perform_update(self):
-        """Execute the update as a one-liner via pkexec"""
+        """Download the release .deb and install it via pkexec (no shell)."""
         if not self.latest_update_version:
             return
-            
-        version = self.latest_update_version
-        url = f"https://github.com/shipdocs/bastion-firewall/releases/download/v{version}/bastion-firewall_{version}_all.deb"
-        
-        print(f"[UPDATE] Launching update command for v{version}...")
-        
+
+        import re
+        import tempfile
+        import threading
         import subprocess
-        try:
-            # One-liner update command: create temp file, download, install, cleanup
-            update_cmd = (
-                f'TMP_FILE=$(mktemp /tmp/bastion-update.XXXXXX.deb); '
-                f'echo "Downloading v{version}..."; '
-                f'wget -q --show-progress -O "$TMP_FILE" "{url}" && '
-                f'chmod 644 "$TMP_FILE" && '
-                f'echo "Installing..." && '
-                f'apt-get install -y "$TMP_FILE"; '
-                f'RES=$?; rm -f "$TMP_FILE"; exit $RES'
-            )
-            
-            # Run in terminal to show progress
-            # Using pkexec for the whole bash command
-            subprocess.Popen(['x-terminal-emulator', '-e', 'bash', '-c', 
-                             f'pkexec bash -c \'{update_cmd}\'; echo; echo "Press Enter to close..."; read'],
-                            start_new_session=True)
-        except Exception as e:
-            print(f"[UPDATE] Failed to launch update: {e}")
-            QMessageBox.critical(None, "Update Error", f"Failed to launch update: {e}")
+
+        version = self.latest_update_version
+
+        # The version is read from a remotely-fetched VERSION file, so it is
+        # untrusted input. Validate it strictly before it reaches a URL or a
+        # subprocess - this closes the command-injection hole (#32).
+        if not re.fullmatch(r'\d+\.\d+\.\d+', version):
+            print(f"[UPDATE] Refusing update: invalid version string {version!r}")
+            QMessageBox.critical(None, "Update Error",
+                                 f"Invalid update version received: {version}")
+            return
+
+        url = f"https://github.com/shipdocs/bastion-firewall/releases/download/v{version}/bastion-firewall_{version}_all.deb"
+
+        print(f"[UPDATE] Downloading v{version}...")
+
+        def _download_and_install():
+            deb_path = None
+            try:
+                fd, deb_path = tempfile.mkstemp(prefix="bastion-update-", suffix=".deb")
+                os.close(fd)
+                urllib.request.urlretrieve(url, deb_path)
+                os.chmod(deb_path, 0o644)
+                print(f"[UPDATE] Installing v{version}...")
+                # argv list, never a shell string: no version data is
+                # interpreted by a shell.
+                proc = subprocess.Popen(['pkexec', 'apt-get', 'install', '-y', deb_path])
+                proc.wait()
+            except Exception as e:
+                print(f"[UPDATE] Failed to install update: {e}")
+                QTimer.singleShot(0, lambda: QMessageBox.critical(
+                    None, "Update Error", f"Failed to install update: {e}"))
+            finally:
+                if deb_path and os.path.exists(deb_path):
+                    try:
+                        os.remove(deb_path)
+                    except OSError:
+                        pass
+
+        threading.Thread(target=_download_and_install, daemon=True).start()
 
 if __name__ == '__main__':
     # Prevent multiple instances
