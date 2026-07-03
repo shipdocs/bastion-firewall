@@ -1306,7 +1306,13 @@ X-GNOME-Autostart-enabled=true
                    f'WAYLAND_DISPLAY={wayland_display}',
                    f'XDG_RUNTIME_DIR={xdg_runtime}',
                    'gufw']
-            proc = subprocess.Popen(cmd, start_new_session=True)
+            try:
+                proc = subprocess.Popen(cmd, start_new_session=True)
+            except Exception:
+                # If we never launched gufw, revoke the root display grant now
+                # so it is not left open indefinitely.
+                subprocess.run(['xhost', '-si:localuser:root'], capture_output=True)
+                raise
             # Revoke the temporary root display grant once gufw exits so it is
             # not left open indefinitely.
             import threading
@@ -1903,16 +1909,26 @@ X-GNOME-Autostart-enabled=true
                 QMessageBox.warning(self, "Import Error", "Invalid rules file format. Expected a dictionary.")
                 return
 
-            # Validate every entry before merging: keys must be "path:port" or
-            # "path:*", and values must be booleans. This prevents a malformed
-            # or malicious rules file from injecting junk into the rule set.
-            import re
-            key_pattern = re.compile(r'^.+:(\d+|\*)$')
+            # Validate every entry before merging: keys must be "path:port"
+            # where path is an absolute filesystem path and port is '*' or an
+            # integer in 1..65535, and values must be booleans. This prevents a
+            # malformed or malicious rules file from injecting junk into the
+            # rule set.
             for key, value in imported_rules.items():
-                if not isinstance(key, str) or not key_pattern.match(key):
+                if not isinstance(key, str) or ':' not in key:
                     QMessageBox.warning(self, "Import Error",
                                         f"Invalid rule key: {key!r}\n\nExpected format 'path:port' or 'path:*'.")
                     return
+                path, port = key.rsplit(':', 1)
+                if not path or not path.startswith('/'):
+                    QMessageBox.warning(self, "Import Error",
+                                        f"Invalid rule key: {key!r}\n\nExecutable path must be absolute.")
+                    return
+                if port != '*':
+                    if not port.isdigit() or not (1 <= int(port) <= 65535):
+                        QMessageBox.warning(self, "Import Error",
+                                            f"Invalid port in rule key: {key!r}\n\nPort must be '*' or 1-65535.")
+                        return
                 if not isinstance(value, bool):
                     QMessageBox.warning(self, "Import Error",
                                         f"Invalid rule value for {key!r}: expected true/false.")
