@@ -219,7 +219,7 @@ When an application connects to a raw IP address (not via DNS), Bastion may perf
 
 ### Root Privileges
 The `bastion-daemon` requires root privileges (`CAP_NET_ADMIN` and `CAP_BPF`) to manage `iptables` rules and attach eBPF probes.
-- **Security Design**: The GUI dashboard and tray icon run as a regular user. Communication between the GUI and the root daemon occurs over a hardened Unix socket with peer credential verification (`SO_PEERCRED`), ensuring only you can authorize firewall decisions.
+- **Security Design**: The GUI dashboard and tray icon run as a regular user. Communication between the GUI and the root daemon occurs over a hardened Unix socket (mode `0o660`, owned `root:bastion`) with peer credential verification (`SO_PEERCRED`): only root and members of the `bastion` group can connect, and connections are rejected fail-closed if credentials cannot be verified — ensuring only you can authorize firewall decisions.
 
 ## License
 
