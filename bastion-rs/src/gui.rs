@@ -163,8 +163,9 @@ impl GuiState {
             return None;
         }
 
-        // Check if there's already a pending response (from a previous race condition)
-        if let Some(resp) = self.pending_responses.values().next().cloned() {
+        // Check if a response for THIS request is already cached (race condition).
+        // Match by request_id so we never return another session's response.
+        if let Some(resp) = self.pending_responses.remove(&request.request_id) {
             info!("[GUI:IMMEDIATE] Using existing cached response: allow={}", resp.allow);
             return Some(resp);
         }
@@ -230,6 +231,67 @@ impl GuiState {
     }
 }
 
+/// Look up the numeric GID of the `bastion` group, if it exists.
+#[cfg(unix)]
+fn bastion_gid() -> Option<libc::gid_t> {
+    let name = std::ffi::CString::new("bastion").ok()?;
+    let grp = unsafe { libc::getgrnam(name.as_ptr()) };
+    if grp.is_null() {
+        None
+    } else {
+        Some(unsafe { (*grp).gr_gid })
+    }
+}
+
+/// Decide whether a peer (by uid, from SO_PEERCRED) may talk to the control
+/// socket. Root is always allowed; any other user must be a member of the
+/// `bastion` group (primary or supplementary). Fails closed on lookup errors.
+#[cfg(unix)]
+fn peer_is_authorized(peer_uid: libc::uid_t) -> bool {
+    if peer_uid == 0 {
+        return true;
+    }
+
+    let bastion_gid = match bastion_gid() {
+        Some(gid) => gid,
+        None => return false,
+    };
+
+    unsafe {
+        let pw = libc::getpwuid(peer_uid);
+        if pw.is_null() {
+            return false;
+        }
+        // Primary group membership.
+        if (*pw).pw_gid == bastion_gid {
+            return true;
+        }
+        // Supplementary membership: scan the group's member list.
+        let user_name = (*pw).pw_name;
+        if user_name.is_null() {
+            return false;
+        }
+        let user_cstr = std::ffi::CStr::from_ptr(user_name);
+        let grp_name = match std::ffi::CString::new("bastion") {
+            Ok(n) => n,
+            Err(_) => return false,
+        };
+        let grp = libc::getgrnam(grp_name.as_ptr());
+        if grp.is_null() {
+            return false;
+        }
+        let mut members = (*grp).gr_mem;
+        while !(*members).is_null() {
+            if std::ffi::CStr::from_ptr(*members) == user_cstr {
+                return true;
+            }
+            members = members.add(1);
+        }
+    }
+
+    false
+}
+
 pub fn run_socket_server(
     gui_state: Arc<Mutex<GuiState>>,
     stats: Arc<Mutex<Stats>>,
@@ -263,7 +325,15 @@ pub fn run_socket_server(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o666));
+        // 0o660 + root:bastion ownership: only root and members of the bastion
+        // group can connect. The kernel enforces this at connect() time.
+        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o660));
+        let gid = bastion_gid().unwrap_or(0);
+        if let Ok(path_c) = std::ffi::CString::new(SOCKET_PATH) {
+            if unsafe { libc::chown(path_c.as_ptr(), 0, gid) } != 0 {
+                warn!("Failed to chown control socket to root:bastion");
+            }
+        }
     }
 
     info!("Socket server listening on {}", SOCKET_PATH);
@@ -290,23 +360,36 @@ pub fn run_socket_server(
 
                     if result == 0 {
                         let peer_uid = cred.uid;
-                        if peer_uid == 0 || peer_uid >= 1000 {
+                        if peer_is_authorized(peer_uid) {
                             info!("GUI client connected (UID: {})", peer_uid);
                         } else {
-                            warn!("Rejected connection from system user (UID: {})", peer_uid);
+                            warn!("Rejected unauthorized connection (UID: {})", peer_uid);
                             drop(s);
                             continue;
                         }
                     } else {
-                        warn!("Failed to get peer credentials, allowing connection");
+                        // Fail closed: if we cannot verify the peer, reject it.
+                        warn!("Rejected connection: failed to get peer credentials");
+                        drop(s);
+                        continue;
                     }
                 }
 
                 #[cfg(not(unix))]
                 info!("GUI client connecting");
-                gui_state
-                    .lock()
-                    .set_connection(s.try_clone().expect("Failed to clone stream"));
+
+                // Refuse a second concurrent GUI: an already-connected session
+                // owns the socket until it disconnects (prevents hijack, #33).
+                {
+                    let mut state = gui_state.lock();
+                    if state.is_connected() {
+                        warn!("Refusing GUI connection: a GUI is already connected");
+                        drop(state);
+                        drop(s);
+                        continue;
+                    }
+                    state.set_connection(s.try_clone().expect("Failed to clone stream"));
+                }
 
                 let stats_clone = stats.clone();
                 let gui_state_clone = gui_state.clone();
