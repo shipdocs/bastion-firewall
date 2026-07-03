@@ -9,7 +9,11 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-DEB_FILE="bastion-firewall_2.0.0_all.deb"
+if [ -f "VERSION" ]; then
+    DEB_FILE="bastion-firewall_$(tr -d '[:space:]' < VERSION)_all.deb"
+else
+    DEB_FILE=$(ls bastion-firewall_*_all.deb 2>/dev/null | head -n1)
+fi
 
 # Optional: Verify package integrity (recommended for security)
 # Uncomment and set the expected SHA256 hash to enable verification

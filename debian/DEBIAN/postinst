@@ -33,7 +33,7 @@ if [ ! -f /etc/bastion/config.json ]; then
     if [ -f /usr/share/doc/bastion-firewall/config.json.example ]; then
         cp /usr/share/doc/bastion-firewall/config.json.example /etc/bastion/config.json
     else
-        echo '{"log_level": "INFO", "rules_file": "/etc/bastion/rules.json"}' > /etc/bastion/config.json
+        echo '{"mode": "learning", "log_level": "INFO", "rules_file": "/etc/bastion/rules.json"}' > /etc/bastion/config.json
     fi
     chmod 644 /etc/bastion/config.json
 fi

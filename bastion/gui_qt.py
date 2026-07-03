@@ -1306,7 +1306,18 @@ X-GNOME-Autostart-enabled=true
                    f'WAYLAND_DISPLAY={wayland_display}',
                    f'XDG_RUNTIME_DIR={xdg_runtime}',
                    'gufw']
-            subprocess.Popen(cmd, start_new_session=True)
+            proc = subprocess.Popen(cmd, start_new_session=True)
+            # Revoke the temporary root display grant once gufw exits so it is
+            # not left open indefinitely.
+            import threading
+
+            def _revoke_xhost(p=proc):
+                try:
+                    p.wait()
+                finally:
+                    subprocess.run(['xhost', '-si:localuser:root'], capture_output=True)
+
+            threading.Thread(target=_revoke_xhost, daemon=True).start()
         else:
             subprocess.Popen(['gufw'], start_new_session=True)
 
@@ -1891,6 +1902,21 @@ X-GNOME-Autostart-enabled=true
             if not isinstance(imported_rules, dict):
                 QMessageBox.warning(self, "Import Error", "Invalid rules file format. Expected a dictionary.")
                 return
+
+            # Validate every entry before merging: keys must be "path:port" or
+            # "path:*", and values must be booleans. This prevents a malformed
+            # or malicious rules file from injecting junk into the rule set.
+            import re
+            key_pattern = re.compile(r'^.+:(\d+|\*)$')
+            for key, value in imported_rules.items():
+                if not isinstance(key, str) or not key_pattern.match(key):
+                    QMessageBox.warning(self, "Import Error",
+                                        f"Invalid rule key: {key!r}\n\nExpected format 'path:port' or 'path:*'.")
+                    return
+                if not isinstance(value, bool):
+                    QMessageBox.warning(self, "Import Error",
+                                        f"Invalid rule value for {key!r}: expected true/false.")
+                    return
 
             # Ask user how to merge
             reply = QMessageBox.question(
