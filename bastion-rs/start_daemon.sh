@@ -25,8 +25,13 @@ BYPASS="--queue-bypass"
 if grep -qs '"fail_closed"[[:space:]]*:[[:space:]]*true' /etc/bastion/config.json; then
     BYPASS=""
 fi
-iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 $BYPASS 2>/dev/null || \
-iptables -A OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 $BYPASS
+# Remove BOTH variants (with and without --queue-bypass) first, so a
+# fail_closed flip actually takes effect. Only Bastion's own rule (tagged with
+# the "bastion-firewall" comment) is targeted.
+iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || true
+iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 2>/dev/null || true
+iptables -C OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 $BYPASS 2>/dev/null || \
+iptables -A OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 $BYPASS
 
 echo "✅ OUTPUT chain rules configured"
 echo ""

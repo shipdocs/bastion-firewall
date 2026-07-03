@@ -41,8 +41,9 @@ while ip6tables -L INPUT -n --line-numbers 2>/dev/null | grep -q "BASTION_INBOUN
     fi
 done
 
-# Remove NFQUEUE rule from OUTPUT
-iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || true
+# Remove NFQUEUE rule from OUTPUT (both variants, matched by Bastion's own comment)
+iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || true
+iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 2>/dev/null || true
 
 echo "iptables rules cleaned up"
 
