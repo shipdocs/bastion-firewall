@@ -327,12 +327,27 @@ pub fn run_socket_server(
         use std::os::unix::fs::PermissionsExt;
         // 0o660 + root:bastion ownership: only root and members of the bastion
         // group can connect. The kernel enforces this at connect() time.
-        let _ = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o660));
+        //
+        // Fail closed: if the mode cannot be tightened to 0o660 the socket may
+        // be left world-accessible, so remove it and refuse to serve rather
+        // than expose a weakly-permissioned control socket.
+        if let Err(e) = std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o660))
+        {
+            error!("Failed to set control socket mode to 0o660: {}", e);
+            let _ = std::fs::remove_file(SOCKET_PATH);
+            return;
+        }
         let gid = bastion_gid().unwrap_or(0);
-        if let Ok(path_c) = std::ffi::CString::new(SOCKET_PATH) {
-            if unsafe { libc::chown(path_c.as_ptr(), 0, gid) } != 0 {
-                warn!("Failed to chown control socket to root:bastion");
-            }
+        let chown_ok = match std::ffi::CString::new(SOCKET_PATH) {
+            Ok(path_c) => (unsafe { libc::chown(path_c.as_ptr(), 0, gid) }) == 0,
+            Err(_) => false,
+        };
+        if !chown_ok {
+            // Ownership is not root:bastion, so 0o660 does not restrict access
+            // to the intended group. Fail closed.
+            error!("Failed to chown control socket to root:bastion; refusing to serve");
+            let _ = std::fs::remove_file(SOCKET_PATH);
+            return;
         }
     }
 

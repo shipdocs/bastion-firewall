@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStartPre=/bin/sh -c 'BYPASS=--queue-bypass; grep -qs "\"fail_closed\"[[:space:]]*:[[:space:]]*true" /etc/bastion/config.json && BYPASS=; iptables -C OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 $$BYPASS 2>/dev/null || iptables -I OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 $$BYPASS'
+ExecStartPre=/bin/sh -c 'BYPASS=--queue-bypass; tr -d " \t\n\r" < /etc/bastion/config.json 2>/dev/null | grep -q "\"fail_closed\":true" && BYPASS=; iptables -C OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 $$BYPASS 2>/dev/null || iptables -I OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 $$BYPASS'
 ExecStart=/usr/bin/bastion-daemon
 ExecStartPost=/usr/bin/bastion-launch
 ExecStopPost=/bin/sh -c 'iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || true; iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 2>/dev/null || true'

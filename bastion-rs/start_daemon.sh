@@ -22,7 +22,9 @@ iptables -I OUTPUT 1 -m owner --gid-owner systemd-network -m comment --comment "
 # --queue-bypass so traffic is dropped rather than passed when the daemon is down.
 # Append to end of chain instead of hardcoded position to handle variable bypass rules
 BYPASS="--queue-bypass"
-if grep -qs '"fail_closed"[[:space:]]*:[[:space:]]*true' /etc/bastion/config.json; then
+# Strip all whitespace/newlines first so detection is robust to pretty-printed
+# JSON (a newline after the colon must still count as fail_closed).
+if tr -d ' \t\n\r' < /etc/bastion/config.json 2>/dev/null | grep -q '"fail_closed":true'; then
     BYPASS=""
 fi
 # Remove BOTH variants (with and without --queue-bypass) first, so a
