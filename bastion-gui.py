@@ -513,14 +513,24 @@ class BastionClient(QObject):
                 urllib.request.urlretrieve(url, deb_path)
                 os.chmod(deb_path, 0o644)
                 print(f"[UPDATE] Installing v{version}...")
+                # Use absolute paths so PATH cannot be hijacked; verify each
+                # binary exists and is executable before invoking.
+                pkexec = '/usr/bin/pkexec'
+                apt_get = '/usr/bin/apt-get'
+                for binary in (pkexec, apt_get):
+                    if not (os.path.isfile(binary) and os.access(binary, os.X_OK)):
+                        raise RuntimeError(f"Required binary missing or not executable: {binary}")
                 # argv list, never a shell string: no version data is
                 # interpreted by a shell.
-                proc = subprocess.Popen(['pkexec', 'apt-get', 'install', '-y', deb_path])
-                proc.wait()
+                proc = subprocess.Popen([pkexec, apt_get, 'install', '-y', deb_path])
+                rc = proc.wait()
+                if rc != 0:
+                    raise RuntimeError(f"apt-get install exited with status {rc}")
             except Exception as e:
-                print(f"[UPDATE] Failed to install update: {e}")
+                msg = str(e)
+                print(f"[UPDATE] Failed to install update: {msg}")
                 QTimer.singleShot(0, lambda: QMessageBox.critical(
-                    None, "Update Error", f"Failed to install update: {e}"))
+                    None, "Update Error", f"Failed to install update: {msg}"))
             finally:
                 if deb_path and os.path.exists(deb_path):
                     try:
