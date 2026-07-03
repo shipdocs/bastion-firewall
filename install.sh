@@ -12,7 +12,7 @@ fi
 if [ -f "VERSION" ]; then
     DEB_FILE="bastion-firewall_$(tr -d '[:space:]' < VERSION)_all.deb"
 else
-    DEB_FILE=$(ls bastion-firewall_*_all.deb 2>/dev/null | head -n1)
+    DEB_FILE=$(find . -maxdepth 1 -name 'bastion-firewall_*_all.deb' -printf '%f\n' 2>/dev/null | sort -V | tail -n1)
 fi
 
 # Optional: Verify package integrity (recommended for security)
