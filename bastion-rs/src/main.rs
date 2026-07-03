@@ -35,7 +35,7 @@ const QUEUE_NUM: u16 = 1;
 async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    info!("Bastion Firewall Daemon v2.0.29 starting...");
+    info!("Bastion Firewall Daemon v{} starting...", env!("CARGO_PKG_VERSION"));
 
     let config = Arc::new(ConfigManager::new());
     let rules = Arc::new(RuleManager::new());
@@ -193,12 +193,21 @@ fn process_packet(
     gui_state: &Arc<Mutex<GuiState>>,
 ) -> Verdict {
     let learning_mode = config.is_learning_mode();
-    
+
+    // Verdict for packets we cannot parse or inspect. In fail-closed enforcement
+    // mode these are dropped; otherwise (default) they are accepted to avoid
+    // network lockouts.
+    let uninspectable = if config.is_fail_closed() && !learning_mode {
+        Verdict::Drop
+    } else {
+        Verdict::Accept
+    };
+
     // Detect IP version from first byte (version is in high nibble)
     if payload.is_empty() {
-        return Verdict::Accept;
+        return uninspectable;
     }
-    
+
     let ip_version = (payload[0] >> 4) & 0x0F;
     
     // Parse IP header and extract addresses, protocol, and transport offset
@@ -207,7 +216,7 @@ fn process_packet(
             // IPv4
             let ip_header = match Ipv4HeaderSlice::from_slice(payload) {
                 Ok(h) => h,
-                Err(_) => return Verdict::Accept,
+                Err(_) => return uninspectable,
             };
             
             let src_ip = ip_header.source_addr();
@@ -221,7 +230,7 @@ fn process_packet(
             // IPv6
             let ip_header = match Ipv6HeaderSlice::from_slice(payload) {
                 Ok(h) => h,
-                Err(_) => return Verdict::Accept,
+                Err(_) => return uninspectable,
             };
             
             let src_ip = ip_header.source_addr();
@@ -232,13 +241,13 @@ fn process_packet(
             (format!("{}", src_ip), format!("{}", dst_ip), proto, ip_len)
         }
         _ => {
-            // Unknown IP version, accept
-            return Verdict::Accept;
+            // Unknown IP version
+            return uninspectable;
         }
     };
 
     if payload.len() <= transport_offset {
-        return Verdict::Accept;
+        return uninspectable;
     }
 
     let transport_slice = &payload[transport_offset..];
@@ -247,13 +256,13 @@ fn process_packet(
     let (src_port, dst_port, protocol_str) = match proto {
         6 => match TcpHeaderSlice::from_slice(transport_slice) {
             Ok(tcp) => (tcp.source_port(), tcp.destination_port(), "TCP"),
-            Err(_) => return Verdict::Accept,
+            Err(_) => return uninspectable,
         },
         17 => match UdpHeaderSlice::from_slice(transport_slice) {
             Ok(udp) => (udp.source_port(), udp.destination_port(), "UDP"),
-            Err(_) => return Verdict::Accept,
+            Err(_) => return uninspectable,
         },
-        _ => return Verdict::Accept,
+        _ => return uninspectable,
     };
 
     // Identify process
@@ -518,7 +527,7 @@ fn process_packet(
                 Verdict::Drop
             };
         } else {
-            info!("[GUI:TIMEOUT] No response received after 30s");
+            info!("[GUI:TIMEOUT] No response received after 60s");
         }
     } else {
         drop(gui);

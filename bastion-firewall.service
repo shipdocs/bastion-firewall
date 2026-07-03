@@ -4,10 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStartPre=/bin/sh -c 'iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || iptables -I OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass'
+ExecStartPre=/bin/sh -c 'BYPASS=--queue-bypass; grep -qs "\"fail_closed\"[[:space:]]*:[[:space:]]*true" /etc/bastion/config.json && BYPASS=; iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 $$BYPASS 2>/dev/null || iptables -I OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 $$BYPASS'
 ExecStart=/usr/bin/bastion-daemon
 ExecStartPost=/usr/bin/bastion-launch
-ExecStopPost=/bin/sh -c 'iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || true'
+ExecStopPost=/bin/sh -c 'iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || true; iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || true'
 ExecStopPost=/bin/sh -c 'rm -f /var/run/bastion/bastion-daemon.sock'
 Restart=always
 RestartSec=5s

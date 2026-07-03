@@ -21,11 +21,17 @@ pub enum OperationMode {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
+    #[serde(default)]
     pub mode: OperationMode,
     #[serde(default = "default_true")]
     pub popup_enabled: bool,
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
+    /// When true, packets that cannot be parsed/inspected are dropped in
+    /// enforcement mode and the NFQUEUE rule is installed without
+    /// `--queue-bypass`. Default false preserves the current fail-open behavior.
+    #[serde(default)]
+    pub fail_closed: bool,
 }
 
 fn default_true() -> bool { true }
@@ -36,6 +42,7 @@ impl Default for Config {
             mode: OperationMode::Learning,
             popup_enabled: true,
             notifications_enabled: true,
+            fail_closed: false,
         }
     }
 }
@@ -87,6 +94,10 @@ impl ConfigManager {
 
     pub fn is_learning_mode(&self) -> bool {
         self.config.read().mode == OperationMode::Learning
+    }
+
+    pub fn is_fail_closed(&self) -> bool {
+        self.config.read().fail_closed
     }
 
 }
