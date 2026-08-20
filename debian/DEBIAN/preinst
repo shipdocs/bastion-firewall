@@ -19,23 +19,15 @@ case "$1" in
         rm -f /var/run/douane.sock 2>/dev/null || true
         rm -f /tmp/douane-daemon.sock 2>/dev/null || true
 
-        # Remove iptables NFQUEUE rules
-        while true; do
-            line_num=$(iptables -L OUTPUT -n --line-numbers | grep "NFQUEUE" | awk '{print $1}' | head -n 1)
-            if [ -z "$line_num" ]; then
-                break
-            fi
-            iptables -D OUTPUT "$line_num" || break
+        # Remove only Bastion's own NFQUEUE rules by exact match. Never flush
+        # the OUTPUT chain or reset its policy - that would tear down unrelated
+        # firewall rules the user or another firewall installed.
+        while iptables -C OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null; do
+            iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || break
         done
-
-        # Force cleanup if rules remain
-        if iptables -S OUTPUT 2>/dev/null | grep -q NFQUEUE; then
-            iptables-save | grep -v NFQUEUE | iptables-restore 2>/dev/null || true
-            if iptables -S OUTPUT 2>/dev/null | grep -q NFQUEUE; then
-                iptables -F OUTPUT 2>/dev/null || true
-                iptables -P OUTPUT ACCEPT 2>/dev/null || true
-            fi
-        fi
+        while iptables -C OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 2>/dev/null; do
+            iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 2>/dev/null || break
+        done
         ;;
 
     abort-upgrade)

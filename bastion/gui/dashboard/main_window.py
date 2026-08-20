@@ -930,7 +930,24 @@ X-GNOME-Autostart-enabled=true
                    f'WAYLAND_DISPLAY={wayland_display}',
                    f'XDG_RUNTIME_DIR={xdg_runtime}',
                    'gufw']
-            subprocess.Popen(cmd, start_new_session=True)
+            try:
+                proc = subprocess.Popen(cmd, start_new_session=True)
+            except Exception:
+                # If we never launched gufw, revoke the root display grant now
+                # so it is not left open indefinitely.
+                subprocess.run(['xhost', '-si:localuser:root'], capture_output=True)
+                raise
+            # Revoke the temporary root display grant once gufw exits so it is
+            # not left open indefinitely.
+            import threading
+
+            def _revoke_xhost(p=proc):
+                try:
+                    p.wait()
+                finally:
+                    subprocess.run(['xhost', '-si:localuser:root'], capture_output=True)
+
+            threading.Thread(target=_revoke_xhost, daemon=True).start()
         else:
             subprocess.Popen(['gufw'], start_new_session=True)
 

@@ -75,13 +75,13 @@ echo "✅ Services stopped"
 echo "==> Cleaning up iptables rules..."
 
 # Remove NFQUEUE rules with --queue-bypass
-while iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null; do
-    iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || break
+while iptables -C OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null; do
+    iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || break
 done
 
 # Also remove any old NFQUEUE rules without --queue-bypass
-while iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null; do
-    iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || break
+while iptables -C OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 2>/dev/null; do
+    iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 2>/dev/null || break
 done
 
 # FIX #8, #21: Remove BASTION_BYPASS rules with full rule specification

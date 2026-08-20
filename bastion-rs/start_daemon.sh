@@ -17,10 +17,23 @@ iptables -C OUTPUT -m owner --gid-owner systemd-network -m comment --comment "BA
 iptables -I OUTPUT 1 -m owner --gid-owner systemd-network -m comment --comment "BASTION_BYPASS" -j ACCEPT 2>/dev/null || true
 
 # 3. NFQUEUE rule (goes after bypass rules, so it's checked last)
-# Use --queue-bypass to prevent network lockouts if daemon crashes/is not running
+# By default use --queue-bypass to prevent network lockouts if the daemon
+# crashes/is not running. When fail_closed is set in config.json, omit
+# --queue-bypass so traffic is dropped rather than passed when the daemon is down.
 # Append to end of chain instead of hardcoded position to handle variable bypass rules
-iptables -C OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || \
-iptables -A OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 --queue-bypass
+BYPASS="--queue-bypass"
+# Strip all whitespace/newlines first so detection is robust to pretty-printed
+# JSON (a newline after the colon must still count as fail_closed).
+if tr -d ' \t\n\r' < /etc/bastion/config.json 2>/dev/null | grep -q '"fail_closed":true'; then
+    BYPASS=""
+fi
+# Remove BOTH variants (with and without --queue-bypass) first, so a
+# fail_closed flip actually takes effect. Only Bastion's own rule (tagged with
+# the "bastion-firewall" comment) is targeted.
+iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || true
+iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 2>/dev/null || true
+iptables -C OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 $BYPASS 2>/dev/null || \
+iptables -A OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 $BYPASS
 
 echo "✅ OUTPUT chain rules configured"
 echo ""

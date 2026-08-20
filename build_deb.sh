@@ -158,7 +158,7 @@ chmod 644 debian/usr/share/polkit-1/actions/com.bastion.firewall.policy
 
 # Create AppStream metadata for Software Center
 print_step "Creating AppStream metadata..."
-cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << 'EOF'
+cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>com.bastion.firewall</id>
@@ -279,7 +279,7 @@ License: GPL-3.0+
 EOF
 
 # Create changelog
-cat > debian/usr/share/doc/bastion-firewall/changelog << 'EOF'
+cat > debian/usr/share/doc/bastion-firewall/changelog << EOF
 bastion-firewall (${VERSION}) stable; urgency=medium
 
   * 🏰 Release v${VERSION}

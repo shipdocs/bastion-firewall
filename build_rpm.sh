@@ -358,9 +358,11 @@ if [ $1 -eq 0 ]; then
     pkill -f bastion-daemon 2>/dev/null || true
     pkill -f bastion-gui 2>/dev/null || true
 
-    # Remove iptables rules
-    iptables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || true
-    ip6tables -D OUTPUT -m state --state NEW -j NFQUEUE --queue-num 1 2>/dev/null || true
+    # Remove iptables rules (both variants, matched by Bastion's own comment)
+    iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || true
+    iptables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 2>/dev/null || true
+    ip6tables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 --queue-bypass 2>/dev/null || true
+    ip6tables -D OUTPUT -m state --state NEW -m comment --comment "bastion-firewall" -j NFQUEUE --queue-num 1 2>/dev/null || true
 
     echo "✓ Bastion Firewall stopped"
 fi
