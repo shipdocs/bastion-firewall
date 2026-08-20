@@ -287,12 +287,37 @@ if [ $1 -eq 2 ]; then
     systemctl stop bastion-firewall 2>/dev/null || true
 fi
 
+# Create bastion user/group if they don't exist.
+# The daemon's control socket is 0660 root:bastion and rejects peers that are
+# not root or a member of this group, so without it the GUI cannot connect.
+if ! getent group bastion >/dev/null; then
+    groupadd -r bastion || echo "WARNING: could not create 'bastion' group - the GUI will not be able to reach the daemon"
+fi
+if ! getent passwd bastion >/dev/null; then
+    NOLOGIN=/usr/sbin/nologin
+    [ -x "$NOLOGIN" ] || NOLOGIN=/sbin/nologin
+    useradd -r -g bastion -d /var/lib/bastion -s "$NOLOGIN" -c "Bastion Firewall User" bastion || true
+fi
+
 %post
 # Post-installation script
 echo ""
 echo "============================================================"
 echo "🏰 Bastion Firewall - Post Installation"
 echo "============================================================"
+echo ""
+
+# Add all desktop users to bastion group (UID >= 1000, excluding system accounts)
+echo "Adding desktop users to bastion group..."
+getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | while read username; do
+    if [ "$username" = "nobody" ]; then
+        continue
+    fi
+    if ! groups "$username" 2>/dev/null | grep -q bastion; then
+        usermod -a -G bastion "$username" 2>/dev/null && echo "  ✓ Added $username to bastion group"
+    fi
+done
+echo "Note: Users must log out and back in for group membership to take effect."
 echo ""
 
 # Install Python dependencies

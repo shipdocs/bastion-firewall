@@ -1,3 +1,21 @@
+## [2.0.34] - 2026-08-20
+
+Security release. Closes the 2026-07-02 audit findings (#31–#36).
+
+### Security
+- **Control socket authentication (#31, #33, #35)**: The daemon control socket is no longer world-writable. It is now `0660 root:bastion`, and every peer is authenticated via `SO_PEERCRED` — only root and members of the `bastion` group may mutate rules. Failure to read peer credentials or to tighten the socket permissions now rejects the connection instead of falling open, and a second concurrent GUI connection is refused.
+- **Updater command injection (#32)**: The in-app updater validates the version string against `^\d+\.\d+\.\d+$` and installs via `pkexec apt-get install -y <file>` as argv, replacing the previous `pkexec bash -c '...'` shell invocation.
+- **Fail-closed filtering (#34)**: New `fail_closed` config flag (default `false`). When enabled, packets the daemon cannot inspect are dropped in enforcement mode instead of passed. Trade-off documented in SECURITY.md.
+- **Rule import validation**: Imported rule files with malformed keys or non-boolean values are rejected rather than merged.
+
+### Fixed
+- **RPM installs lacked the `bastion` group**: `build_rpm.sh` now creates the `bastion` user/group in `%pre` and enrolls desktop users in `%post`, mirroring the Debian `postinst`. Without this the hardened socket would have rejected every GUI connection on Fedora/RHEL.
+- **Uninstall no longer flushes the OUTPUT chain**: `preinst` removes Bastion's own rules with exact `-C`/`-D` matches instead of `iptables -F OUTPUT` / `-P ACCEPT`, so unrelated firewall rules survive an upgrade or removal.
+- **NFQUEUE rule tagging**: Bastion's NFQUEUE rule carries a `bastion-firewall` comment so cleanup only touches its own rules.
+- **X11 authorization leak**: The temporary `xhost` grant for gufw is revoked when gufw exits or fails to launch.
+- **Installer version selection**: `install.sh` picks the highest-version `.deb` via `sort -V` instead of `ls | head`.
+- **Release tooling**: `release_tool.sh` globs the built RPM instead of hardcoding a `noarch` filename that does not exist, which aborted the script under `set -e`.
+
 ## [2.0.33] - 2026-01-17
 
 ### Added
