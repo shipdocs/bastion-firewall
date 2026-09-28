@@ -424,14 +424,17 @@ fn process_packet(
         let sent_request = gui.ask_gui(&request);
         drop(gui);  // Release lock before waiting for response!
 
+        // Learning-mode notifications are fire-and-forget: the GUI never sends
+        // a response for them, so accept immediately rather than stalling the
+        // serial NFQUEUE processing loop until the enforcement-mode timeout.
+        if learning_mode {
+            return Verdict::Accept;
+        }
+
         if sent_request.is_some() {
-            // Response was immediately available (learning mode or cached)
+            // Response was immediately available from the cache.
             // This shouldn't happen in normal flow, but handle it
-            return if learning_mode {
-                Verdict::Accept
-            } else {
-                Verdict::Drop
-            };
+            return Verdict::Drop;
         }
 
         // Poll for response WITHOUT holding the lock (prevents deadlock)
