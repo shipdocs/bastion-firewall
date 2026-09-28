@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use hickory_proto::op::Message;
+use hickory_proto::op::{Message, MessageType, OpCode};
 use hickory_proto::rr::RData;
 use log::{debug, error, info};
 use pcap::{Active, Capture, Device};
@@ -11,6 +11,11 @@ use crate::ebpf_loader::EbpfManager;
 use crate::process::DnsCache;
 
 /// DNS Snooper - captures and parses DNS responses to correlate IPs with processes
+/// True for a response (QR bit set) to a standard query (opcode QUERY).
+fn is_standard_response(msg: &Message) -> bool {
+    msg.metadata.message_type == MessageType::Response && msg.metadata.op_code == OpCode::Query
+}
+
 pub struct DnsSnooper {
     capture: Capture<Active>,
     ebpf_manager: Arc<parking_lot::Mutex<EbpfManager>>,
@@ -99,9 +104,10 @@ impl DnsSnooper {
         let dns_msg = Message::from_vec(dns_payload)
             .context("Failed to parse DNS message")?;
 
-        // Only process responses (check if message type is Response)
-        if dns_msg.metadata.message_type == hickory_proto::op::MessageType::Query {
-            return Ok(()); // Skip queries
+        // Only process responses to standard queries: skip queries, and skip UPDATE/NOTIFY/etc.
+        // messages, whose sections don't mean what an ordinary answer section does.
+        if !is_standard_response(&dns_msg) {
+            return Ok(());
         }
 
         // Extract DNS server IP from packet
@@ -257,7 +263,8 @@ impl DnsSnooper {
 
 #[cfg(test)]
 mod tests {
-    use hickory_proto::op::{Message, MessageType};
+    use super::is_standard_response;
+    use hickory_proto::op::{Message, MessageType, OpCode};
     use hickory_proto::rr::RData;
     use std::net::Ipv4Addr;
 
@@ -294,6 +301,28 @@ mod tests {
         match &answer.data {
             RData::A(a) => assert_eq!(**a, Ipv4Addr::new(93, 184, 216, 34)),
             other => panic!("expected an A record, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn only_standard_query_responses_are_processed() {
+        let mut bytes = response();
+        assert!(is_standard_response(&Message::from_vec(&bytes).unwrap()));
+
+        // Same packet but with the QR bit cleared: a query, not a response.
+        bytes[2] &= 0x7f;
+        let query = Message::from_vec(&bytes).unwrap();
+        assert_eq!(query.metadata.message_type, MessageType::Query);
+        assert!(!is_standard_response(&query));
+
+        // A response whose opcode is NOTIFY (4) or UPDATE (5), not QUERY.
+        for opcode in [4u8, 5u8] {
+            let mut bytes = response();
+            bytes[2] = 0x80 | (opcode << 3);
+            let msg = Message::from_vec(&bytes).unwrap();
+            assert_eq!(msg.metadata.message_type, MessageType::Response);
+            assert_ne!(msg.metadata.op_code, OpCode::Query);
+            assert!(!is_standard_response(&msg), "opcode {opcode}");
         }
     }
 
