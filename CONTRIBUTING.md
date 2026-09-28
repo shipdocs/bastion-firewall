@@ -8,7 +8,7 @@ cd bastion-firewall
 
 # Install dependencies
 sudo apt-get install python3-pip python3-dev build-essential \
-    libnetfilter-queue-dev iptables python3-gi python3-bcc \
+    libnetfilter-queue-dev libudev-dev iptables python3-gi python3-bcc \
     gir1.2-ayatanaappindicator3-0.1
 pip3 install -r requirements.txt
 

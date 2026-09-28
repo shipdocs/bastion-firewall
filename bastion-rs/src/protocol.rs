@@ -106,3 +106,43 @@ pub struct RulesListResponse {
     pub msg_type: String,
     pub rules: serde_json::Value,
 }
+
+/// Daemon -> GUI: ask the user whether a newly attached USB device may be used.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UsbRequest {
+    #[serde(rename = "type")]
+    pub msg_type: String, // "usb_request"
+    pub nonce: String,
+    pub device: UsbDevicePrompt,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UsbDevicePrompt {
+    pub vendor_id: String,
+    pub product_id: String,
+    pub vendor_name: String,
+    pub product_name: String,
+    pub device_class: u8,
+    pub is_high_risk: bool,
+    #[serde(default)]
+    pub serial: Option<String>,
+    pub bus_id: String,
+}
+
+/// GUI -> daemon: the user's decision for a `usb_request`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UsbResponse {
+    #[serde(rename = "type")]
+    pub msg_type: String, // "usb_response"
+    pub nonce: String,
+    pub allow: bool,
+    /// "device", "model" or "vendor"
+    #[serde(default = "default_usb_scope")]
+    pub scope: String,
+    #[serde(default)]
+    pub permanent: bool,
+}
+
+fn default_usb_scope() -> String {
+    "model".to_string()
+}
