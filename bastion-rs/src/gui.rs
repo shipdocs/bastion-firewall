@@ -102,6 +102,20 @@ impl GuiState {
         info!("GUI connection established");
     }
 
+    /// Write one JSON line to the GUI. Every writer goes through this while
+    /// holding the state lock, so messages from different threads never
+    /// interleave. Disconnects on failure.
+    pub fn send_line(&mut self, json: &str) -> bool {
+        let ok = match self.stream.as_mut() {
+            Some(stream) => stream.write_all(format!("{json}\n").as_bytes()).is_ok(),
+            None => false,
+        };
+        if !ok && self.stream.is_some() {
+            self.disconnect();
+        }
+        ok
+    }
+
     pub fn is_connected(&self) -> bool {
         self.stream.is_some()
     }
@@ -357,13 +371,8 @@ pub fn ask_usb(
             return None;
         }
         state.pending_usb.insert(nonce.clone(), None);
-        let written = match state.stream.as_mut() {
-            Some(stream) => stream.write_all((json + "\n").as_bytes()).is_ok(),
-            None => false,
-        };
-        if !written {
+        if !state.send_line(&json) {
             state.pending_usb.remove(&nonce);
-            state.disconnect();
             return None;
         }
     }
@@ -627,8 +636,8 @@ pub fn handle_gui_connection(
                                 success,
                             };
                             if let Ok(json) = serde_json::to_string(&response) {
-                                if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
-                                    debug!("Failed to send deletion confirmation: {}", e);
+                                if !gui_state.lock().send_line(&json) {
+                                    debug!("Failed to send deletion confirmation");
                                 }
                             }
                         }
@@ -640,8 +649,8 @@ pub fn handle_gui_connection(
                                 rules: rules_json,
                             };
                             if let Ok(json) = serde_json::to_string(&response) {
-                                if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
-                                    debug!("Failed to send rules list: {}", e);
+                                if !gui_state.lock().send_line(&json) {
+                                    debug!("Failed to send rules list");
                                 }
                             }
                         }
@@ -692,9 +701,8 @@ pub fn handle_gui_connection(
             };
             // Stats unlocked implicitly when moving to json serialization or scope ends
             if let Ok(json) = serde_json::to_string(&update) {
-                if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
-                    debug!("GUI handler write error: {}", e);
-                    gui_state.lock().disconnect();
+                if !gui_state.lock().send_line(&json) {
+                    debug!("GUI handler write error");
                     break;
                 }
             }
@@ -769,6 +777,28 @@ mod tests {
         state.lock().set_connection(daemon_side);
         assert!(ask_usb(&state, usb_prompt(), Duration::from_millis(200)).is_none());
         assert!(state.lock().pending_usb.is_empty());
+    }
+
+    #[test]
+    fn send_line_writes_whole_lines_and_disconnects_on_failure() {
+        let (daemon_side, gui_side) = UnixStream::pair().unwrap();
+        let mut state = GuiState::new();
+        assert!(!state.send_line("{}"), "no connection yet");
+        state.set_connection(daemon_side);
+        assert!(state.send_line(r#"{"a":1}"#));
+        let mut line = String::new();
+        BufReader::new(gui_side.try_clone().unwrap()).read_line(&mut line).unwrap();
+        assert_eq!(line, "{\"a\":1}\n");
+        drop(gui_side);
+        // Writing to a closed peer eventually fails and clears the connection.
+        let mut failed = false;
+        for _ in 0..50 {
+            if !state.send_line(&"x".repeat(4096)) {
+                failed = true;
+                break;
+            }
+        }
+        assert!(failed && !state.is_connected());
     }
 
     fn response(request_id: &str) -> GuiResponse {
