@@ -57,6 +57,28 @@ impl UsbPrompter for GuiUsbPrompter {
     }
 }
 
+/// Undo the default-deny this daemon set, if it set one (marker present).
+/// Does nothing when the marker is absent, so a system's own USB policy is left alone.
+fn restore_default_policy(authorizer: &UsbAuthorizer, marker: &Path, reason: &str) {
+    if !marker.exists() {
+        return;
+    }
+    match authorizer.set_default_policy(true) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(marker);
+            info!("{}: restored USB authorized_default=1", reason);
+        }
+        Err(e) => error!("{}: could not restore USB authorized_default: {:#}", reason, e),
+    }
+}
+
+/// Called on a normal stop (SIGINT/SIGTERM) so nobody is left with new USB devices
+/// blocked and no daemon to approve them. A crash or SIGKILL skips this on purpose:
+/// the default stays "blocked" and the next start (or disabling USB control) restores it.
+pub fn restore_default_on_shutdown() {
+    restore_default_policy(&UsbAuthorizer::new(), Path::new(DEFAULT_DENY_MARKER), "Shutting down");
+}
+
 /// Thread body. Returns immediately when USB control is disabled (after undoing
 /// a default-deny this daemon set on an earlier run).
 pub fn run(
@@ -67,15 +89,7 @@ pub fn run(
     let authorizer = UsbAuthorizer::new();
 
     if !config.is_usb_control_enabled() {
-        if Path::new(DEFAULT_DENY_MARKER).exists() {
-            match authorizer.set_default_policy(true) {
-                Ok(_) => {
-                    let _ = std::fs::remove_file(DEFAULT_DENY_MARKER);
-                    info!("USB control disabled: restored authorized_default=1");
-                }
-                Err(e) => error!("Could not restore USB authorized_default: {:#}", e),
-            }
-        }
+        restore_default_policy(&authorizer, Path::new(DEFAULT_DENY_MARKER), "USB control disabled");
         return;
     }
 
@@ -143,5 +157,53 @@ pub fn run(
                 UsbAction::Remove => controller.handle_remove(&device),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn setup(value: &str) -> (tempfile::TempDir, UsbAuthorizer) {
+        let dir = tempdir().unwrap();
+        for hub in ["usb1", "usb2"] {
+            std::fs::create_dir_all(dir.path().join("sys").join(hub)).unwrap();
+            std::fs::write(dir.path().join("sys").join(hub).join("authorized_default"), value).unwrap();
+        }
+        let authorizer = UsbAuthorizer::with_root(dir.path().join("sys"));
+        (dir, authorizer)
+    }
+
+    fn value(dir: &tempfile::TempDir, hub: &str) -> String {
+        std::fs::read_to_string(dir.path().join("sys").join(hub).join("authorized_default")).unwrap()
+    }
+
+    #[test]
+    fn restores_default_and_removes_marker_when_we_set_it() {
+        let (dir, authorizer) = setup("0");
+        let marker = dir.path().join("marker");
+        std::fs::write(&marker, b"1").unwrap();
+        restore_default_policy(&authorizer, &marker, "test");
+        assert_eq!(value(&dir, "usb1"), "1");
+        assert_eq!(value(&dir, "usb2"), "1");
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn leaves_the_systems_own_policy_alone_without_marker() {
+        let (dir, authorizer) = setup("0");
+        restore_default_policy(&authorizer, &dir.path().join("no-marker"), "test");
+        assert_eq!(value(&dir, "usb1"), "0");
+    }
+
+    #[test]
+    fn keeps_marker_when_restore_fails() {
+        let dir = tempdir().unwrap();
+        let authorizer = UsbAuthorizer::with_root(dir.path().join("missing"));
+        let marker = dir.path().join("marker");
+        std::fs::write(&marker, b"1").unwrap();
+        restore_default_policy(&authorizer, &marker, "test");
+        assert!(marker.exists(), "marker must stay so a later start retries");
     }
 }
