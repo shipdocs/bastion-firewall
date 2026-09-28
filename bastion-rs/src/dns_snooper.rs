@@ -100,7 +100,7 @@ impl DnsSnooper {
             .context("Failed to parse DNS message")?;
 
         // Only process responses (check if message type is Response)
-        if dns_msg.message_type() == hickory_proto::op::MessageType::Query {
+        if dns_msg.metadata.message_type == hickory_proto::op::MessageType::Query {
             return Ok(()); // Skip queries
         }
 
@@ -109,9 +109,9 @@ impl DnsSnooper {
 
         info!(
             "DNS response: ID {} from {} ({} answers)",
-            dns_msg.id(),
+            dns_msg.metadata.id,
             dns_server_ip,
-            dns_msg.answers().len()
+            dns_msg.answers.len()
         );
 
         // Correlate with recent eBPF queries
@@ -188,18 +188,18 @@ impl DnsSnooper {
 
         // Extract domain from DNS question section
         let domain = dns_msg
-            .queries()
+            .queries
             .first()
-            .map(|q| q.name().to_string())
+            .map(|q| q.name.to_string())
             .unwrap_or_else(|| "<unknown>".to_string());
 
         // Process all answers
         let mut ip_count = 0;
-        for answer in dns_msg.answers() {
-            match answer.data() {
-                Some(RData::A(addr)) => {
+        for answer in dns_msg.answers.iter() {
+            match &answer.data {
+                RData::A(addr) => {
                     let ip = IpAddr::V4(**addr);
-                    let ttl = answer.ttl();
+                    let ttl = answer.ttl;
 
                     // Store in DNS cache
                     let mut cache = self.dns_cache.lock();
@@ -217,9 +217,9 @@ impl DnsSnooper {
                         ip, process_name, query.pid, domain, ttl
                     );
                 }
-                Some(RData::AAAA(addr)) => {
+                RData::AAAA(addr) => {
                     let ip = IpAddr::V6(**addr);
-                    let ttl = answer.ttl();
+                    let ttl = answer.ttl;
 
                     // Store in DNS cache
                     let mut cache = self.dns_cache.lock();
@@ -237,8 +237,8 @@ impl DnsSnooper {
                         ip, process_name, query.pid, domain, ttl
                     );
                 }
-                Some(RData::CNAME(cname)) => {
-                    debug!("CNAME record: {} → {}", answer.name(), cname);
+                RData::CNAME(cname) => {
+                    debug!("CNAME record: {} → {}", answer.name, cname);
                 }
                 _ => {}
             }
@@ -252,5 +252,56 @@ impl DnsSnooper {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hickory_proto::op::{Message, MessageType};
+    use hickory_proto::rr::RData;
+    use std::net::Ipv4Addr;
+
+    /// A hand-built DNS response for `www.example.com A`, answering 93.184.216.34.
+    /// Reads it the same way `process_packet`/`correlate_and_cache` do, so a change
+    /// in the hickory-proto API or decoding shows up here.
+    fn response() -> Vec<u8> {
+        let mut m = vec![
+            0x12, 0x34, // id
+            0x81, 0x80, // response, RD, RA
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, // 1 question, 1 answer
+        ];
+        for label in ["www", "example", "com"] {
+            m.push(label.len() as u8);
+            m.extend_from_slice(label.as_bytes());
+        }
+        m.extend_from_slice(&[0x00, 0x00, 0x01, 0x00, 0x01]); // end of name, type A, class IN
+        m.extend_from_slice(&[0xc0, 0x0c]); // answer name: pointer to the question name
+        m.extend_from_slice(&[0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x04]); // A IN ttl 60 len 4
+        m.extend_from_slice(&[93, 184, 216, 34]);
+        m
+    }
+
+    #[test]
+    fn parses_a_response_with_the_fields_the_snooper_reads() {
+        let msg = Message::from_vec(&response()).expect("valid response");
+        assert_eq!(msg.metadata.id, 0x1234);
+        assert_eq!(msg.metadata.message_type, MessageType::Response);
+        assert_eq!(msg.queries.first().unwrap().name.to_string(), "www.example.com.");
+        assert_eq!(msg.answers.len(), 1);
+        let answer = &msg.answers[0];
+        assert_eq!(answer.ttl, 60);
+        assert_eq!(answer.name.to_string(), "www.example.com.");
+        match &answer.data {
+            RData::A(a) => assert_eq!(**a, Ipv4Addr::new(93, 184, 216, 34)),
+            other => panic!("expected an A record, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn rejects_garbage_and_truncated_messages() {
+        assert!(Message::from_vec(&[]).is_err());
+        assert!(Message::from_vec(&[0xff; 7]).is_err());
+        let full = response();
+        assert!(Message::from_vec(&full[..full.len() - 3]).is_err());
     }
 }
