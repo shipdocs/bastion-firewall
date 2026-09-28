@@ -100,9 +100,6 @@ python -m pytest tests/
 #### GUI Dependencies (Python)
 - Python 3.10+
 - PyQt6
-- psutil>=5.9.0
-- pystray>=0.19.0
-- Pillow>=10.2.0
 
 ## Usage
 
