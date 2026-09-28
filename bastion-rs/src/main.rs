@@ -8,6 +8,7 @@ mod gui;
 mod proc_parser;
 mod process;
 mod rules;
+mod usb_service;
 mod whitelist;
 
 use etherparse::{Ipv4HeaderSlice, Ipv6HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};
@@ -65,6 +66,11 @@ async fn main() -> anyhow::Result<()> {
     thread::spawn(move || {
         run_socket_server(gui_state_server, stats_server, config_server, rules_server);
     });
+
+    // USB device control (opt-in via `usb_control` in config.json)
+    let usb_gui_state = gui_state.clone();
+    let usb_config = config.clone();
+    thread::spawn(move || usb_service::run(usb_config, usb_gui_state));
 
     // Open NFQUEUE
     let mut queue = Queue::open()?;

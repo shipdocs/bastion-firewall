@@ -32,7 +32,15 @@ pub struct Config {
     /// `--queue-bypass`. Default false preserves the current fail-open behavior.
     #[serde(default)]
     pub fail_closed: bool,
+    /// Opt-in USB device control: new USB devices are blocked until the user decides.
+    #[serde(default)]
+    pub usb_control: bool,
+    /// Seconds to wait for the GUI to answer a USB prompt before blocking the device.
+    #[serde(default = "default_usb_timeout")]
+    pub usb_prompt_timeout_secs: u64,
 }
+
+fn default_usb_timeout() -> u64 { 30 }
 
 fn default_true() -> bool { true }
 
@@ -43,6 +51,8 @@ impl Default for Config {
             popup_enabled: true,
             notifications_enabled: true,
             fail_closed: false,
+            usb_control: false,
+            usb_prompt_timeout_secs: default_usb_timeout(),
         }
     }
 }
@@ -100,6 +110,15 @@ impl ConfigManager {
         self.config.read().fail_closed
     }
 
+    pub fn is_usb_control_enabled(&self) -> bool {
+        self.config.read().usb_control
+    }
+
+    /// Prompt timeout, clamped to 5..=300 seconds.
+    pub fn usb_prompt_timeout_secs(&self) -> u64 {
+        self.config.read().usb_prompt_timeout_secs.clamp(5, 300)
+    }
+
 }
 
 #[cfg(test)]
@@ -116,6 +135,16 @@ mod tests {
         ).unwrap();
         assert_eq!(c.mode, OperationMode::Learning);
         assert!(c.popup_enabled && c.notifications_enabled && !c.fail_closed);
+    }
+
+    #[test]
+    fn usb_control_is_opt_in() {
+        let c: Config = serde_json::from_str("{}").unwrap();
+        assert!(!c.usb_control);
+        assert_eq!(c.usb_prompt_timeout_secs, 30);
+        let c: Config = serde_json::from_str(r#"{"usb_control": true, "usb_prompt_timeout_secs": 1}"#).unwrap();
+        assert!(c.usb_control);
+        assert_eq!(c.usb_prompt_timeout_secs, 1);
     }
 
     #[test]

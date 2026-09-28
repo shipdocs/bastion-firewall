@@ -30,6 +30,8 @@ pub enum GuiCommand {
     ListRules,
     #[serde(rename = "clear_cache")]
     ClearCache(ClearCacheRequest),
+    #[serde(rename = "usb_response")]
+    UsbResponse(UsbResponse),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -132,8 +134,9 @@ pub struct UsbDevicePrompt {
 /// GUI -> daemon: the user's decision for a `usb_request`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UsbResponse {
-    #[serde(rename = "type")]
-    pub msg_type: String, // "usb_response"
+    /// Consumed as the enum tag when parsed via `GuiCommand`, hence the default.
+    #[serde(rename = "type", default = "usb_response_type")]
+    pub msg_type: String,
     pub nonce: String,
     pub allow: bool,
     /// "device", "model" or "vendor"
@@ -143,6 +146,28 @@ pub struct UsbResponse {
     pub permanent: bool,
 }
 
+fn usb_response_type() -> String {
+    "usb_response".to_string()
+}
+
 fn default_usb_scope() -> String {
     "model".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn usb_response_parses_through_gui_command() {
+        let line = r#"{"type":"usb_response","nonce":"abc","allow":true,"scope":"device","permanent":true}"#;
+        match serde_json::from_str::<GuiCommand>(line).unwrap() {
+            GuiCommand::UsbResponse(r) => {
+                assert_eq!(r.nonce, "abc");
+                assert!(r.allow && r.permanent);
+                assert_eq!(r.scope, "device");
+            }
+            other => panic!("unexpected {:?}", other),
+        }
+    }
 }

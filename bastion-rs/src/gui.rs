@@ -46,6 +46,8 @@ pub struct GuiState {
     pub pending_responses: HashMap<String, GuiResponse>,
     /// Request IDs sent to the GUI that may still receive one response.
     pending_response_ids: HashSet<String>,
+    /// USB prompts awaiting an answer, keyed by nonce (`None` until answered).
+    pending_usb: HashMap<String, Option<UsbResponse>>,
 }
 
 impl GuiState {
@@ -58,6 +60,7 @@ impl GuiState {
             session_decisions: HashMap::new(),
             pending_responses: HashMap::new(),
             pending_response_ids: HashSet::new(),
+            pending_usb: HashMap::new(),
         }
     }
 
@@ -109,6 +112,7 @@ impl GuiState {
         self.reader = None;
         self.pending_responses.clear();
         self.pending_response_ids.clear();
+        self.pending_usb.clear();
     }
 
     pub fn ask_gui(&mut self, request: &ConnectionRequest) -> Option<GuiResponse> {
@@ -224,6 +228,17 @@ impl GuiState {
         true
     }
 
+    /// Store a USB answer only if it matches an unanswered prompt we sent.
+    pub fn accept_usb_response(&mut self, response: UsbResponse) -> bool {
+        match self.pending_usb.get_mut(&response.nonce) {
+            Some(slot @ None) => {
+                *slot = Some(response);
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub fn check_unknown_decision(&self, dest_ip: &str, dest_port: u16) -> Option<bool> {
         let key = format!("{}:{}", dest_ip, dest_port);
         if let Some(decision) = self.unknown_decisions.get(&key) {
@@ -315,6 +330,60 @@ fn peer_is_authorized(peer_uid: libc::uid_t) -> bool {
     }
 
     false
+}
+
+fn new_nonce() -> Option<String> {
+    use std::io::Read;
+    let mut buf = [0u8; 16];
+    std::fs::File::open("/dev/urandom").ok()?.read_exact(&mut buf).ok()?;
+    Some(buf.iter().map(|b| format!("{:02x}", b)).collect())
+}
+
+/// Ask the GUI whether a USB device may be used. Returns `None` when no GUI is
+/// connected, the request can't be sent, or no valid answer arrives in time.
+/// The state lock is not held while waiting.
+pub fn ask_usb(
+    gui_state: &Arc<Mutex<GuiState>>,
+    device: UsbDevicePrompt,
+    timeout: Duration,
+) -> Option<UsbResponse> {
+    let nonce = new_nonce()?;
+    let request = UsbRequest { msg_type: "usb_request".to_string(), nonce: nonce.clone(), device };
+    let json = serde_json::to_string(&request).ok()?;
+
+    {
+        let mut state = gui_state.lock();
+        if !state.is_connected() {
+            return None;
+        }
+        state.pending_usb.insert(nonce.clone(), None);
+        let written = match state.stream.as_mut() {
+            Some(stream) => stream.write_all((json + "\n").as_bytes()).is_ok(),
+            None => false,
+        };
+        if !written {
+            state.pending_usb.remove(&nonce);
+            state.disconnect();
+            return None;
+        }
+    }
+
+    let deadline = Instant::now() + timeout;
+    loop {
+        {
+            let mut state = gui_state.lock();
+            match state.pending_usb.get(&nonce) {
+                Some(Some(_)) => return state.pending_usb.remove(&nonce).flatten(),
+                None => return None, // cleared by a disconnect
+                Some(None) => {}
+            }
+            if Instant::now() >= deadline {
+                state.pending_usb.remove(&nonce);
+                return None;
+            }
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
 }
 
 pub fn run_socket_server(
@@ -576,6 +645,14 @@ pub fn handle_gui_connection(
                                 }
                             }
                         }
+                        GuiCommand::UsbResponse(resp) => {
+                            let nonce = resp.nonce.clone();
+                            if gui_state.lock().accept_usb_response(resp) {
+                                info!("[GUI:USB] Received answer for prompt {}", nonce);
+                            } else {
+                                warn!("[GUI:USB] Ignoring unsolicited or duplicate USB response");
+                            }
+                        }
                         GuiCommand::ClearCache(req) => {
                             info!(
                                 "[ASYNC:CLEAR_CACHE] Clearing session cache for: {}",
@@ -633,6 +710,66 @@ pub fn handle_gui_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn usb_prompt() -> UsbDevicePrompt {
+        UsbDevicePrompt {
+            vendor_id: "046d".into(),
+            product_id: "c52b".into(),
+            vendor_name: "V".into(),
+            product_name: "P".into(),
+            device_class: 3,
+            is_high_risk: true,
+            serial: None,
+            bus_id: "1-2".into(),
+        }
+    }
+
+    fn usb_answer(nonce: &str, allow: bool) -> UsbResponse {
+        UsbResponse {
+            msg_type: "usb_response".into(),
+            nonce: nonce.into(),
+            allow,
+            scope: "model".into(),
+            permanent: false,
+        }
+    }
+
+    #[test]
+    fn usb_prompt_round_trip_and_unsolicited_answers() {
+        let (daemon_side, gui_side) = UnixStream::pair().unwrap();
+        let state = Arc::new(Mutex::new(GuiState::new()));
+        state.lock().set_connection(daemon_side);
+
+        assert!(!state.lock().accept_usb_response(usb_answer("nope", true)));
+
+        let gui_state = state.clone();
+        let gui = thread::spawn(move || {
+            let mut line = String::new();
+            BufReader::new(gui_side).read_line(&mut line).unwrap();
+            let req: UsbRequest = serde_json::from_str(&line).unwrap();
+            assert_eq!(req.msg_type, "usb_request");
+            // A wrong nonce is rejected, the right one accepted exactly once.
+            assert!(!gui_state.lock().accept_usb_response(usb_answer("wrong", true)));
+            assert!(gui_state.lock().accept_usb_response(usb_answer(&req.nonce, true)));
+            assert!(!gui_state.lock().accept_usb_response(usb_answer(&req.nonce, false)));
+        });
+
+        let answer = ask_usb(&state, usb_prompt(), Duration::from_secs(5)).unwrap();
+        assert!(answer.allow);
+        gui.join().unwrap();
+        assert!(state.lock().pending_usb.is_empty());
+    }
+
+    #[test]
+    fn usb_prompt_times_out_and_needs_a_gui() {
+        let state = Arc::new(Mutex::new(GuiState::new()));
+        assert!(ask_usb(&state, usb_prompt(), Duration::from_millis(200)).is_none());
+
+        let (daemon_side, _gui_side) = UnixStream::pair().unwrap();
+        state.lock().set_connection(daemon_side);
+        assert!(ask_usb(&state, usb_prompt(), Duration::from_millis(200)).is_none());
+        assert!(state.lock().pending_usb.is_empty());
+    }
 
     fn response(request_id: &str) -> GuiResponse {
         GuiResponse {
