@@ -3,6 +3,10 @@
 ### Fixed
 - **In-app updater**: installing the package kills the running GUI (`preinst` SIGKILLs `bastion-gui`), which took the updater down with it and left no GUI afterwards. The install now runs in a detached helper that removes the download and starts the new GUI when apt finishes, and reports a failed install with a desktop notification. Update errors are now shown reliably (they were queued on a thread without an event loop and never displayed).
 
+### Security
+- **hickory-proto 0.24 -> 0.26.3** (GHSA: CPU exhaustion from O(n²) name compression when *encoding* DNS messages; affects 0.3.1 to 0.26.0, patched in 0.26.1). The daemon only decodes DNS responses, so the vulnerable path was not reachable, but the dependency is now current. Adapted `dns_snooper.rs` to the new API and added tests that parse a real response.
+- `bastion-rs/Cargo.lock` is now committed (it was git-ignored). It gives reproducible builds and lets Dependabot see the installed versions, which it needs to raise and close alerts.
+
 ## [2.0.36] - 2026-09-28
 
 Fixes the systemd service not serving its control socket, which broke the tray GUI, popups and the USB prompt when Bastion ran as a service.
