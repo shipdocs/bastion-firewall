@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Fixed
+- **Control socket missing under systemd**: the service's capability bounding set lacked `CAP_CHOWN`, so the daemon could not give its socket to group `bastion`, logged `Failed to chown control socket to root:bastion; refusing to serve`, and served no socket at all. The tray GUI, USB prompts and the control panel's USB list all need that socket. Added `CAP_CHOWN` to the unit. Running the daemon by hand as root was not affected, which is why it went unnoticed.
+
 ## [2.0.35] - 2026-09-28
 
 Adds opt-in USB device control and finishes the hardening items from the 2026-07-02 audit (#36).
