@@ -59,7 +59,11 @@ impl UsbPrompter for GuiUsbPrompter {
 
 /// Thread body. Returns immediately when USB control is disabled (after undoing
 /// a default-deny this daemon set on an earlier run).
-pub fn run(config: Arc<ConfigManager>, gui_state: Arc<Mutex<GuiState>>) {
+pub fn run(
+    config: Arc<ConfigManager>,
+    gui_state: Arc<Mutex<GuiState>>,
+    usb_rules: Arc<Mutex<UsbRuleManager>>,
+) {
     let authorizer = UsbAuthorizer::new();
 
     if !config.is_usb_control_enabled() {
@@ -100,7 +104,7 @@ pub fn run(config: Arc<ConfigManager>, gui_state: Arc<Mutex<GuiState>>) {
         gui_state,
         timeout: Duration::from_secs(config.usb_prompt_timeout_secs()),
     };
-    let mut controller = UsbController::new(UsbRuleManager::new(), authorizer, prompter);
+    let mut controller = UsbController::new(usb_rules, authorizer, prompter);
 
     match enumerate_existing() {
         Ok(devices) => {

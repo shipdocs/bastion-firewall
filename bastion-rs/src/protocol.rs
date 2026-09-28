@@ -32,6 +32,10 @@ pub enum GuiCommand {
     ClearCache(ClearCacheRequest),
     #[serde(rename = "usb_response")]
     UsbResponse(UsbResponse),
+    #[serde(rename = "list_usb_rules")]
+    ListUsbRules,
+    #[serde(rename = "delete_usb_rule")]
+    DeleteUsbRule(DeleteRuleRequest),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -131,6 +135,22 @@ pub struct UsbDevicePrompt {
     pub bus_id: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UsbRulesListResponse {
+    #[serde(rename = "type")]
+    pub msg_type: String, // "usb_rules_list"
+    pub enabled: bool,
+    pub rules: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UsbRuleDeletedResponse {
+    #[serde(rename = "type")]
+    pub msg_type: String, // "usb_rule_deleted"
+    pub key: String,
+    pub success: bool,
+}
+
 /// GUI -> daemon: the user's decision for a `usb_request`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UsbResponse {
@@ -157,6 +177,18 @@ fn default_usb_scope() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usb_admin_commands_parse() {
+        assert!(matches!(
+            serde_json::from_str::<GuiCommand>(r#"{"type":"list_usb_rules"}"#).unwrap(),
+            GuiCommand::ListUsbRules
+        ));
+        match serde_json::from_str::<GuiCommand>(r#"{"type":"delete_usb_rule","key":"046d:*:*"}"#).unwrap() {
+            GuiCommand::DeleteUsbRule(d) => assert_eq!(d.key, "046d:*:*"),
+            other => panic!("unexpected {:?}", other),
+        }
+    }
 
     #[test]
     fn usb_response_parses_through_gui_command() {

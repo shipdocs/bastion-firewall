@@ -10,6 +10,7 @@ use std::thread;
 
 use crate::config::ConfigManager;
 use crate::rules::RuleManager;
+use bastion_rs::usb::UsbRuleManager;
 use bastion_rs::protocol::*;
 
 pub const SOCKET_PATH: &str = "/var/run/bastion/bastion-daemon.sock";
@@ -391,6 +392,7 @@ pub fn run_socket_server(
     stats: Arc<Mutex<Stats>>,
     config: Arc<ConfigManager>,
     rule_manager: Arc<RuleManager>,
+    usb_rules: Arc<Mutex<UsbRuleManager>>,
 ) {
     let socket_path = std::path::Path::new(SOCKET_PATH);
     if let Some(socket_dir) = socket_path.parent() {
@@ -487,14 +489,17 @@ pub fn run_socket_server(
                 #[cfg(not(unix))]
                 info!("GUI client connecting");
 
-                // Refuse a second concurrent GUI: an already-connected session
-                // owns the socket until it disconnects (prevents hijack, #33).
+                // A second concurrent GUI never gets the prompt channel: the
+                // connected session owns it until it disconnects (prevents
+                // hijack, #33). It may only run the read-only/admin USB rule
+                // commands, so the control panel can manage rules meanwhile.
                 {
                     let mut state = gui_state.lock();
                     if state.is_connected() {
-                        warn!("Refusing GUI connection: a GUI is already connected");
                         drop(state);
-                        drop(s);
+                        let usb_rules = usb_rules.clone();
+                        let config = config.clone();
+                        thread::spawn(move || handle_admin_connection(s, config, usb_rules));
                         continue;
                     }
                     match s.try_clone() {
@@ -512,6 +517,7 @@ pub fn run_socket_server(
                 let gui_state_clone = gui_state.clone();
                 let config_clone = config.clone();
                 let rules_clone = rule_manager.clone();
+                let usb_rules_clone = usb_rules.clone();
                 thread::spawn(move || {
                     handle_gui_connection(
                         s,
@@ -519,11 +525,81 @@ pub fn run_socket_server(
                         gui_state_clone,
                         config_clone,
                         rules_clone,
+                        usb_rules_clone,
                     );
                 });
             }
             Err(e) => {
                 error!("Socket accept error: {}", e);
+            }
+        }
+    }
+}
+
+/// Answer `list_usb_rules` / `delete_usb_rule`; anything else is ignored.
+/// Shared by the primary GUI handler and command-only secondary connections.
+fn handle_usb_admin_command(
+    cmd: &GuiCommand,
+    stream: &mut UnixStream,
+    config: &ConfigManager,
+    usb_rules: &Mutex<UsbRuleManager>,
+) -> bool {
+    let reply = match cmd {
+        GuiCommand::ListUsbRules => {
+            let rules = serde_json::to_value(usb_rules.lock().rules()).unwrap_or_default();
+            serde_json::to_string(&UsbRulesListResponse {
+                msg_type: "usb_rules_list".to_string(),
+                enabled: config.is_usb_control_enabled(),
+                rules,
+            })
+        }
+        GuiCommand::DeleteUsbRule(req) => {
+            let success = match usb_rules.lock().delete_rule(&req.key) {
+                Ok(removed) => removed,
+                Err(e) => {
+                    warn!("[USB] Could not delete rule {:?}: {:#}", req.key, e);
+                    false
+                }
+            };
+            serde_json::to_string(&UsbRuleDeletedResponse {
+                msg_type: "usb_rule_deleted".to_string(),
+                key: req.key.clone(),
+                success,
+            })
+        }
+        _ => return false,
+    };
+    if let Ok(json) = reply {
+        if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
+            debug!("Failed to send USB admin reply: {}", e);
+        }
+    }
+    true
+}
+
+/// Command-only connection used while another GUI owns the prompt channel.
+/// It cannot answer prompts or touch the connected GUI's state.
+fn handle_admin_connection(
+    mut stream: UnixStream,
+    config: Arc<ConfigManager>,
+    usb_rules: Arc<Mutex<UsbRuleManager>>,
+) {
+    stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
+    let Ok(clone) = stream.try_clone() else { return };
+    let mut reader = BufReader::new(clone);
+    let mut line = String::new();
+    // A handful of commands per connection, then hang up.
+    for _ in 0..16 {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {
+                if let Ok(cmd) = serde_json::from_str::<GuiCommand>(&line) {
+                    if !handle_usb_admin_command(&cmd, &mut stream, &config, &usb_rules) {
+                        debug!("Secondary GUI connection: ignoring non-admin command");
+                    }
+                }
             }
         }
     }
@@ -535,6 +611,7 @@ pub fn handle_gui_connection(
     gui_state: Arc<Mutex<GuiState>>,
     config: Arc<ConfigManager>,
     rules: Arc<RuleManager>,
+    usb_rules: Arc<Mutex<UsbRuleManager>>,
 ) {
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
     stream
@@ -644,6 +721,9 @@ pub fn handle_gui_connection(
                                     debug!("Failed to send rules list: {}", e);
                                 }
                             }
+                        }
+                        GuiCommand::ListUsbRules | GuiCommand::DeleteUsbRule(_) => {
+                            handle_usb_admin_command(&cmd, &mut stream, &config, &usb_rules);
                         }
                         GuiCommand::UsbResponse(resp) => {
                             let nonce = resp.nonce.clone();
@@ -769,6 +849,58 @@ mod tests {
         state.lock().set_connection(daemon_side);
         assert!(ask_usb(&state, usb_prompt(), Duration::from_millis(200)).is_none());
         assert!(state.lock().pending_usb.is_empty());
+    }
+
+    #[test]
+    fn secondary_connection_can_list_and_delete_usb_rules_only() {
+        use bastion_rs::usb::{Scope, Verdict};
+        let dir = tempfile::tempdir().unwrap();
+        let usb_rules = Arc::new(Mutex::new(UsbRuleManager::with_path(dir.path().join("usb.json"))));
+        let device = bastion_rs::usb::UsbDeviceInfo {
+            vendor_id: "046d".into(),
+            product_id: "c52b".into(),
+            vendor_name: "V".into(),
+            product_name: "P".into(),
+            device_class: 3,
+            interface_classes: vec![],
+            serial: Some("S".into()),
+            bus_id: "1-2".into(),
+            bus_num: 1,
+            dev_num: 2,
+        };
+        let key = usb_rules.lock().add_rule(&device, Verdict::Allow, Scope::Model).unwrap();
+
+        let config = Arc::new(ConfigManager::with_path("/nonexistent/config.json"));
+        let (server, client) = UnixStream::pair().unwrap();
+        let handler = {
+            let (config, usb_rules) = (config.clone(), usb_rules.clone());
+            thread::spawn(move || handle_admin_connection(server, config, usb_rules))
+        };
+
+        let mut client_w = client.try_clone().unwrap();
+        let mut client_r = BufReader::new(client);
+        // A non-admin command is ignored; the connection stays usable.
+        client_w.write_all(b"{\"type\":\"list_rules\"}\n").unwrap();
+        client_w.write_all(b"{\"type\":\"list_usb_rules\"}\n").unwrap();
+        let mut line = String::new();
+        client_r.read_line(&mut line).unwrap();
+        let listed: UsbRulesListResponse = serde_json::from_str(&line).unwrap();
+        assert_eq!(listed.msg_type, "usb_rules_list");
+        assert!(!listed.enabled);
+        assert!(listed.rules.get(&key).is_some());
+
+        client_w
+            .write_all(format!("{{\"type\":\"delete_usb_rule\",\"key\":\"{key}\"}}\n").as_bytes())
+            .unwrap();
+        line.clear();
+        client_r.read_line(&mut line).unwrap();
+        let deleted: UsbRuleDeletedResponse = serde_json::from_str(&line).unwrap();
+        assert!(deleted.success);
+        assert!(usb_rules.lock().rules().is_empty());
+
+        drop(client_w);
+        drop(client_r);
+        handler.join().unwrap();
     }
 
     fn response(request_id: &str) -> GuiResponse {

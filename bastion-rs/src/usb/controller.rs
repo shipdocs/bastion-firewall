@@ -5,8 +5,10 @@
 //! without a rule are shown to the user; no answer means blocked.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use log::{info, warn};
+use parking_lot::Mutex;
 
 use super::authorizer::UsbAuthorizer;
 use super::device::UsbDeviceInfo;
@@ -25,7 +27,8 @@ pub trait UsbPrompter {
 }
 
 pub struct UsbController<P: UsbPrompter> {
-    pub rules: UsbRuleManager,
+    /// Shared with the GUI socket handler so rules can be listed and deleted live.
+    pub rules: Arc<Mutex<UsbRuleManager>>,
     authorizer: UsbAuthorizer,
     prompter: P,
     /// `bus_id|unique_id` of devices allowed for this session only ("allow once").
@@ -33,7 +36,7 @@ pub struct UsbController<P: UsbPrompter> {
 }
 
 impl<P: UsbPrompter> UsbController<P> {
-    pub fn new(rules: UsbRuleManager, authorizer: UsbAuthorizer, prompter: P) -> Self {
+    pub fn new(rules: Arc<Mutex<UsbRuleManager>>, authorizer: UsbAuthorizer, prompter: P) -> Self {
         Self { rules, authorizer, prompter, session_allowed: HashSet::new() }
     }
 
@@ -53,8 +56,9 @@ impl<P: UsbPrompter> UsbController<P> {
 
     /// A device that was already connected when the daemon started.
     pub fn handle_existing(&mut self, device: &UsbDeviceInfo) {
-        if let Some(rule) = self.rules.lookup(device) {
-            if rule.verdict == Verdict::Block {
+        let verdict = self.rules.lock().lookup(device).map(|r| r.verdict);
+        if let Some(verdict) = verdict {
+            if verdict == Verdict::Block {
                 info!("Blocking connected USB device {} per rule", device.bus_id);
                 self.apply(device, Verdict::Block);
             }
@@ -63,8 +67,8 @@ impl<P: UsbPrompter> UsbController<P> {
 
     /// A newly attached device.
     pub fn handle_add(&mut self, device: &UsbDeviceInfo) {
-        if let Some(rule) = self.rules.lookup(device) {
-            let verdict = rule.verdict;
+        let known = self.rules.lock().lookup(device).map(|r| r.verdict);
+        if let Some(verdict) = known {
             info!("USB {} ({}): rule verdict {:?}", device.bus_id, device.model_id(), verdict);
             self.apply(device, verdict);
             return;
@@ -83,7 +87,7 @@ impl<P: UsbPrompter> UsbController<P> {
         };
 
         if decision.permanent {
-            if let Err(e) = self.rules.add_rule(device, decision.verdict, decision.scope) {
+            if let Err(e) = self.rules.lock().add_rule(device, decision.verdict, decision.scope) {
                 // Never silently widen the scope (e.g. device -> model) on failure.
                 warn!("Could not store USB rule ({:#}); decision applies to this session only", e);
             }
@@ -126,7 +130,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("sys/1-2.3")).unwrap();
         std::fs::write(dir.path().join("sys/1-2.3/authorized"), "?").unwrap();
         let c = UsbController::new(
-            UsbRuleManager::with_path(dir.path().join("usb_rules.json")),
+            Arc::new(Mutex::new(UsbRuleManager::with_path(dir.path().join("usb_rules.json")))),
             UsbAuthorizer::with_root(dir.path().join("sys")),
             Mock { answer, asked: RefCell::new(0) },
         );
@@ -141,7 +145,7 @@ mod tests {
     fn known_allow_rule_authorizes_without_prompt() {
         let (mut c, dir) = setup(None);
         let dev = test_device(0x08, Some("S"));
-        c.rules.add_rule(&dev, Verdict::Allow, Scope::Model).unwrap();
+        c.rules.lock().add_rule(&dev, Verdict::Allow, Scope::Model).unwrap();
         c.handle_add(&dev);
         assert_eq!(auth(&dir), "1");
         assert_eq!(*c.prompter.asked.borrow(), 0);
@@ -151,7 +155,7 @@ mod tests {
     fn known_block_rule_deauthorizes() {
         let (mut c, dir) = setup(None);
         let dev = test_device(0x03, Some("S"));
-        c.rules.add_rule(&dev, Verdict::Block, Scope::Vendor).unwrap();
+        c.rules.lock().add_rule(&dev, Verdict::Block, Scope::Vendor).unwrap();
         c.handle_add(&dev);
         assert_eq!(auth(&dir), "0");
     }
@@ -184,7 +188,7 @@ mod tests {
         c.handle_add(&dev);
         assert_eq!(auth(&dir), "1");
         assert!(c.is_session_allowed(&dev));
-        assert!(c.rules.lookup(&dev).is_none());
+        assert!(c.rules.lock().lookup(&dev).is_none());
         // A repeated add event for the same device is not prompted again.
         c.handle_add(&dev);
         assert_eq!(*c.prompter.asked.borrow(), 1);
@@ -200,7 +204,7 @@ mod tests {
         let dev = test_device(0x08, None);
         c.handle_add(&dev);
         assert_eq!(auth(&dir), "1");
-        assert!(c.rules.rules().is_empty());
+        assert!(c.rules.lock().rules().is_empty());
     }
 
     #[test]
@@ -210,7 +214,7 @@ mod tests {
         c.handle_existing(&dev);
         assert_eq!(auth(&dir), "?");
         assert_eq!(*c.prompter.asked.borrow(), 0);
-        c.rules.add_rule(&dev, Verdict::Block, Scope::Model).unwrap();
+        c.rules.lock().add_rule(&dev, Verdict::Block, Scope::Model).unwrap();
         c.handle_existing(&dev);
         assert_eq!(auth(&dir), "0");
     }
