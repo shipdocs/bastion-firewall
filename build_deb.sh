@@ -158,6 +158,20 @@ chmod 644 debian/usr/share/polkit-1/actions/com.bastion.firewall.policy
 
 # Create AppStream metadata for Software Center
 print_step "Creating AppStream metadata..."
+# Release notes for the AppStream metadata come from this version's section of
+# CHANGELOG.md, so they can't go stale. First sentence of the first 8 bullets.
+RELEASE_NOTES_LI=$(awk -v ver="${VERSION}" '
+    $0 ~ "^## \\[" ver "\\]" { insec = 1; next }
+    insec && /^## \[/ { exit }
+    insec && /^- / { print }
+' CHANGELOG.md | head -n 8 | sed \
+    -e 's/^- //' -e 's/\*\*//g' -e 's/`//g' -e 's/\. .*/./' \
+    -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' \
+    -e 's/^/          <li>/' -e 's/$/<\/li>/')
+if [ -z "$RELEASE_NOTES_LI" ]; then
+    RELEASE_NOTES_LI="          <li>See CHANGELOG.md for details</li>"
+fi
+
 cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
@@ -226,10 +240,7 @@ cat > debian/usr/share/metainfo/com.bastion.firewall.metainfo.xml << EOF
       <description>
         <p>🏰 Update to v${VERSION}</p>
         <ul>
-          <li>Non-blocking learning mode popups (zero latency)</li>
-          <li>Asynchronous rule creation from popups</li>
-          <li>Improved path identification for Flatpak/ containerized apps</li>
-          <li>Codebase cleanup and security hardening</li>
+${RELEASE_NOTES_LI}
         </ul>
       </description>
     </release>
