@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::thread;
@@ -44,6 +44,8 @@ pub struct GuiState {
     /// Cache for popup responses from the GUI (to handle race condition with handler thread)
     /// Keyed by request_id
     pub pending_responses: HashMap<String, GuiResponse>,
+    /// Request IDs sent to the GUI that may still receive one response.
+    pending_response_ids: HashSet<String>,
 }
 
 impl GuiState {
@@ -55,6 +57,7 @@ impl GuiState {
             unknown_decisions: HashMap::new(),
             session_decisions: HashMap::new(),
             pending_responses: HashMap::new(),
+            pending_response_ids: HashSet::new(),
         }
     }
 
@@ -104,6 +107,8 @@ impl GuiState {
         info!("GUI disconnected");
         self.stream = None;
         self.reader = None;
+        self.pending_responses.clear();
+        self.pending_response_ids.clear();
     }
 
     pub fn ask_gui(&mut self, request: &ConnectionRequest) -> Option<GuiResponse> {
@@ -146,6 +151,12 @@ impl GuiState {
             Err(_) => return None,
         };
 
+        if !request.learning_mode {
+            // Register before writing: the handler may receive a response as
+            // soon as the request reaches the socket.
+            self.pending_response_ids.insert(request.request_id.clone());
+        }
+
         if let Some(ref mut stream) = self.stream {
             if stream.write_all((json + "\n").as_bytes()).is_err() {
                 self.disconnect();
@@ -178,6 +189,9 @@ impl GuiState {
 
     /// Notify GUI to cancel a specific popup
     pub fn cancel_popup(&mut self, request_id: &str) {
+        self.pending_response_ids.remove(request_id);
+        self.pending_responses.remove(request_id);
+
         if !self.is_connected() {
             return;
         }
@@ -197,6 +211,17 @@ impl GuiState {
     /// Check if a response has been cached by the handler thread
     pub fn check_response_cache(&mut self, request_id: &str) -> Option<GuiResponse> {
         self.pending_responses.remove(request_id)
+    }
+
+    /// Cache a response only when it matches a request that this daemon sent.
+    /// Removing the ID also ensures that duplicate responses are ignored.
+    fn cache_response(&mut self, response: GuiResponse) -> bool {
+        if !self.pending_response_ids.remove(&response.request_id) {
+            return false;
+        }
+        self.pending_responses
+            .insert(response.request_id.clone(), response);
+        true
     }
 
     pub fn check_unknown_decision(&self, dest_ip: &str, dest_port: u16) -> Option<bool> {
@@ -473,13 +498,23 @@ pub fn handle_gui_connection(
                         GuiCommand::Response(resp) => {
                             // Determine duration: use explicit duration field or fall back to permanent flag
                             let duration = if resp.duration.is_empty() {
-                                if resp.permanent { "always" } else { "once" }
+                                (if resp.permanent { "always" } else { "once" }).to_string()
                             } else {
-                                resp.duration.as_str()
+                                resp.duration.clone()
                             };
-                            // Cache the response for ask_gui() to retrieve (fixes race condition)
-                            info!("[GUI:RESPONSE] Caching response for {}: allow={}, duration={}", resp.request_id, resp.allow, duration);
-                            gui_state.lock().pending_responses.insert(resp.request_id.clone(), resp);
+                            let request_id = resp.request_id.clone();
+                            let allow = resp.allow;
+                            if gui_state.lock().cache_response(resp) {
+                                info!(
+                                    "[GUI:RESPONSE] Caching response for {}: allow={}, duration={}",
+                                    request_id, allow, duration
+                                );
+                            } else {
+                                warn!(
+                                    "[GUI:RESPONSE] Ignoring unsolicited or duplicate response for {}",
+                                    request_id
+                                );
+                            }
                         }
                         GuiCommand::CancelPopup(req) => {
                             // Daemon received cancel from GUI? (Not common, usually other way)
@@ -593,4 +628,39 @@ pub fn handle_gui_connection(
     }
 
     info!("GUI handler thread exiting");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn response(request_id: &str) -> GuiResponse {
+        GuiResponse {
+            request_id: request_id.to_string(),
+            allow: true,
+            ..GuiResponse::default()
+        }
+    }
+
+    #[test]
+    fn unsolicited_responses_are_not_cached() {
+        let mut state = GuiState::new();
+
+        assert!(!state.cache_response(response("invented")));
+        assert!(state.pending_responses.is_empty());
+    }
+
+    #[test]
+    fn expected_response_is_cached_only_once() {
+        let mut state = GuiState::new();
+        state.pending_response_ids.insert("expected".to_string());
+
+        assert!(state.cache_response(response("expected")));
+        assert!(!state.cache_response(response("expected")));
+        assert_eq!(
+            state.check_response_cache("expected").unwrap().request_id,
+            "expected"
+        );
+        assert!(state.pending_responses.is_empty());
+    }
 }
