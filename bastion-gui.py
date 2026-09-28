@@ -67,6 +67,9 @@ class BastionClient(QObject):
     # Max buffer size to prevent memory issues (1MB)
     MAX_BUFFER_SIZE = 1024 * 1024
 
+    # Emitted from the update worker thread; delivered on the GUI thread.
+    update_failed = pyqtSignal(str)
+
     def __init__(self, app):
         super().__init__()
         self.app = app
@@ -78,6 +81,7 @@ class BastionClient(QObject):
         self.learning_mode = False  # Track current learning mode state
         self.active_dialogs = {}  # Map request_id -> dialog
         self.latest_update_version = None # Store latest version found
+        self.update_failed.connect(self._show_update_error)
         self.update_check_url = "https://raw.githubusercontent.com/shipdocs/bastion-firewall/master/VERSION"
 
         # Tray Icon
@@ -508,6 +512,9 @@ class BastionClient(QObject):
             font.setBold(True)
             self.action_update.setFont(font)
 
+    def _show_update_error(self, msg):
+        QMessageBox.critical(None, "Update Error", f"Failed to install update: {msg}")
+
     def perform_update(self):
         """Download the release .deb and install it via pkexec (no shell)."""
         if not self.latest_update_version:
@@ -545,20 +552,30 @@ class BastionClient(QObject):
                 # binary exists and is executable before invoking.
                 pkexec = '/usr/bin/pkexec'
                 apt_get = '/usr/bin/apt-get'
+                gui = '/usr/bin/bastion-gui'
                 for binary in (pkexec, apt_get):
                     if not (os.path.isfile(binary) and os.access(binary, os.X_OK)):
                         raise RuntimeError(f"Required binary missing or not executable: {binary}")
-                # argv list, never a shell string: no version data is
-                # interpreted by a shell.
-                proc = subprocess.Popen([pkexec, apt_get, 'install', '-y', deb_path])
-                rc = proc.wait()
-                if rc != 0:
-                    raise RuntimeError(f"apt-get install exited with status {rc}")
+                # The package's preinst SIGKILLs every running bastion-gui,
+                # including this process, so the install must run in a helper
+                # that outlives us: it installs, removes the download and
+                # starts the new GUI. The helper's command line must not
+                # contain "bastion-gui" (preinst pkill -f would match it), so
+                # the path travels in the environment, and paths are passed as
+                # positional arguments - never interpolated into the script.
+                script = ('"$1" "$2" install -y "$3"; rc=$?; rm -f "$3"; '
+                          'if [ "$rc" -ne 0 ]; then '
+                          'notify-send "Bastion Firewall" "Update failed (apt-get exit $rc)" 2>/dev/null; fi; '
+                          'exec "$BASTION_RELAUNCH"')
+                env = dict(os.environ, BASTION_RELAUNCH=gui)
+                subprocess.Popen(['/bin/sh', '-c', script, 'sh', pkexec, apt_get, deb_path],
+                                 env=env, start_new_session=True,
+                                 stdin=subprocess.DEVNULL)
+                deb_path = None  # the helper removes it
             except Exception as e:
                 msg = str(e)
                 print(f"[UPDATE] Failed to install update: {msg}")
-                QTimer.singleShot(0, lambda: QMessageBox.critical(
-                    None, "Update Error", f"Failed to install update: {msg}"))
+                self.update_failed.emit(msg)
             finally:
                 if deb_path and os.path.exists(deb_path):
                     try:

@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Fixed
+- **In-app updater**: installing the package kills the running GUI (`preinst` SIGKILLs `bastion-gui`), which took the updater down with it and left no GUI afterwards. The install now runs in a detached helper that removes the download and starts the new GUI when apt finishes, and reports a failed install with a desktop notification. Update errors are now shown reliably (they were queued on a thread without an event loop and never displayed).
+
 ## [2.0.36] - 2026-09-28
 
 Fixes the systemd service not serving its control socket, which broke the tray GUI, popups and the USB prompt when Bastion ran as a service.
