@@ -307,13 +307,14 @@ echo "🏰 Bastion Firewall - Post Installation"
 echo "============================================================"
 echo ""
 
-# Add all desktop users to bastion group (UID >= 1000, excluding system accounts)
-echo "Adding desktop users to bastion group..."
-getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | while read username; do
-    if [ "$username" = "nobody" ]; then
+# Only administrators may control the root-owned firewall daemon. On Fedora and
+# RHEL, interactive administrator accounts are members of the wheel group.
+echo "Adding desktop administrators to bastion group..."
+getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | while read -r username; do
+    if ! id -nG "$username" 2>/dev/null | tr ' ' '\n' | grep -Fxq wheel; then
         continue
     fi
-    if ! groups "$username" 2>/dev/null | grep -q bastion; then
+    if ! id -nG "$username" 2>/dev/null | tr ' ' '\n' | grep -Fxq bastion; then
         usermod -a -G bastion "$username" 2>/dev/null && echo "  ✓ Added $username to bastion group"
     fi
 done
