@@ -54,9 +54,10 @@ impl From<u8> for UsbClass {
 }
 
 impl UsbClass {
-    /// Classes that can inject input or create network interfaces (BadUSB vectors).
+    /// Classes that can inject input or create network interfaces (BadUSB vectors);
+    /// CDC comm/data cover USB ethernet and modem adapters.
     pub fn is_high_risk(self) -> bool {
-        matches!(self, Self::Hid | Self::Wireless)
+        matches!(self, Self::Hid | Self::Wireless | Self::CdcComm | Self::CdcData)
     }
 
     pub fn is_low_risk(self) -> bool {
@@ -128,6 +129,8 @@ mod tests {
     fn class_risk() {
         assert!(UsbClass::from(0x03).is_high_risk());
         assert!(UsbClass::from(0xE0).is_high_risk());
+        assert!(UsbClass::from(0x02).is_high_risk());
+        assert!(UsbClass::from(0x0A).is_high_risk());
         assert!(!UsbClass::from(0x08).is_high_risk());
         assert!(UsbClass::from(0x09).is_low_risk());
         assert_eq!(UsbClass::from(0x42), UsbClass::Unknown(0x42));
