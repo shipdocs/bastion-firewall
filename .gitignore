@@ -70,7 +70,8 @@ htmlcov/
 
 # Rust build artifacts
 target/
-Cargo.lock
+# Cargo.lock is committed for bastion-rs (a binary crate): reproducible builds, and
+# Dependabot needs it to see the installed versions.
 *.rlib
 
 # eBPF build artifacts
