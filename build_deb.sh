@@ -160,6 +160,10 @@ chmod 644 debian/usr/share/polkit-1/actions/com.bastion.firewall.policy
 print_step "Creating AppStream metadata..."
 # Release notes for the AppStream metadata come from this version's section of
 # CHANGELOG.md, so they can't go stale. First sentence of the first 8 bullets.
+if [ ! -r CHANGELOG.md ]; then
+    print_error "CHANGELOG.md not found or unreadable (needed for the release notes)"
+    exit 1
+fi
 RELEASE_NOTES_LI=$(awk -v ver="${VERSION}" '
     $0 ~ "^## \\[" ver "\\]" { insec = 1; next }
     insec && /^## \[/ { exit }
@@ -169,6 +173,7 @@ RELEASE_NOTES_LI=$(awk -v ver="${VERSION}" '
     -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' \
     -e 's/^/          <li>/' -e 's/$/<\/li>/')
 if [ -z "$RELEASE_NOTES_LI" ]; then
+    print_info "No bullets under '## [${VERSION}]' in CHANGELOG.md; using generic release notes"
     RELEASE_NOTES_LI="          <li>See CHANGELOG.md for details</li>"
 fi
 
