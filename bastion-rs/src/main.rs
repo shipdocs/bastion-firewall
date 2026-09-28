@@ -11,6 +11,7 @@ mod rules;
 mod usb_service;
 mod whitelist;
 
+use anyhow::Context;
 use etherparse::{Ipv4HeaderSlice, Ipv6HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};
 use nfq::{Queue, Verdict};
 use std::sync::Arc;
@@ -59,6 +60,14 @@ async fn main() -> anyhow::Result<()> {
     // Shared GUI state
     let gui_state = Arc::new(Mutex::new(GuiState::new()));
 
+    // Bind NFQUEUE before anything else has side effects. The queue can only be bound
+    // once, so a second daemon fails here instead of replacing the running daemon's
+    // control socket or changing the USB default policy.
+    let mut queue = Queue::open().context("cannot open NFQUEUE")?;
+    queue
+        .bind(QUEUE_NUM)
+        .with_context(|| format!("cannot bind NFQUEUE {} (is another bastion-daemon already running?)", QUEUE_NUM))?;
+
     // USB rules are shared between the USB service, the GUI socket and SIGHUP
     let usb_rules = Arc::new(Mutex::new(UsbRuleManager::new()));
 
@@ -77,10 +86,6 @@ async fn main() -> anyhow::Result<()> {
     let usb_config = config.clone();
     let usb_service_rules = usb_rules.clone();
     thread::spawn(move || usb_service::run(usb_config, usb_gui_state, usb_service_rules));
-
-    // Open NFQUEUE
-    let mut queue = Queue::open()?;
-    queue.bind(QUEUE_NUM)?;
 
     info!("Listening on NFQUEUE {}", QUEUE_NUM);
     info!("Ready for packets!");
