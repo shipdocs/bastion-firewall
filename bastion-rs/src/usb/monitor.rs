@@ -76,12 +76,19 @@ pub fn device_info(device: &udev::Device) -> Option<UsbDeviceInfo> {
     })
 }
 
-/// Devices already attached when the daemon starts.
-pub fn enumerate_existing() -> Result<Vec<UsbDeviceInfo>> {
+/// Devices already attached when the daemon starts, with whether the kernel
+/// currently has them authorized (`authorized` sysfs attribute).
+pub fn enumerate_existing() -> Result<Vec<(UsbDeviceInfo, bool)>> {
     let mut en = udev::Enumerator::new().context("udev enumerator")?;
     en.match_subsystem("usb")?;
     en.match_property("DEVTYPE", "usb_device")?;
-    Ok(en.scan_devices()?.filter_map(|d| device_info(&d)).collect())
+    Ok(en
+        .scan_devices()?
+        .filter_map(|d| {
+            let authorized = attr(&d, "authorized").map(|v| v.trim() != "0").unwrap_or(true);
+            device_info(&d).map(|info| (info, authorized))
+        })
+        .collect())
 }
 
 pub struct UsbMonitor {

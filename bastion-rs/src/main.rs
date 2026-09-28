@@ -8,6 +8,7 @@ mod gui;
 mod proc_parser;
 mod process;
 mod rules;
+mod usb_service;
 mod whitelist;
 
 use etherparse::{Ipv4HeaderSlice, Ipv6HeaderSlice, TcpHeaderSlice, UdpHeaderSlice};
@@ -22,6 +23,7 @@ use signal_hook::iterator::Signals;
 use std::thread;
 
 use bastion_rs::protocol::ConnectionRequest;
+use bastion_rs::usb::UsbRuleManager;
 use config::ConfigManager;
 use dns_snooper::DnsSnooper;
 use gui::{run_socket_server, GuiState, Stats};
@@ -57,14 +59,24 @@ async fn main() -> anyhow::Result<()> {
     // Shared GUI state
     let gui_state = Arc::new(Mutex::new(GuiState::new()));
 
+    // USB rules are shared between the USB service, the GUI socket and SIGHUP
+    let usb_rules = Arc::new(Mutex::new(UsbRuleManager::new()));
+
     // Start socket server for GUI connections
     let gui_state_server = gui_state.clone();
     let stats_server = stats.clone();
     let config_server = config.clone();
     let rules_server = rules.clone();
+    let usb_rules_server = usb_rules.clone();
     thread::spawn(move || {
-        run_socket_server(gui_state_server, stats_server, config_server, rules_server);
+        run_socket_server(gui_state_server, stats_server, config_server, rules_server, usb_rules_server);
     });
+
+    // USB device control (opt-in via `usb_control` in config.json)
+    let usb_gui_state = gui_state.clone();
+    let usb_config = config.clone();
+    let usb_service_rules = usb_rules.clone();
+    thread::spawn(move || usb_service::run(usb_config, usb_gui_state, usb_service_rules));
 
     // Open NFQUEUE
     let mut queue = Queue::open()?;
@@ -93,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
     let gui_state_sighup = gui_state.clone();
     let rules_sighup = rules.clone();
     let config_sighup = config.clone();
+    let usb_rules_sighup = usb_rules.clone();
     thread::spawn(move || {
         let mut signals = match Signals::new([SIGHUP]) {
             Ok(s) => s,
@@ -110,6 +123,9 @@ async fn main() -> anyhow::Result<()> {
                 }
                 gui_state_sighup.lock().pending_cache.clear();
                 rules_sighup.reload();
+                if let Err(e) = usb_rules_sighup.lock().reload() {
+                    error!("Failed to reload USB rules: {:#}", e);
+                }
                 let mode = if config_sighup.is_learning_mode() {
                     "learning"
                 } else {

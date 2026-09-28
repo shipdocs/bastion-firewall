@@ -1,3 +1,12 @@
+## [Unreleased]
+
+### Added
+- **USB device control (#29)**: opt-in (`"usb_control": true`). New USB devices are blocked until you approve them in a GUI prompt (allow/block once or always, per device, model or vendor). A new **USB** page in the control panel lists and deletes saved decisions. Devices already connected keep working, and an unanswered prompt leaves the device blocked. See `docs/USB_CONTROL.md`.
+- The daemon socket now also accepts a second, command-only connection for `list_usb_rules` / `delete_usb_rule`. It still cannot answer prompts; a second GUI is otherwise refused as before.
+
+### Changed
+- Build dependency `libudev-dev`, runtime dependency `libudev1`.
+
 ## [2.0.34] - 2026-08-20
 
 Security release. Closes the 2026-07-02 audit findings (#31–#36).

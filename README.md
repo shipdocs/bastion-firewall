@@ -90,6 +90,7 @@ python -m pytest tests/
 - **CAP_BPF and CAP_NET_ADMIN** capabilities (daemon runs as root)
 
 #### Build Dependencies (for Rust daemon)
+- `libudev-dev`, `libnetfilter-queue-dev`, `libpcap-dev` (plus GTK/appindicator dev packages for the Rust GUI)
 - Rust 1.75+ (stable + nightly toolchain)
 - clang 18+
 - llvm-18-dev
@@ -127,6 +128,10 @@ Configuration is stored in `/etc/bastion/config.json`:
   "allow_localhost": true
 }
 ```
+
+### USB device control (optional)
+
+Set `"usb_control": true` to block new USB devices until you approve them. See [docs/USB_CONTROL.md](docs/USB_CONTROL.md).
 
 ## Architecture
 

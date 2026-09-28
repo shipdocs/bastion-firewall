@@ -171,6 +171,7 @@ BuildArch:      x86_64
 AutoReqProv:    no
 
 Requires:       libpcap
+Requires:       systemd-libs
 Requires:       glibc
 Requires:       python3
 Requires:       python3-gobject

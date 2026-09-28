@@ -18,6 +18,8 @@ from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer, QSocketNotifier
 from bastion.gui.dialogs.firewall_dialog import FirewallDialog
+from bastion.gui.dialogs.usb_dialog import USBPromptDialog
+from bastion.usb_client import build_usb_response, dialog_timeout
 from bastion.icon_manager import IconManager
 from bastion import __version__ as BASTION_VERSION
 import urllib.request
@@ -267,12 +269,38 @@ class BastionClient(QObject):
                     # Update icon to reflect new learning mode
                     self.update_status("Connected" if self.connected else "Disconnected",
                                       "connected" if self.connected else "disconnected")
+            elif req['type'] == 'usb_request':
+                self.handle_usb_request(req)
             elif req['type'] == 'cancel_popup':
                 self.cancel_dialog(req.get('request_id'))
             elif req['type'] == 'notification':
                 self.handle_notification(req)
         except json.JSONDecodeError:
             pass
+
+    def handle_usb_request(self, req):
+        nonce = req.get('nonce')
+        device = req.get('device')
+        if not nonce or not isinstance(device, dict) or nonce in self.active_dialogs:
+            return
+        print(f"[GUI] USB prompt: {device.get('vendor_id')}:{device.get('product_id')} bus={device.get('bus_id')}")
+
+        dialog = USBPromptDialog(device, timeout=dialog_timeout(req.get('timeout_secs')))
+        self.active_dialogs[nonce] = dialog
+
+        def on_finished():
+            self.active_dialogs.pop(nonce, None)
+            if self.connected and self.sock:
+                try:
+                    msg = build_usb_response(nonce, dialog.allow, dialog.scope, dialog.permanent)
+                    self.sock.sendall((json.dumps(msg) + '\n').encode())
+                except (OSError, ValueError) as e:
+                    # The daemon blocks the device when no answer arrives.
+                    print(f"[GUI] ERROR: Failed to send USB decision: {e}")
+            dialog.deleteLater()
+
+        dialog.finished.connect(on_finished)
+        dialog.show()
 
     def handle_notification(self, req):
         title = req.get('title', 'Bastion Firewall')
