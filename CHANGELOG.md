@@ -1,11 +1,26 @@
-## [Unreleased]
+## [2.0.35] - 2026-09-28
+
+Adds opt-in USB device control and finishes the hardening items from the 2026-07-02 audit (#36).
 
 ### Added
 - **USB device control (#29)**: opt-in (`"usb_control": true`). New USB devices are blocked until you approve them in a GUI prompt (allow/block once or always, per device, model or vendor). A new **USB** page in the control panel lists and deletes saved decisions. Devices already connected keep working, and an unanswered prompt leaves the device blocked. See `docs/USB_CONTROL.md`.
+- On a normal stop (Ctrl-C, `systemctl stop`) the daemon restores the USB default it changed, and only on the controllers it changed. After a crash it stays blocked (fail closed).
 - The daemon socket now also accepts a second, command-only connection for `list_usb_rules` / `delete_usb_rule`. It still cannot answer prompts; a second GUI is otherwise refused as before.
 
+### Security
+- **postinst group policy**: only the installing admin (`BASTION_USERS`, `SUDO_USER`, `PKEXEC_UID`, else UID 1000) is added to the `bastion` group, instead of every desktop user.
+- **systemd**: added low-risk sandboxing (`ProtectKernelModules`, `ProtectControlGroups`, `ProtectClock`, `LockPersonality`, `RestrictRealtime`).
+- **Control panel lock**: takes `flock` first, removing a stale-PID race.
+
+### Fixed
+- A second `bastion-daemon` no longer replaces the running daemon's control socket; it now exits early because NFQUEUE is already bound.
+- Config schema: the postinst fallback and packaged example use the keys the Rust daemon reads.
+- Removed the unused logrotate config (the daemon logs to the journal).
+
 ### Changed
-- Build dependency `libudev-dev`, runtime dependency `libudev1`.
+- The Debian package is now named `bastion-firewall_<version>_amd64.deb` (it contains native binaries). The in-app updater expects that name.
+- Build dependency `libudev-dev`; runtime dependency `libudev1` (RPM: `systemd-libs`).
+- `setup.py` `install_requires` trimmed to `PyQt6`.
 
 ## [2.0.34] - 2026-08-20
 
