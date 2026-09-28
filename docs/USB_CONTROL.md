@@ -75,6 +75,5 @@ Plug in a USB stick you have not approved before: the prompt appears. For a full
 ## Known limits
 
 - Toggling `usb_control` needs a service restart.
-- A prompt left unanswered by the GUI may stay on screen until its own 25 s timer ends, after the daemon has already
-  blocked the device.
+- The prompt closes itself two seconds before the daemon's `usb_prompt_timeout_secs` and blocks the device.
 - Tested with unit tests and mocked sysfs; please check it on real hardware before relying on it.

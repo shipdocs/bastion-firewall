@@ -7,7 +7,7 @@ import threading
 
 import pytest
 
-from bastion.usb_client import (build_usb_response, delete_usb_rule, list_usb_rules,
+from bastion.usb_client import (build_usb_response, dialog_timeout, delete_usb_rule, list_usb_rules,
                                 sanitize_text)
 
 
@@ -74,3 +74,13 @@ def test_delete_usb_rule(sock_path):
 def test_unreachable_daemon(sock_path):
     assert list_usb_rules(sock_path) is None
     assert delete_usb_rule("046d:*:*", sock_path) is False
+
+
+def test_dialog_timeout_follows_daemon_timeout():
+    assert dialog_timeout(30) == 28
+    assert dialog_timeout(300) == 298
+    assert dialog_timeout(5) == 3
+    assert dialog_timeout(1) == 3
+    assert dialog_timeout(0) == 25
+    assert dialog_timeout(None) == 25
+    assert dialog_timeout("abc") == 25

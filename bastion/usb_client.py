@@ -19,6 +19,18 @@ def sanitize_text(value, max_len=128):
     return text[:max_len]
 
 
+def dialog_timeout(daemon_timeout, default=25):
+    """Seconds the prompt should wait: the daemon's timeout minus a margin so the
+    dialog gives up (and blocks) just before the daemon does."""
+    try:
+        daemon_timeout = int(daemon_timeout)
+    except (TypeError, ValueError):
+        return default
+    if daemon_timeout <= 0:
+        return default
+    return max(3, min(daemon_timeout - 2, 300))
+
+
 def build_usb_response(nonce, allow, scope, permanent):
     """Message answering a daemon `usb_request`."""
     if scope not in VALID_SCOPES:

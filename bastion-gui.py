@@ -19,7 +19,7 @@ from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer, QSocketNotifier
 from bastion.gui.dialogs.firewall_dialog import FirewallDialog
 from bastion.gui.dialogs.usb_dialog import USBPromptDialog
-from bastion.usb_client import build_usb_response
+from bastion.usb_client import build_usb_response, dialog_timeout
 from bastion.icon_manager import IconManager
 from bastion import __version__ as BASTION_VERSION
 import urllib.request
@@ -285,7 +285,7 @@ class BastionClient(QObject):
             return
         print(f"[GUI] USB prompt: {device.get('vendor_id')}:{device.get('product_id')} bus={device.get('bus_id')}")
 
-        dialog = USBPromptDialog(device)
+        dialog = USBPromptDialog(device, timeout=dialog_timeout(req.get('timeout_secs')))
         self.active_dialogs[nonce] = dialog
 
         def on_finished():

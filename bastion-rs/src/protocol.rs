@@ -120,6 +120,9 @@ pub struct UsbRequest {
     pub msg_type: String, // "usb_request"
     pub nonce: String,
     pub device: UsbDevicePrompt,
+    /// How long the daemon waits for an answer before blocking the device.
+    #[serde(default)]
+    pub timeout_secs: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

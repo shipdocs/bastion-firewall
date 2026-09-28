@@ -363,7 +363,12 @@ pub fn ask_usb(
     timeout: Duration,
 ) -> Option<UsbResponse> {
     let nonce = new_nonce()?;
-    let request = UsbRequest { msg_type: "usb_request".to_string(), nonce: nonce.clone(), device };
+    let request = UsbRequest {
+        msg_type: "usb_request".to_string(),
+        nonce: nonce.clone(),
+        device,
+        timeout_secs: timeout.as_secs(),
+    };
     let json = serde_json::to_string(&request).ok()?;
 
     {
@@ -840,6 +845,7 @@ mod tests {
             BufReader::new(gui_side).read_line(&mut line).unwrap();
             let req: UsbRequest = serde_json::from_str(&line).unwrap();
             assert_eq!(req.msg_type, "usb_request");
+            assert_eq!(req.timeout_secs, 5);
             // A wrong nonce is rejected, the right one accepted exactly once.
             assert!(!gui_state.lock().accept_usb_response(usb_answer("wrong", true)));
             assert!(gui_state.lock().accept_usb_response(usb_answer(&req.nonce, true)));
