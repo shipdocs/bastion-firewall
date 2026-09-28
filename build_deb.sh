@@ -345,22 +345,22 @@ fi
 
 # Build package
 print_step "Building package..."
-dpkg-deb --root-owner-group --build debian "bastion-firewall_${VERSION}_all.deb"
+dpkg-deb --root-owner-group --build debian "bastion-firewall_${VERSION}_amd64.deb"
 
 # Check package
 print_step "Checking package..."
-dpkg-deb --info "bastion-firewall_${VERSION}_all.deb"
+dpkg-deb --info "bastion-firewall_${VERSION}_amd64.deb"
 echo ""
-dpkg-deb --contents "bastion-firewall_${VERSION}_all.deb"
+dpkg-deb --contents "bastion-firewall_${VERSION}_amd64.deb"
 
 echo ""
-print_info "Package built successfully: bastion-firewall_${VERSION}_all.deb"
+print_info "Package built successfully: bastion-firewall_${VERSION}_amd64.deb"
 echo ""
 print_info "To install:"
-echo "  sudo dpkg -i bastion-firewall_${VERSION}_all.deb"
+echo "  sudo dpkg -i bastion-firewall_${VERSION}_amd64.deb"
 echo "  sudo apt-get install -f  # Install dependencies if needed"
 echo ""
 print_info "To test:"
-echo "  dpkg-deb --contents bastion-firewall_${VERSION}_all.deb"
-echo "  dpkg-deb --info bastion-firewall_${VERSION}_all.deb"
+echo "  dpkg-deb --contents bastion-firewall_${VERSION}_amd64.deb"
+echo "  dpkg-deb --info bastion-firewall_${VERSION}_amd64.deb"
 echo ""

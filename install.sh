@@ -10,14 +10,14 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 if [ -f "VERSION" ]; then
-    DEB_FILE="bastion-firewall_$(tr -d '[:space:]' < VERSION)_all.deb"
+    DEB_FILE="bastion-firewall_$(tr -d '[:space:]' < VERSION)_amd64.deb"
 else
-    DEB_FILE=$(find . -maxdepth 1 -name 'bastion-firewall_*_all.deb' -printf '%f\n' 2>/dev/null | sort -V | tail -n1)
+    DEB_FILE=$(find . -maxdepth 1 -name 'bastion-firewall_*_amd64.deb' -printf '%f\n' 2>/dev/null | sort -V | tail -n1)
 fi
 
 # Optional: Verify package integrity (recommended for security)
 # Uncomment and set the expected SHA256 hash to enable verification
-# Generate hash with: sha256sum bastion-firewall_2.0.0_all.deb
+# Generate hash with: sha256sum bastion-firewall_2.0.0_amd64.deb
 # EXPECTED_SHA256="your_sha256_hash_here"
 
 if [ ! -f "$DEB_FILE" ]; then
