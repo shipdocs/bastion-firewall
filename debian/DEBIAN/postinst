@@ -9,23 +9,26 @@ if ! getent passwd bastion >/dev/null; then
     useradd -r -g bastion -d /var/lib/bastion -s /usr/sbin/nologin -c "Bastion Firewall User" bastion
 fi
 
-# Add all desktop users to bastion group (UID >= 1000, excluding system accounts)
-echo "Adding desktop users to bastion group..."
-ADDED_USERS=""
-getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | while read username; do
-    # Skip nobody and other special accounts
-    if [ "$username" = "nobody" ]; then
-        continue
-    fi
-
-    # Add user to bastion group if not already a member
-    if ! groups "$username" 2>/dev/null | grep -q bastion; then
-        usermod -a -G bastion "$username" 2>/dev/null && echo "  ✓ Added $username to bastion group"
+# Add only the installing admin to the bastion group (not every desktop user).
+# Override with BASTION_USERS="alice bob"; otherwise use the sudo/pkexec invoker,
+# falling back to the primary desktop user (UID 1000).
+ADMIN_USERS="${BASTION_USERS:-}"
+if [ -z "$ADMIN_USERS" ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    ADMIN_USERS="$SUDO_USER"
+fi
+if [ -z "$ADMIN_USERS" ] && [ -n "${PKEXEC_UID:-}" ]; then
+    ADMIN_USERS="$(getent passwd "$PKEXEC_UID" | cut -d: -f1)"
+fi
+if [ -z "$ADMIN_USERS" ]; then
+    ADMIN_USERS="$(getent passwd 1000 | cut -d: -f1)"
+fi
+for username in $ADMIN_USERS; do
+    if id "$username" >/dev/null 2>&1 && ! id -nG "$username" | tr ' ' '\n' | grep -qx bastion; then
+        usermod -a -G bastion "$username" 2>/dev/null && echo "  Added $username to bastion group"
     fi
 done
-
-echo "Desktop users have been added to bastion group."
-echo "Note: Users must log out and back in for group membership to take effect."
+echo "Note: users must log out and back in for group membership to take effect."
+echo "Add other users manually with: sudo usermod -aG bastion <user>"
 
 # Set up configuration directory
 mkdir -p /etc/bastion
@@ -33,7 +36,7 @@ if [ ! -f /etc/bastion/config.json ]; then
     if [ -f /usr/share/doc/bastion-firewall/config.json.example ]; then
         cp /usr/share/doc/bastion-firewall/config.json.example /etc/bastion/config.json
     else
-        echo '{"mode": "learning", "log_level": "INFO", "rules_file": "/etc/bastion/rules.json"}' > /etc/bastion/config.json
+        echo '{"mode": "learning", "popup_enabled": true, "notifications_enabled": true, "fail_closed": false}' > /etc/bastion/config.json
     fi
     chmod 644 /etc/bastion/config.json
 fi
@@ -49,15 +52,8 @@ mkdir -p /var/log/bastion
 chown -R bastion:bastion /var/log/bastion
 chmod 750 /var/log/bastion
 
-# Install logrotate configuration
-if [ -f /usr/share/doc/bastion-firewall/bastion-firewall.logrotate ]; then
-    cp /usr/share/doc/bastion-firewall/bastion-firewall.logrotate /etc/logrotate.d/bastion-firewall
-fi
-
-# Ensure log file has correct permissions if it exists
-touch /var/log/bastion-daemon.log
-chgrp bastion /var/log/bastion-daemon.log
-chmod 644 /var/log/bastion-daemon.log
+# Remove obsolete logrotate config (daemon logs to the journal)
+rm -f /etc/logrotate.d/bastion-firewall
 
 # Verify daemon binary
 if [ ! -x /usr/bin/bastion-daemon ]; then

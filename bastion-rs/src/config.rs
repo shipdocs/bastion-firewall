@@ -109,6 +109,16 @@ mod tests {
     use std::io::Write;
 
     #[test]
+    fn test_packaged_config_examples_parse() {
+        // Must match the fallback JSON in debian/DEBIAN/postinst and the example in build_deb.sh
+        let c: Config = serde_json::from_str(
+            r#"{"mode": "learning", "popup_enabled": true, "notifications_enabled": true, "fail_closed": false}"#,
+        ).unwrap();
+        assert_eq!(c.mode, OperationMode::Learning);
+        assert!(c.popup_enabled && c.notifications_enabled && !c.fail_closed);
+    }
+
+    #[test]
     fn test_default_config() {
         let manager = ConfigManager::with_path("/non/existent/path");
         assert!(manager.is_learning_mode());

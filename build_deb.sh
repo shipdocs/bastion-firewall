@@ -252,19 +252,12 @@ else
     cat > debian/usr/share/doc/bastion-firewall/config.json.example << 'CONFIGEOF'
 {
     "mode": "learning",
-    "cache_decisions": true,
-    "default_action": "deny",
-    "timeout_seconds": 30,
-    "allow_localhost": true,
-    "allow_lan": false,
-    "log_decisions": true,
-    "inbound_protection": true
+    "popup_enabled": true,
+    "notifications_enabled": true,
+    "fail_closed": false
 }
 CONFIGEOF
 fi
-
-# Copy logrotate configuration
-cp debian/bastion-firewall.logrotate debian/usr/share/doc/bastion-firewall/
 
 # Create copyright file
 cat > debian/usr/share/doc/bastion-firewall/copyright << 'EOF'
