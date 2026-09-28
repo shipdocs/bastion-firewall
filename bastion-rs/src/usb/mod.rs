@@ -2,10 +2,14 @@
 //! sysfs authorization. The udev monitor and IPC wiring build on these pieces.
 
 pub mod authorizer;
+pub mod controller;
 pub mod device;
+pub mod monitor;
 pub mod rules;
 pub mod validation;
 
 pub use authorizer::UsbAuthorizer;
 pub use device::{UsbClass, UsbDeviceInfo};
 pub use rules::{Scope, UsbRule, UsbRuleManager, Verdict};
+pub use controller::{Decision, UsbController, UsbPrompter};
+pub use monitor::{UsbAction, UsbMonitor};
