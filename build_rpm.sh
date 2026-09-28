@@ -175,8 +175,6 @@ Requires:       systemd-libs
 Requires:       glibc
 Requires:       python3
 Requires:       python3-gobject
-Requires:       python3-pillow
-Requires:       python3-psutil
 Requires:       python3-pyqt6
 Requires:       iptables
 Requires:       polkit
@@ -321,10 +319,6 @@ getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | while read -r us
 done
 echo "Note: Users must log out and back in for group membership to take effect."
 echo ""
-
-# Install Python dependencies
-echo "Installing Python dependencies..."
-pip3 install --quiet psutil tabulate pystray pillow 2>/dev/null || true
 
 # Create libpcap compatibility symlink if needed
 # The daemon is built on Debian (libpcap.so.0.8) but Fedora/RHEL has libpcap.so.1

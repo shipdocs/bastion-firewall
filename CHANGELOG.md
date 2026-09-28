@@ -1,7 +1,7 @@
 ## [Unreleased]
 
 ### Security
-- Removed the unused Python packages from `requirements.txt` (Pillow, Scapy, psutil, pystray, tabulate, NetfilterQueue; none is imported by the code). The declared minimums had known vulnerabilities (Pillow 10.2.0 has 29 advisories, fixed in 12.3.0; Scapy 2.5.0 has GHSA-cq46-m9x9-j8w2, fixed in 2.7.0). `requirements.txt` now lists only PyQt6, the GUI's one real dependency.
+- Removed the unused Python packages (Pillow, Scapy, psutil, pystray, tabulate, NetfilterQueue; none is imported by the code) from `requirements.txt`, and stopped installing them from the packages: the deb no longer depends on `python3-psutil`, `python3-pystray` and `python3-pil`, and the rpm no longer requires `python3-pillow`/`python3-psutil` or `pip3 install`s them in `%post`. The declared minimums had known vulnerabilities (Pillow 10.2.0 has 29 advisories, fixed in 12.3.0; Scapy 2.5.0 has GHSA-cq46-m9x9-j8w2, fixed in 2.7.0). `requirements.txt` now lists only PyQt6, the GUI's one real dependency.
 
 ## [2.0.36] - 2026-09-28
 

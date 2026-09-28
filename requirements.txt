@@ -1,4 +1,5 @@
 # Runtime dependencies of the Python GUI (tray, popups, control panel).
-# The daemon is Rust; the old Python-daemon packages (psutil, scapy, Pillow,
-# pystray, tabulate, NetfilterQueue) were unused and have been removed.
+# The daemon is Rust; the GUI only needs PyQt6. The packages the old Python
+# daemon used are not imported anywhere and are no longer listed here or in the
+# deb/rpm dependencies.
 PyQt6>=6.0.0
