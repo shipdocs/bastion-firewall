@@ -103,6 +103,20 @@ impl GuiState {
         info!("GUI connection established");
     }
 
+    /// Write one JSON line to the GUI. Every writer goes through this while
+    /// holding the state lock, so messages from different threads never
+    /// interleave. Disconnects on failure.
+    pub fn send_line(&mut self, json: &str) -> bool {
+        let ok = match self.stream.as_mut() {
+            Some(stream) => stream.write_all(format!("{json}\n").as_bytes()).is_ok(),
+            None => false,
+        };
+        if !ok && self.stream.is_some() {
+            self.disconnect();
+        }
+        ok
+    }
+
     pub fn is_connected(&self) -> bool {
         self.stream.is_some()
     }
@@ -358,13 +372,8 @@ pub fn ask_usb(
             return None;
         }
         state.pending_usb.insert(nonce.clone(), None);
-        let written = match state.stream.as_mut() {
-            Some(stream) => stream.write_all((json + "\n").as_bytes()).is_ok(),
-            None => false,
-        };
-        if !written {
+        if !state.send_line(&json) {
             state.pending_usb.remove(&nonce);
-            state.disconnect();
             return None;
         }
     }
@@ -536,14 +545,13 @@ pub fn run_socket_server(
     }
 }
 
-/// Answer `list_usb_rules` / `delete_usb_rule`; anything else is ignored.
-/// Shared by the primary GUI handler and command-only secondary connections.
-fn handle_usb_admin_command(
+/// Build the reply for `list_usb_rules` / `delete_usb_rule`; `None` for any other
+/// command. The caller decides how to write it (see `send_line`).
+fn usb_admin_reply(
     cmd: &GuiCommand,
-    stream: &mut UnixStream,
     config: &ConfigManager,
     usb_rules: &Mutex<UsbRuleManager>,
-) -> bool {
+) -> Option<String> {
     let reply = match cmd {
         GuiCommand::ListUsbRules => {
             let rules = serde_json::to_value(usb_rules.lock().rules()).unwrap_or_default();
@@ -567,14 +575,9 @@ fn handle_usb_admin_command(
                 success,
             })
         }
-        _ => return false,
+        _ => return None,
     };
-    if let Ok(json) = reply {
-        if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
-            debug!("Failed to send USB admin reply: {}", e);
-        }
-    }
-    true
+    reply.ok()
 }
 
 /// Command-only connection used while another GUI owns the prompt channel.
@@ -596,8 +599,14 @@ fn handle_admin_connection(
             Ok(0) | Err(_) => break,
             Ok(_) => {
                 if let Ok(cmd) = serde_json::from_str::<GuiCommand>(&line) {
-                    if !handle_usb_admin_command(&cmd, &mut stream, &config, &usb_rules) {
-                        debug!("Secondary GUI connection: ignoring non-admin command");
+                    match usb_admin_reply(&cmd, &config, &usb_rules) {
+                        // A secondary connection owns its own stream, so it writes directly.
+                        Some(json) => {
+                            if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
+                                debug!("Failed to send USB admin reply: {}", e);
+                            }
+                        }
+                        None => debug!("Secondary GUI connection: ignoring non-admin command"),
                     }
                 }
             }
@@ -704,8 +713,8 @@ pub fn handle_gui_connection(
                                 success,
                             };
                             if let Ok(json) = serde_json::to_string(&response) {
-                                if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
-                                    debug!("Failed to send deletion confirmation: {}", e);
+                                if !gui_state.lock().send_line(&json) {
+                                    debug!("Failed to send deletion confirmation");
                                 }
                             }
                         }
@@ -717,13 +726,17 @@ pub fn handle_gui_connection(
                                 rules: rules_json,
                             };
                             if let Ok(json) = serde_json::to_string(&response) {
-                                if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
-                                    debug!("Failed to send rules list: {}", e);
+                                if !gui_state.lock().send_line(&json) {
+                                    debug!("Failed to send rules list");
                                 }
                             }
                         }
                         GuiCommand::ListUsbRules | GuiCommand::DeleteUsbRule(_) => {
-                            handle_usb_admin_command(&cmd, &mut stream, &config, &usb_rules);
+                            if let Some(json) = usb_admin_reply(&cmd, &config, &usb_rules) {
+                                if !gui_state.lock().send_line(&json) {
+                                    debug!("Failed to send USB admin reply");
+                                }
+                            }
                         }
                         GuiCommand::UsbResponse(resp) => {
                             let nonce = resp.nonce.clone();
@@ -772,9 +785,8 @@ pub fn handle_gui_connection(
             };
             // Stats unlocked implicitly when moving to json serialization or scope ends
             if let Ok(json) = serde_json::to_string(&update) {
-                if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
-                    debug!("GUI handler write error: {}", e);
-                    gui_state.lock().disconnect();
+                if !gui_state.lock().send_line(&json) {
+                    debug!("GUI handler write error");
                     break;
                 }
             }
@@ -901,6 +913,28 @@ mod tests {
         drop(client_w);
         drop(client_r);
         handler.join().unwrap();
+    }
+
+    #[test]
+    fn send_line_writes_whole_lines_and_disconnects_on_failure() {
+        let (daemon_side, gui_side) = UnixStream::pair().unwrap();
+        let mut state = GuiState::new();
+        assert!(!state.send_line("{}"), "no connection yet");
+        state.set_connection(daemon_side);
+        assert!(state.send_line(r#"{"a":1}"#));
+        let mut line = String::new();
+        BufReader::new(gui_side.try_clone().unwrap()).read_line(&mut line).unwrap();
+        assert_eq!(line, "{\"a\":1}\n");
+        drop(gui_side);
+        // Writing to a closed peer eventually fails and clears the connection.
+        let mut failed = false;
+        for _ in 0..50 {
+            if !state.send_line(&"x".repeat(4096)) {
+                failed = true;
+                break;
+            }
+        }
+        assert!(failed && !state.is_connected());
     }
 
     fn response(request_id: &str) -> GuiResponse {

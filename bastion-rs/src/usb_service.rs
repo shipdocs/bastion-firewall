@@ -88,14 +88,29 @@ pub fn run(
         }
     };
 
+    // Record the marker *before* changing anything: it means "this daemon may have
+    // set authorized_default=0", so a later disabled start can always undo it.
+    if let Err(e) = std::fs::write(DEFAULT_DENY_MARKER, b"1") {
+        error!("USB control disabled: cannot write {}: {}", DEFAULT_DENY_MARKER, e);
+        return;
+    }
     match authorizer.set_default_policy(false) {
         Ok(n) if n > 0 => {
-            let _ = std::fs::write(DEFAULT_DENY_MARKER, b"1");
             info!("USB control: new devices are blocked until approved ({} controller(s))", n);
         }
-        Ok(_) => warn!("USB control: no USB controllers found to set default-deny on"),
+        Ok(_) => {
+            let _ = std::fs::remove_file(DEFAULT_DENY_MARKER);
+            warn!("USB control: no USB controllers found to set default-deny on");
+        }
         Err(e) => {
             error!("USB control disabled: cannot set default-deny: {:#}", e);
+            // The change may have applied to some controllers; roll it back now.
+            match authorizer.set_default_policy(true) {
+                Ok(_) => {
+                    let _ = std::fs::remove_file(DEFAULT_DENY_MARKER);
+                }
+                Err(e) => error!("Could not roll back USB default-deny; will retry on next start: {:#}", e),
+            }
             return;
         }
     }
