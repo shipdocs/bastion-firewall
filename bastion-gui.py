@@ -82,6 +82,7 @@ class BastionClient(QObject):
         self.active_dialogs = {}  # Map request_id -> dialog
         self.latest_update_version = None # Store latest version found
         self.update_failed.connect(self._show_update_error)
+        self._update_running = False  # a second click must not start a second apt
         self.update_check_url = "https://raw.githubusercontent.com/shipdocs/bastion-firewall/master/VERSION"
 
         # Tray Icon
@@ -513,12 +514,14 @@ class BastionClient(QObject):
             self.action_update.setFont(font)
 
     def _show_update_error(self, msg):
+        self._update_running = False
         QMessageBox.critical(None, "Update Error", f"Failed to install update: {msg}")
 
     def perform_update(self):
         """Download the release .deb and install it via pkexec (no shell)."""
-        if not self.latest_update_version:
+        if not self.latest_update_version or self._update_running:
             return
+        self._update_running = True
 
         import re
         import tempfile
@@ -534,6 +537,7 @@ class BastionClient(QObject):
             print(f"[UPDATE] Refusing update: invalid version string {version!r}")
             QMessageBox.critical(None, "Update Error",
                                  f"Invalid update version received: {version}")
+            self._update_running = False
             return
 
         url = f"https://github.com/shipdocs/bastion-firewall/releases/download/v{version}/bastion-firewall_{version}_amd64.deb"
