@@ -1,7 +1,10 @@
-## [Unreleased]
+## [2.0.36] - 2026-09-28
+
+Fixes the systemd service not serving its control socket, which broke the tray GUI, popups and the USB prompt when Bastion ran as a service.
 
 ### Fixed
 - **Control socket missing under systemd**: the service's capability bounding set lacked `CAP_CHOWN`, so the daemon could not give its socket to group `bastion`, logged `Failed to chown control socket to root:bastion; refusing to serve`, and served no socket at all. The tray GUI, USB prompts and the control panel's USB list all need that socket. Added `CAP_CHOWN` to the unit. Running the daemon by hand as root was not affected, which is why it went unnoticed.
+- **Stale release notes in software centres**: the AppStream release notes are now taken from this changelog instead of a fixed list of old bullets, and the build stops if `CHANGELOG.md` is missing.
 
 ## [2.0.35] - 2026-09-28
 
