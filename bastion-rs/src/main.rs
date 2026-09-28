@@ -528,6 +528,7 @@ fn process_packet(
             };
         } else {
             info!("[GUI:TIMEOUT] No response received after 60s");
+            gui_state.lock().cancel_popup(&request_id);
         }
     } else {
         drop(gui);
