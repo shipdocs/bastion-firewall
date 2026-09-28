@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Security
+- Removed the unused Python packages from `requirements.txt` (Pillow, Scapy, psutil, pystray, tabulate, NetfilterQueue; none is imported by the code). The declared minimums had known vulnerabilities (Pillow 10.2.0 has 29 advisories, fixed in 12.3.0; Scapy 2.5.0 has GHSA-cq46-m9x9-j8w2, fixed in 2.7.0). `requirements.txt` now lists only PyQt6, the GUI's one real dependency.
+
 ## [2.0.36] - 2026-09-28
 
 Fixes the systemd service not serving its control socket, which broke the tray GUI, popups and the USB prompt when Bastion ran as a service.
