@@ -501,7 +501,7 @@ class BastionClient(QObject):
                                  f"Invalid update version received: {version}")
             return
 
-        url = f"https://github.com/shipdocs/bastion-firewall/releases/download/v{version}/bastion-firewall_{version}_all.deb"
+        url = f"https://github.com/shipdocs/bastion-firewall/releases/download/v{version}/bastion-firewall_{version}_amd64.deb"
 
         print(f"[UPDATE] Downloading v{version}...")
 

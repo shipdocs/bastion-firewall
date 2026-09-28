@@ -45,7 +45,7 @@ gh release create "v$NEW_VERSION" --title "Release v$NEW_VERSION" --notes "$NOTE
 
 # 6. Upload Artifacts
 echo "[5/6] Uploading Artifacts..."
-gh release upload "v$NEW_VERSION" "bastion-firewall_${NEW_VERSION}_all.deb"
+gh release upload "v$NEW_VERSION" "bastion-firewall_${NEW_VERSION}_amd64.deb"
 
 # The RPM arch is set by build_rpm.sh (currently x86_64), so glob it instead of
 # hardcoding an arch that would abort this script under 'set -e'.

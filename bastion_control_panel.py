@@ -16,26 +16,25 @@ from bastion.gui_qt import run_dashboard
 LOCK_FILE = f'/tmp/bastion-control-panel-{os.getuid()}.lock'
 
 def acquire_lock():
-    """Try to acquire a lock file. Returns file handle if successful, None if already running."""
-    try:
-        # Check if stale lock (process died without cleanup)
-        if os.path.exists(LOCK_FILE):
-            try:
-                with open(LOCK_FILE, 'r') as f:
-                    old_pid = int(f.read().strip())
-                # Check if process is still running
-                os.kill(old_pid, 0)  # Raises OSError if not running
-            except (ValueError, OSError):
-                # Stale lock or invalid PID - remove it
-                os.remove(LOCK_FILE)
+    """Try to acquire a lock file. Returns file handle if successful, None if already running.
 
-        lock_fd = open(LOCK_FILE, 'w')
-        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        lock_fd.write(str(os.getpid()))
-        lock_fd.flush()
-        return lock_fd
-    except (IOError, OSError):
+    The flock is taken first and is released by the kernel when the process
+    dies, so no separate stale-PID check (and its TOCTOU window) is needed.
+    """
+    try:
+        fd = os.open(LOCK_FILE, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        lock_fd = os.fdopen(fd, 'r+')
+    except OSError:
         return None
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock_fd.close()
+        return None
+    lock_fd.truncate(0)
+    lock_fd.write(str(os.getpid()))
+    lock_fd.flush()
+    return lock_fd
 
 if __name__ == '__main__':
     # Check for already running instance
@@ -47,9 +46,5 @@ if __name__ == '__main__':
     try:
         run_dashboard()
     finally:
-        # Clean up lock file on exit
-        try:
-            os.remove(LOCK_FILE)
-        except OSError:
-            pass
+        # Keep the lock file (removing it would race a new instance); closing releases the flock
         lock.close()
