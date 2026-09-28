@@ -132,6 +132,8 @@ pub struct UsbDevicePrompt {
 /// GUI -> daemon: the user's decision for a `usb_request`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UsbResponse {
+    #[serde(rename = "type")]
+    pub msg_type: String, // "usb_response"
     pub nonce: String,
     pub allow: bool,
     /// "device", "model" or "vendor"

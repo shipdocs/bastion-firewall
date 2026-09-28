@@ -28,13 +28,17 @@ pub struct UsbController<P: UsbPrompter> {
     pub rules: UsbRuleManager,
     authorizer: UsbAuthorizer,
     prompter: P,
-    /// Bus ids allowed for this session only ("allow once").
+    /// `bus_id|unique_id` of devices allowed for this session only ("allow once").
     session_allowed: HashSet<String>,
 }
 
 impl<P: UsbPrompter> UsbController<P> {
     pub fn new(rules: UsbRuleManager, authorizer: UsbAuthorizer, prompter: P) -> Self {
         Self { rules, authorizer, prompter, session_allowed: HashSet::new() }
+    }
+
+    fn session_key(device: &UsbDeviceInfo) -> String {
+        format!("{}|{}", device.bus_id, device.unique_id())
     }
 
     fn apply(&self, device: &UsbDeviceInfo, verdict: Verdict) {
@@ -66,6 +70,12 @@ impl<P: UsbPrompter> UsbController<P> {
             return;
         }
 
+        if self.session_allowed.contains(&Self::session_key(device)) {
+            info!("USB {} ({}): allowed earlier this session", device.bus_id, device.model_id());
+            self.apply(device, Verdict::Allow);
+            return;
+        }
+
         let Some(decision) = self.prompter.ask(device) else {
             info!("USB {} ({}): no answer, blocking", device.bus_id, device.model_id());
             self.apply(device, Verdict::Block);
@@ -78,17 +88,17 @@ impl<P: UsbPrompter> UsbController<P> {
                 warn!("Could not store USB rule ({:#}); decision applies to this session only", e);
             }
         } else if decision.verdict == Verdict::Allow {
-            self.session_allowed.insert(device.bus_id.clone());
+            self.session_allowed.insert(Self::session_key(device));
         }
         self.apply(device, decision.verdict);
     }
 
     pub fn handle_remove(&mut self, device: &UsbDeviceInfo) {
-        self.session_allowed.remove(&device.bus_id);
+        self.session_allowed.remove(&Self::session_key(device));
     }
 
-    pub fn is_session_allowed(&self, bus_id: &str) -> bool {
-        self.session_allowed.contains(bus_id)
+    pub fn is_session_allowed(&self, device: &UsbDeviceInfo) -> bool {
+        self.session_allowed.contains(&Self::session_key(device))
     }
 }
 
@@ -173,10 +183,14 @@ mod tests {
         let dev = test_device(0x08, Some("S"));
         c.handle_add(&dev);
         assert_eq!(auth(&dir), "1");
-        assert!(c.is_session_allowed("1-2.3"));
+        assert!(c.is_session_allowed(&dev));
         assert!(c.rules.lookup(&dev).is_none());
+        // A repeated add event for the same device is not prompted again.
+        c.handle_add(&dev);
+        assert_eq!(*c.prompter.asked.borrow(), 1);
+        assert_eq!(auth(&dir), "1");
         c.handle_remove(&dev);
-        assert!(!c.is_session_allowed("1-2.3"));
+        assert!(!c.is_session_allowed(&dev));
     }
 
     #[test]
