@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from .notification import show_notification
 from . import __version__
 from .log_parser import LogParser
+from .usb_client import list_usb_rules, delete_usb_rule, sanitize_text
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QPoint
 from PyQt6.QtGui import QIcon, QFont, QColor, QAction, QPixmap, QGuiApplication
 
@@ -518,6 +519,8 @@ class DashboardWindow(QMainWindow):
             is_learning = self.data_config.get('mode', 'learning') == 'learning'
             if hasattr(self, 'chk_learning'):
                 self.chk_learning.setChecked(is_learning)
+            if hasattr(self, 'chk_usb_control'):
+                self.chk_usb_control.setChecked(bool(self.data_config.get('usb_control', False)))
                 
         except Exception as e:
             print(f"Error loading config: {e}")
@@ -566,6 +569,7 @@ class DashboardWindow(QMainWindow):
         self.nav_btns = []
         self.add_nav_btn(sb_layout, "Status", "")
         self.add_nav_btn(sb_layout, "Rules", "")
+        self.add_nav_btn(sb_layout, "USB", "")
         self.add_nav_btn(sb_layout, "Logs", "")
         self.add_nav_btn(sb_layout, "Settings", "")
         
@@ -584,11 +588,13 @@ class DashboardWindow(QMainWindow):
         
         self.page_status = self.create_status_page()
         self.page_rules = self.create_rules_page()
+        self.page_usb = self.create_usb_page()
         self.page_logs = self.create_logs_page()
         self.page_settings = self.create_settings_page()
         
         self.stack.addWidget(self.page_status)
         self.stack.addWidget(self.page_rules)
+        self.stack.addWidget(self.page_usb)
         self.stack.addWidget(self.page_logs)
         self.stack.addWidget(self.page_settings)
         
@@ -610,6 +616,7 @@ class DashboardWindow(QMainWindow):
         sender.setChecked(True)
         if page_name == "Status": self.stack.setCurrentWidget(self.page_status); self.refresh_status()
         elif page_name == "Rules": self.stack.setCurrentWidget(self.page_rules); self.refresh_rules_table()
+        elif page_name == "USB": self.stack.setCurrentWidget(self.page_usb); self.refresh_usb_rules()
         elif page_name == "Logs": self.stack.setCurrentWidget(self.page_logs); self.refresh_logs()
         elif page_name == "Settings": self.stack.setCurrentWidget(self.page_settings)
 
@@ -839,6 +846,99 @@ class DashboardWindow(QMainWindow):
 
         layout.addLayout(btn_box)
         return page
+
+    def create_usb_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.addWidget(QLabel("USB Devices", objectName="page_title"))
+
+        self.usb_status_label = QLabel("")
+        self.usb_status_label.setWordWrap(True)
+        self.usb_status_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        layout.addWidget(self.usb_status_label)
+
+        self.chk_usb_control = QCheckBox("Block new USB devices until I approve them")
+        self.chk_usb_control.setChecked(bool(self.data_config.get('usb_control', False)))
+        layout.addWidget(self.chk_usb_control)
+        hint = QLabel("Devices already connected keep working. Changing this saves the "
+                      "configuration; restart the bastion-firewall service to apply it.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        layout.addWidget(hint)
+        btn_save = QPushButton("Save USB setting")
+        btn_save.setObjectName("action_btn")
+        btn_save.clicked.connect(self.save_usb_setting)
+        layout.addWidget(btn_save, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        layout.addWidget(QLabel("Saved decisions:"))
+        self.table_usb = QTableWidget()
+        self.table_usb.setColumnCount(5)
+        self.table_usb.setHorizontalHeaderLabels(["Decision", "Device", "Applies to", "Rule", "Added"])
+        self.table_usb.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table_usb.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_usb.verticalHeader().setVisible(False)
+        self.table_usb.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table_usb.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        layout.addWidget(self.table_usb)
+
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+        btn_refresh = QPushButton("Refresh")
+        btn_refresh.setObjectName("action_btn")
+        btn_refresh.clicked.connect(self.refresh_usb_rules)
+        btn_box.addWidget(btn_refresh)
+        btn_delete = QPushButton("Delete Selected")
+        btn_delete.setObjectName("danger_btn")
+        btn_delete.clicked.connect(self.delete_selected_usb_rule)
+        btn_box.addWidget(btn_delete)
+        layout.addLayout(btn_box)
+        return page
+
+    def refresh_usb_rules(self):
+        result = list_usb_rules(DAEMON_SOCKET_PATH)
+        self.table_usb.setRowCount(0)
+        if result is None:
+            self.usb_status_label.setText("Cannot reach the daemon, so saved USB decisions can't be shown.")
+            return
+        enabled, rules = result
+        self.usb_status_label.setText(
+            "USB device control is ON: new devices are blocked until you decide." if enabled
+            else "USB device control is OFF (enable it below and restart the service).")
+        for key, rule in sorted(rules.items()):
+            if not isinstance(rule, dict):
+                continue
+            row = self.table_usb.rowCount()
+            self.table_usb.insertRow(row)
+            verdict = "Allow" if rule.get('verdict') == 'allow' else "Block"
+            name = f"{sanitize_text(rule.get('vendor_name'))} {sanitize_text(rule.get('product_name'))}".strip()
+            scope = {'device': 'This device', 'model': 'This model', 'vendor': 'Whole vendor'}.get(rule.get('scope'), '')
+            cells = [verdict, name or "Unknown", scope, sanitize_text(key, 64), sanitize_text(rule.get('added'), 32)]
+            for col, text in enumerate(cells):
+                item = QTableWidgetItem(text)
+                if col == 0:
+                    item.setData(Qt.ItemDataRole.UserRole, key)
+                    item.setForeground(QColor(COLORS['success'] if verdict == "Allow" else COLORS['danger']))
+                self.table_usb.setItem(row, col, item)
+
+    def delete_selected_usb_rule(self):
+        rows = self.table_usb.selectionModel().selectedRows()
+        if not rows:
+            QMessageBox.warning(self, "Select Rule", "Please select a decision to delete.")
+            return
+        if QMessageBox.question(self, "Confirm", "Delete the selected USB decisions? "
+                                "You will be asked again the next time these devices are connected.") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        for index in rows:
+            key = self.table_usb.item(index.row(), 0).data(Qt.ItemDataRole.UserRole)
+            if not delete_usb_rule(key, DAEMON_SOCKET_PATH):
+                QMessageBox.warning(self, "Error", f"Failed to delete: {sanitize_text(key, 64)}")
+                break
+        self.refresh_usb_rules()
+
+    def save_usb_setting(self):
+        self.data_config['usb_control'] = self.chk_usb_control.isChecked()
+        self.save_config()
 
     def create_logs_page(self):
         page = QWidget()
