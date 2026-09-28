@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
@@ -12,6 +13,8 @@ use serde::{Deserialize, Serialize};
 
 use super::device::UsbDeviceInfo;
 use super::validation::{sanitize_name, sanitize_serial, validate_key};
+
+static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub const RULES_PATH: &str = "/etc/bastion/usb_rules.json";
 
@@ -121,19 +124,28 @@ impl UsbRuleManager {
     /// Atomic save: write a temp file (0640), fsync, rename over the target.
     pub fn save(&self) -> Result<()> {
         let data = serde_json::to_string_pretty(&RulesFile { rules: self.rules.clone() })?;
-        let tmp = self.path.with_extension("json.tmp");
-        let _ = std::fs::remove_file(&tmp);
+        // Unique per process and call so concurrent savers never share a temp file.
+        let tmp = self.path.with_extension(format!(
+            "json.{}.{}.tmp",
+            std::process::id(),
+            TMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
         let mut f = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o640)
             .open(&tmp)
             .with_context(|| format!("create {:?}", tmp))?;
-        f.write_all(data.as_bytes())?;
-        f.sync_all()?;
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o640))?;
-        std::fs::rename(&tmp, &self.path).with_context(|| format!("rename to {:?}", self.path))?;
-        Ok(())
+        let result = (|| -> Result<()> {
+            f.write_all(data.as_bytes())?;
+            f.sync_all()?;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o640))?;
+            std::fs::rename(&tmp, &self.path).with_context(|| format!("rename to {:?}", self.path))
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        result
     }
 
     fn key_for(device: &UsbDeviceInfo, scope: Scope) -> Result<String> {
@@ -170,8 +182,15 @@ impl UsbRuleManager {
             last_seen: None,
             serial: (scope == Scope::Device).then(|| sanitize_serial(device.serial.as_deref().unwrap_or(""))),
         };
-        self.rules.insert(key.clone(), rule);
-        self.save()?;
+        let previous = self.rules.insert(key.clone(), rule);
+        if let Err(e) = self.save() {
+            // Keep memory consistent with disk: a rule that was not persisted must not apply.
+            match previous {
+                Some(p) => self.rules.insert(key, p),
+                None => self.rules.remove(&key),
+            };
+            return Err(e);
+        }
         Ok(key)
     }
 
@@ -179,11 +198,14 @@ impl UsbRuleManager {
         if !validate_key(key) {
             bail!("invalid rule key");
         }
-        let removed = self.rules.remove(key).is_some();
-        if removed {
-            self.save()?;
+        let Some(previous) = self.rules.remove(key) else {
+            return Ok(false);
+        };
+        if let Err(e) = self.save() {
+            self.rules.insert(key.to_string(), previous);
+            return Err(e);
         }
-        Ok(removed)
+        Ok(true)
     }
 
     /// Most specific matching rule: device, then model, then vendor.
@@ -266,7 +288,10 @@ mod tests {
         let key = m.add_rule(&test_device(3, Some("S")), Verdict::Allow, Scope::Device).unwrap();
         assert_eq!(key, "046d:c52b:S");
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o640);
-        assert!(!dir.path().join("usb_rules.json.tmp").exists());
+        let leftovers = std::fs::read_dir(dir.path()).unwrap().filter(|e| {
+            e.as_ref().unwrap().file_name().to_string_lossy().ends_with(".tmp")
+        });
+        assert_eq!(leftovers.count(), 0);
 
         let m2 = UsbRuleManager::with_path(&path);
         assert_eq!(m2.rules().len(), 1);
@@ -287,6 +312,16 @@ mod tests {
         let m = UsbRuleManager::with_path(&path);
         assert_eq!(m.rules().len(), 1);
         assert!(m.rules().contains_key("046d:*:*"));
+    }
+
+    #[test]
+    fn failed_save_rolls_back_in_memory_rule() {
+        let dir = tempdir().unwrap();
+        let mut m = UsbRuleManager::with_path(dir.path().join("missing_dir/usb_rules.json"));
+        let dev = test_device(0x08, Some("S"));
+        assert!(m.add_rule(&dev, Verdict::Allow, Scope::Model).is_err());
+        assert!(m.lookup(&dev).is_none());
+        assert!(m.rules().is_empty());
     }
 
     #[test]

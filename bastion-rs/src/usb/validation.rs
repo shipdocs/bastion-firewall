@@ -4,29 +4,39 @@ const MAX_SERIAL_LEN: usize = 128;
 const MAX_NAME_LEN: usize = 256;
 const MAX_KEY_LEN: usize = 256;
 
-/// Keep only hex digits, lowercase, truncate to 4 and left-pad with zeros.
+/// Normalise a 1-4 digit hex id to 4 lowercase digits. Anything else maps to the
+/// invalid sentinel `0000` instead of being repaired, so malformed input can
+/// never collide with a real vendor/product id.
 pub fn sanitize_hex_id(input: &str) -> String {
-    let clean: String = input
-        .chars()
-        .filter(|c| c.is_ascii_hexdigit())
-        .map(|c| c.to_ascii_lowercase())
-        .take(4)
-        .collect();
-    format!("{:0>4}", clean)
+    if input.is_empty() || input.len() > 4 || !input.chars().all(|c| c.is_ascii_hexdigit()) {
+        return "0000".to_string();
+    }
+    format!("{:0>4}", input.to_ascii_lowercase())
 }
 
 fn is_serial_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-'
 }
 
-/// Keep `[A-Za-z0-9._-]`, at most 128 chars; empty result becomes `no-serial`.
+fn fnv1a(input: &str) -> u32 {
+    input.bytes().fold(0x811c_9dc5u32, |h, b| (h ^ u32::from(b)).wrapping_mul(0x0100_0193))
+}
+
+/// Restrict a serial to `[A-Za-z0-9._-]`, max 128 chars. If anything had to be
+/// removed or truncated, an 8-hex-digit hash of the original is appended so
+/// distinct raw serials (e.g. `AB:C` and `ABC`) keep distinct identities.
+/// An empty input becomes `no-serial`.
 pub fn sanitize_serial(input: &str) -> String {
-    let clean: String = input.chars().filter(|c| is_serial_char(*c)).take(MAX_SERIAL_LEN).collect();
+    let clean: String = input.chars().filter(|c| is_serial_char(*c)).collect();
     if clean.is_empty() {
-        "no-serial".to_string()
-    } else {
-        clean
+        return "no-serial".to_string();
     }
+    if clean.len() == input.len() && clean.len() <= MAX_SERIAL_LEN {
+        return clean;
+    }
+    let suffix = format!("-{:08x}", fnv1a(input));
+    let keep: String = clean.chars().take(MAX_SERIAL_LEN - suffix.len()).collect();
+    format!("{keep}{suffix}")
 }
 
 /// Strip control characters and truncate a vendor/product name.
@@ -77,16 +87,27 @@ mod tests {
     fn hex_ids() {
         assert_eq!(sanitize_hex_id("046D"), "046d");
         assert_eq!(sanitize_hex_id("6d"), "006d");
-        assert_eq!(sanitize_hex_id("zz12345"), "1234");
+        assert_eq!(sanitize_hex_id("zz12345"), "0000");
         assert_eq!(sanitize_hex_id(""), "0000");
+        assert_eq!(sanitize_hex_id("x046d"), "0000");
+        assert_eq!(sanitize_hex_id("046d5"), "0000");
     }
 
     #[test]
     fn serials() {
-        assert_eq!(sanitize_serial("AB:C/12 3"), "ABC123");
-        assert_eq!(sanitize_serial("../"), "..");
+        assert_eq!(sanitize_serial("ABC123"), "ABC123");
         assert_eq!(sanitize_serial("///"), "no-serial");
-        assert_eq!(sanitize_serial(&"a".repeat(500)).len(), 128);
+        assert_eq!(sanitize_serial(""), "no-serial");
+        // Sanitised serials stay distinct and valid.
+        let (a, b, c) = (sanitize_serial("AB:C"), sanitize_serial("ABC"), sanitize_serial("AB/C"));
+        assert_eq!(b, "ABC");
+        assert!(a != b && a != c && b != c);
+        for s in [&a, &b, &c] {
+            assert!(validate_key(&format!("046d:c52b:{s}")));
+        }
+        let long = sanitize_serial(&"a".repeat(500));
+        assert_eq!(long.len(), 128);
+        assert_ne!(long, sanitize_serial(&"a".repeat(501)));
     }
 
     #[test]
