@@ -11,6 +11,10 @@ use std::time::{Duration, Instant};
 use crate::ebpf_loader::EbpfManager;
 use crate::proc_parser;
 
+/// Keep attacker-controlled DNS responses from retaining cache entries indefinitely.
+const MAX_DNS_CACHE_ENTRIES: usize = 4096;
+const MAX_DNS_CACHE_TTL_SECS: u32 = 24 * 60 * 60;
+
 /// Information about an identified process
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
@@ -55,6 +59,22 @@ impl DnsCache {
         domain: String,
         ttl: u32,
     ) {
+        let ttl = ttl.min(MAX_DNS_CACHE_TTL_SECS);
+
+        // DNS responses are untrusted. Keep the cache bounded even when a response
+        // supplies many distinct addresses with long TTLs. Replacing an existing
+        // address does not require eviction.
+        if !self.ip_map.contains_key(&ip) && self.ip_map.len() >= MAX_DNS_CACHE_ENTRIES {
+            if let Some(oldest_ip) = self
+                .ip_map
+                .iter()
+                .min_by_key(|(_, entry)| entry.timestamp)
+                .map(|(ip, _)| ip.clone())
+            {
+                self.ip_map.remove(&oldest_ip);
+            }
+        }
+
         let entry = DnsIpEntry {
             domain_hint: domain,
             process_name: comm,
@@ -99,6 +119,43 @@ impl DnsCache {
 impl Default for DnsCache {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DnsCache, MAX_DNS_CACHE_ENTRIES, MAX_DNS_CACHE_TTL_SECS};
+
+    #[test]
+    fn dns_cache_clamps_untrusted_ttl() {
+        let mut cache = DnsCache::new();
+        cache.insert_ip_mapping(
+            "192.0.2.1".into(), 1, "resolver".into(), "example.test".into(), u32::MAX,
+        );
+
+        assert_eq!(
+            cache.lookup_by_ip("192.0.2.1").unwrap().ttl,
+            MAX_DNS_CACHE_TTL_SECS
+        );
+    }
+
+    #[test]
+    fn dns_cache_evicts_entries_at_capacity() {
+        let mut cache = DnsCache::new();
+        for index in 0..=MAX_DNS_CACHE_ENTRIES {
+            cache.insert_ip_mapping(
+                format!("2001:db8::{index:x}"),
+                1,
+                "resolver".into(),
+                "example.test".into(),
+                60,
+            );
+        }
+
+        assert_eq!(cache.ip_map.len(), MAX_DNS_CACHE_ENTRIES);
+        assert!(cache
+            .lookup_by_ip(&format!("2001:db8::{MAX_DNS_CACHE_ENTRIES:x}"))
+            .is_some());
     }
 }
 
