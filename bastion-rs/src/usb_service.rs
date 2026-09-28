@@ -2,9 +2,11 @@
 //! handling, udev event loop and the GUI prompt.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Result;
 use log::{error, info, warn};
 use parking_lot::Mutex;
 
@@ -18,9 +20,16 @@ use bastion_rs::usb::{
 use crate::config::ConfigManager;
 use crate::gui::{ask_usb, GuiState};
 
-/// Present while this daemon has set `authorized_default=0`; lives on tmpfs so it
-/// disappears on reboot, which is also when the kernel default resets.
+/// Present while this daemon has changed `authorized_default` from 1 to 0. It lists,
+/// one per line, exactly the root hubs it changed (a hub that already denied is never
+/// listed, so shutdown can't widen a policy the system set itself). It lives on tmpfs,
+/// so it disappears on reboot, which is also when the kernel default resets.
 const DEFAULT_DENY_MARKER: &str = "/var/run/bastion/usb_default_deny";
+
+/// Serialises default-deny setup against restore-on-shutdown, and lets a shutdown that
+/// arrives first stop the setup from starting.
+static POLICY_LOCK: Mutex<()> = Mutex::new(());
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 
 struct GuiUsbPrompter {
     gui_state: Arc<Mutex<GuiState>>,
@@ -57,18 +66,64 @@ impl UsbPrompter for GuiUsbPrompter {
     }
 }
 
-/// Undo the default-deny this daemon set, if it set one (marker present).
-/// Does nothing when the marker is absent, so a system's own USB policy is left alone.
+/// Hubs listed in the marker. A marker written by an older version just contains `1`
+/// and meant "every hub".
+fn read_marker(authorizer: &UsbAuthorizer, marker: &Path) -> Vec<String> {
+    let content = std::fs::read_to_string(marker).unwrap_or_default();
+    let hubs: Vec<String> = content
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && *l != "1")
+        .map(String::from)
+        .collect();
+    if hubs.is_empty() && content.trim() == "1" {
+        return authorizer.root_hubs().unwrap_or_default();
+    }
+    hubs
+}
+
+/// Undo the default-deny this daemon set, if it set one (marker present), on exactly
+/// the hubs it changed. Does nothing without a marker, so a system's own USB policy is
+/// left alone.
 fn restore_default_policy(authorizer: &UsbAuthorizer, marker: &Path, reason: &str) {
     if !marker.exists() {
         return;
     }
-    match authorizer.set_default_policy(true) {
+    let hubs = read_marker(authorizer, marker);
+    match authorizer.set_default_for(&hubs, true) {
         Ok(_) => {
             let _ = std::fs::remove_file(marker);
-            info!("{}: restored USB authorized_default=1", reason);
+            info!("{}: restored USB authorized_default=1 on {} controller(s)", reason, hubs.len());
         }
         Err(e) => error!("{}: could not restore USB authorized_default: {:#}", reason, e),
+    }
+}
+
+/// Switch hubs that currently allow new devices to deny them. Writes the marker first
+/// (merged with any marker left by an earlier run) and rolls back if a write fails.
+/// Returns how many hubs were changed.
+fn enable_default_deny(authorizer: &UsbAuthorizer, marker: &Path) -> Result<usize> {
+    let to_change = authorizer.hubs_with_default_allow()?;
+    if to_change.is_empty() {
+        return Ok(0);
+    }
+    let mut listed = if marker.exists() { read_marker(authorizer, marker) } else { Vec::new() };
+    for hub in &to_change {
+        if !listed.contains(hub) {
+            listed.push(hub.clone());
+        }
+    }
+    std::fs::write(marker, listed.join("\n") + "\n")
+        .map_err(|e| anyhow::anyhow!("cannot write {}: {}", marker.display(), e))?;
+    match authorizer.set_default_for(&to_change, false) {
+        Ok(n) => Ok(n),
+        Err(e) => {
+            // Some hubs may already be changed; undo it now. The marker stays if that fails.
+            if authorizer.set_default_for(&to_change, true).is_ok() && listed.len() == to_change.len() {
+                let _ = std::fs::remove_file(marker);
+            }
+            Err(e)
+        }
     }
 }
 
@@ -76,6 +131,8 @@ fn restore_default_policy(authorizer: &UsbAuthorizer, marker: &Path, reason: &st
 /// blocked and no daemon to approve them. A crash or SIGKILL skips this on purpose:
 /// the default stays "blocked" and the next start (or disabling USB control) restores it.
 pub fn restore_default_on_shutdown() {
+    SHUTTING_DOWN.store(true, Ordering::SeqCst);
+    let _guard = POLICY_LOCK.lock();
     restore_default_policy(&UsbAuthorizer::new(), Path::new(DEFAULT_DENY_MARKER), "Shutting down");
 }
 
@@ -89,6 +146,7 @@ pub fn run(
     let authorizer = UsbAuthorizer::new();
 
     if !config.is_usb_control_enabled() {
+        let _guard = POLICY_LOCK.lock();
         restore_default_policy(&authorizer, Path::new(DEFAULT_DENY_MARKER), "USB control disabled");
         return;
     }
@@ -102,30 +160,22 @@ pub fn run(
         }
     };
 
-    // Record the marker *before* changing anything: it means "this daemon may have
-    // set authorized_default=0", so a later disabled start can always undo it.
-    if let Err(e) = std::fs::write(DEFAULT_DENY_MARKER, b"1") {
-        error!("USB control disabled: cannot write {}: {}", DEFAULT_DENY_MARKER, e);
-        return;
-    }
-    match authorizer.set_default_policy(false) {
-        Ok(n) if n > 0 => {
-            info!("USB control: new devices are blocked until approved ({} controller(s))", n);
-        }
-        Ok(_) => {
-            let _ = std::fs::remove_file(DEFAULT_DENY_MARKER);
-            warn!("USB control: no USB controllers found to set default-deny on");
-        }
-        Err(e) => {
-            error!("USB control disabled: cannot set default-deny: {:#}", e);
-            // The change may have applied to some controllers; roll it back now.
-            match authorizer.set_default_policy(true) {
-                Ok(_) => {
-                    let _ = std::fs::remove_file(DEFAULT_DENY_MARKER);
-                }
-                Err(e) => error!("Could not roll back USB default-deny; will retry on next start: {:#}", e),
-            }
+    {
+        // Holding the lock means a shutdown either finishes first (and we don't start) or
+        // waits until the marker and the new defaults are both in place, then undoes them.
+        let _guard = POLICY_LOCK.lock();
+        if SHUTTING_DOWN.load(Ordering::SeqCst) {
             return;
+        }
+        match enable_default_deny(&authorizer, Path::new(DEFAULT_DENY_MARKER)) {
+            Ok(n) if n > 0 => {
+                info!("USB control: new devices are blocked until approved ({} controller(s))", n);
+            }
+            Ok(_) => warn!("USB control: no controller needed changing (already denying, or none found)"),
+            Err(e) => {
+                error!("USB control disabled: cannot set default-deny: {:#}", e);
+                return;
+            }
         }
     }
 
@@ -165,11 +215,12 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn setup(value: &str) -> (tempfile::TempDir, UsbAuthorizer) {
+    /// Fake sysfs with the given (hub, authorized_default) pairs.
+    fn setup(hubs: &[(&str, &str)]) -> (tempfile::TempDir, UsbAuthorizer) {
         let dir = tempdir().unwrap();
-        for hub in ["usb1", "usb2"] {
+        for (hub, v) in hubs {
             std::fs::create_dir_all(dir.path().join("sys").join(hub)).unwrap();
-            std::fs::write(dir.path().join("sys").join(hub).join("authorized_default"), value).unwrap();
+            std::fs::write(dir.path().join("sys").join(hub).join("authorized_default"), v).unwrap();
         }
         let authorizer = UsbAuthorizer::with_root(dir.path().join("sys"));
         (dir, authorizer)
@@ -180,30 +231,75 @@ mod tests {
     }
 
     #[test]
-    fn restores_default_and_removes_marker_when_we_set_it() {
-        let (dir, authorizer) = setup("0");
+    fn enable_then_restore_round_trips() {
+        let (dir, a) = setup(&[("usb1", "1"), ("usb2", "1")]);
         let marker = dir.path().join("marker");
-        std::fs::write(&marker, b"1").unwrap();
-        restore_default_policy(&authorizer, &marker, "test");
-        assert_eq!(value(&dir, "usb1"), "1");
-        assert_eq!(value(&dir, "usb2"), "1");
+        assert_eq!(enable_default_deny(&a, &marker).unwrap(), 2);
+        assert_eq!((value(&dir, "usb1").as_str(), value(&dir, "usb2").as_str()), ("0", "0"));
+        restore_default_policy(&a, &marker, "test");
+        assert_eq!((value(&dir, "usb1").as_str(), value(&dir, "usb2").as_str()), ("1", "1"));
         assert!(!marker.exists());
     }
 
     #[test]
-    fn leaves_the_systems_own_policy_alone_without_marker() {
-        let (dir, authorizer) = setup("0");
-        restore_default_policy(&authorizer, &dir.path().join("no-marker"), "test");
+    fn a_hub_that_already_denied_is_never_widened() {
+        // usb2 was set to 0 by the system itself before we started.
+        let (dir, a) = setup(&[("usb1", "1"), ("usb2", "0")]);
+        let marker = dir.path().join("marker");
+        assert_eq!(enable_default_deny(&a, &marker).unwrap(), 1);
+        assert_eq!(std::fs::read_to_string(&marker).unwrap().trim(), "usb1");
+        restore_default_policy(&a, &marker, "test");
+        assert_eq!(value(&dir, "usb1"), "1");
+        assert_eq!(value(&dir, "usb2"), "0", "the system's own policy must survive shutdown");
+    }
+
+    #[test]
+    fn nothing_to_change_writes_no_marker() {
+        let (dir, a) = setup(&[("usb1", "0")]);
+        let marker = dir.path().join("marker");
+        assert_eq!(enable_default_deny(&a, &marker).unwrap(), 0);
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn restart_after_a_crash_keeps_the_earlier_marker_entries() {
+        let (dir, a) = setup(&[("usb1", "1"), ("usb2", "1")]);
+        let marker = dir.path().join("marker");
+        enable_default_deny(&a, &marker).unwrap();
+        // Crash, then a new controller appears (usb3, allowing) before the next start.
+        std::fs::create_dir_all(dir.path().join("sys/usb3")).unwrap();
+        std::fs::write(dir.path().join("sys/usb3/authorized_default"), "1").unwrap();
+        assert_eq!(enable_default_deny(&a, &marker).unwrap(), 1);
+        restore_default_policy(&a, &marker, "test");
+        for hub in ["usb1", "usb2", "usb3"] {
+            assert_eq!(value(&dir, hub), "1", "{hub}");
+        }
+    }
+
+    #[test]
+    fn legacy_marker_restores_every_hub() {
+        let (dir, a) = setup(&[("usb1", "0"), ("usb2", "0")]);
+        let marker = dir.path().join("marker");
+        std::fs::write(&marker, b"1").unwrap();
+        restore_default_policy(&a, &marker, "test");
+        assert_eq!((value(&dir, "usb1").as_str(), value(&dir, "usb2").as_str()), ("1", "1"));
+    }
+
+    #[test]
+    fn no_marker_means_no_change() {
+        let (dir, a) = setup(&[("usb1", "0")]);
+        restore_default_policy(&a, &dir.path().join("no-marker"), "test");
         assert_eq!(value(&dir, "usb1"), "0");
     }
 
     #[test]
-    fn keeps_marker_when_restore_fails() {
+    fn marker_stays_when_restore_fails() {
         let dir = tempdir().unwrap();
-        let authorizer = UsbAuthorizer::with_root(dir.path().join("missing"));
+        let a = UsbAuthorizer::with_root(dir.path().join("missing"));
         let marker = dir.path().join("marker");
-        std::fs::write(&marker, b"1").unwrap();
-        restore_default_policy(&authorizer, &marker, "test");
+        // A hub name that isn't valid makes set_default_for fail; the marker must survive.
+        std::fs::write(&marker, b"../evil\n").unwrap();
+        restore_default_policy(&a, &marker, "test");
         assert!(marker.exists(), "marker must stay so a later start retries");
     }
 }

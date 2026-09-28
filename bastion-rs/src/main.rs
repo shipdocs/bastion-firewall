@@ -68,6 +68,22 @@ async fn main() -> anyhow::Result<()> {
         .bind(QUEUE_NUM)
         .with_context(|| format!("cannot bind NFQUEUE {} (is another bastion-daemon already running?)", QUEUE_NUM))?;
 
+    // Normal stop (Ctrl-C, systemctl stop): undo USB default-deny, then exit. The signals
+    // are registered here, before any thread that could change USB policy is started, so
+    // there is no window where a signal kills the daemon without the restore.
+    match Signals::new([SIGINT, SIGTERM]) {
+        Ok(mut signals) => {
+            thread::spawn(move || {
+                if let Some(sig) = signals.forever().next() {
+                    info!("Received signal {} - shutting down", sig);
+                    usb_service::restore_default_on_shutdown();
+                    std::process::exit(0);
+                }
+            });
+        }
+        Err(e) => error!("Failed to register shutdown handler: {}", e),
+    }
+
     // USB rules are shared between the USB service, the GUI socket and SIGHUP
     let usb_rules = Arc::new(Mutex::new(UsbRuleManager::new()));
 
@@ -104,22 +120,6 @@ async fn main() -> anyhow::Result<()> {
             "Stats: {} total, {} allowed, {} blocked ({})",
             s.total_connections, s.allowed_connections, s.blocked_connections, mode
         );
-    });
-
-    // Normal stop (Ctrl-C, systemctl stop): undo USB default-deny, then exit.
-    thread::spawn(|| {
-        let mut signals = match Signals::new([SIGINT, SIGTERM]) {
-            Ok(s) => s,
-            Err(e) => {
-                error!("Failed to register shutdown handler: {}", e);
-                return;
-            }
-        };
-        if let Some(sig) = signals.forever().next() {
-            info!("Received signal {} - shutting down", sig);
-            usb_service::restore_default_on_shutdown();
-            std::process::exit(0);
-        }
     });
 
     // SIGHUP handler - reload config, clear pending cache, reload rules

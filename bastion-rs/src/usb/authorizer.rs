@@ -55,6 +55,55 @@ impl UsbAuthorizer {
         Ok(())
     }
 
+    fn is_root_hub(name: &str) -> bool {
+        name.len() > 3 && name.starts_with("usb") && name[3..].chars().all(|c| c.is_ascii_digit())
+    }
+
+    /// Root hubs (`usbN`) that have an `authorized_default` attribute, sorted.
+    pub fn root_hubs(&self) -> Result<Vec<String>> {
+        let mut hubs = Vec::new();
+        for entry in std::fs::read_dir(&self.root).with_context(|| format!("read {:?}", self.root))? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if Self::is_root_hub(&name) && entry.path().join("authorized_default").exists() {
+                hubs.push(name);
+            }
+        }
+        hubs.sort();
+        Ok(hubs)
+    }
+
+    /// Root hubs whose `authorized_default` is currently `1` (new devices are allowed).
+    pub fn hubs_with_default_allow(&self) -> Result<Vec<String>> {
+        let mut allow = Vec::new();
+        for hub in self.root_hubs()? {
+            let value = std::fs::read_to_string(self.root.join(&hub).join("authorized_default")).unwrap_or_default();
+            if value.trim() == "1" {
+                allow.push(hub);
+            }
+        }
+        Ok(allow)
+    }
+
+    /// Set `authorized_default` on the named root hubs only. Hubs that have
+    /// disappeared are skipped; anything that isn't a `usbN` name is rejected.
+    /// Returns how many hubs were updated.
+    pub fn set_default_for(&self, hubs: &[String], authorize: bool) -> Result<usize> {
+        let value = if authorize { "1" } else { "0" };
+        let mut updated = 0;
+        for hub in hubs {
+            if !Self::is_root_hub(hub) {
+                bail!("invalid USB root hub name {:?}", hub);
+            }
+            let path = self.root.join(hub).join("authorized_default");
+            if path.exists() {
+                Self::write_attr(&path, value)?;
+                updated += 1;
+            }
+        }
+        Ok(updated)
+    }
+
     /// Set `authorized_default` on every root hub (`usbN`) for newly attached devices.
     /// Returns how many controllers were updated.
     pub fn set_default_policy(&self, authorize: bool) -> Result<usize> {
@@ -118,6 +167,24 @@ mod tests {
         let a = UsbAuthorizer::with_root(dir.path());
         assert!(a.deauthorize("1-1").is_err());
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
+    }
+
+    #[test]
+    fn set_default_for_only_touches_the_named_hubs() {
+        let dir = tempdir().unwrap();
+        for (hub, v) in [("usb1", "1"), ("usb2", "0"), ("usb3", "1")] {
+            std::fs::create_dir_all(dir.path().join(hub)).unwrap();
+            std::fs::write(dir.path().join(hub).join("authorized_default"), v).unwrap();
+        }
+        let a = UsbAuthorizer::with_root(dir.path());
+        assert_eq!(a.root_hubs().unwrap(), ["usb1", "usb2", "usb3"]);
+        // usb2 already denies: it is not in the list of hubs we would change.
+        assert_eq!(a.hubs_with_default_allow().unwrap(), ["usb1", "usb3"]);
+        assert_eq!(a.set_default_for(&["usb1".into(), "usb9".into()], false).unwrap(), 1, "missing hub skipped");
+        let read = |h: &str| std::fs::read_to_string(dir.path().join(h).join("authorized_default")).unwrap();
+        assert_eq!((read("usb1").as_str(), read("usb2").as_str(), read("usb3").as_str()), ("0", "0", "1"));
+        assert!(a.set_default_for(&["../etc".into()], true).is_err());
+        assert!(a.set_default_for(&["usb".into()], true).is_err());
     }
 
     #[test]

@@ -32,7 +32,7 @@ Either tick **Block new USB devices until I approve them** on the control panel'
 Then restart the service: `sudo systemctl restart bastion-firewall`.
 Setting it back to `false` and restarting restores the kernel default, but only if Bastion itself set it.
 
-On a normal stop (Ctrl-C, `systemctl stop`) the daemon restores the default itself, so you are not left with new devices blocked and no daemon to approve them. After a crash or `kill -9` it stays blocked (fail closed); starting the daemon again, or disabling USB control and restarting, fixes that. To undo it by hand:
+On a normal stop (Ctrl-C, `systemctl stop`) the daemon restores the default itself, and only on the controllers it changed (a controller that already denied new devices before Bastion started is left as it was), so you are not left with new devices blocked and no daemon to approve them. After a crash or `kill -9` it stays blocked (fail closed); starting the daemon again, or disabling USB control and restarting, fixes that. To undo it by hand:
 
 ```bash
 for f in /sys/bus/usb/devices/usb*/authorized_default; do echo 1 | sudo tee "$f"; done
