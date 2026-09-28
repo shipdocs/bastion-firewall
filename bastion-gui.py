@@ -565,7 +565,8 @@ class BastionClient(QObject):
                 # positional arguments - never interpolated into the script.
                 script = ('"$1" "$2" install -y "$3"; rc=$?; rm -f "$3"; '
                           'if [ "$rc" -ne 0 ]; then '
-                          'notify-send "Bastion Firewall" "Update failed (apt-get exit $rc)" 2>/dev/null; fi; '
+                          'm="Bastion Firewall update failed (apt-get exit $rc)"; '
+                          'notify-send "Bastion Firewall" "$m" 2>/dev/null || echo "[UPDATE] $m" >&2; fi; '
                           'exec "$BASTION_RELAUNCH"')
                 env = dict(os.environ, BASTION_RELAUNCH=gui)
                 subprocess.Popen(['/bin/sh', '-c', script, 'sh', pkexec, apt_get, deb_path],
