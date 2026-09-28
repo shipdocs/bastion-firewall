@@ -9,7 +9,7 @@ Security release. Closes the 2026-07-02 audit findings (#31–#36).
 - **Rule import validation**: Imported rule files with malformed keys or non-boolean values are rejected rather than merged.
 
 ### Fixed
-- **RPM installs lacked the `bastion` group**: `build_rpm.sh` now creates the `bastion` user/group in `%pre` and enrolls desktop users in `%post`, mirroring the Debian `postinst`. Without this the hardened socket would have rejected every GUI connection on Fedora/RHEL.
+- **RPM installs lacked the `bastion` group**: `build_rpm.sh` now creates the `bastion` user/group in `%pre` and enrolls desktop administrators from the `wheel` group in `%post`. Without this the hardened socket would have rejected every GUI connection on Fedora/RHEL; limiting enrollment to administrators prevents ordinary desktop users from changing system-wide firewall policy.
 - **Uninstall no longer flushes the OUTPUT chain**: `preinst` removes Bastion's own rules with exact `-C`/`-D` matches instead of `iptables -F OUTPUT` / `-P ACCEPT`, so unrelated firewall rules survive an upgrade or removal.
 - **NFQUEUE rule tagging**: Bastion's NFQUEUE rule carries a `bastion-firewall` comment so cleanup only touches its own rules.
 - **X11 authorization leak**: The temporary `xhost` grant for gufw is revoked when gufw exits or fails to launch.
