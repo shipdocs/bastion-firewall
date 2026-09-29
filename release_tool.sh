@@ -34,7 +34,8 @@ git push origin "v$NEW_VERSION"
 
 # 4. Extract Changelog (simplified - assumes top section is new release)
 # Ideally, you should update CHANGELOG.md manually BEFORE running this script to include notes.
-NOTES=$(grep -A 20 "## \[$NEW_VERSION\]" CHANGELOG.md | sed '/^## \[/d' | head -n 20)
+# Only this version's section: stop at the next "## [" heading.
+NOTES=$(awk -v h="## [$NEW_VERSION]" 'index($0,h)==1{f=1;next} f&&/^## \[/{exit} f' CHANGELOG.md)
 if [ -z "$NOTES" ]; then
     NOTES="Release v$NEW_VERSION"
 fi
