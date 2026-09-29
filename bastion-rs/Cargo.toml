@@ -1,6 +1,6 @@
 [package]
 name = "bastion-rs"
-version = "2.0.37"
+version = "2.0.38"
 edition = "2021"
 
 [[bin]]
