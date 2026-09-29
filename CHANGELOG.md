@@ -1,3 +1,7 @@
+## [2.0.38] - 2026-09-29
+
+Maintenance release with no functional changes. It exists to verify the in-app updater end to end: updating from 2.0.37 through the tray menu should install the package and bring the GUI back on its own.
+
 ## [2.0.37] - 2026-09-29
 
 Fixes the in-app updater and clears the open dependency alerts.
