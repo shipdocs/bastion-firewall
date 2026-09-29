@@ -1,9 +1,9 @@
 Package: bastion-firewall
-Version: 2.0.36
+Version: 2.0.37
 Section: net
 Priority: optional
 Architecture: amd64
-Installed-Size: 5692
+Installed-Size: 5488
 Depends: python3 (>= 3.10), python3-pyqt6, libqt6svg6, iptables, libnetfilter-queue1, libudev1
 Recommends: linux-headers-generic
 Replaces: douane, bastion-daemon
