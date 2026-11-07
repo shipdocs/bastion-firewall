@@ -1,3 +1,10 @@
+## [2.0.39] - 2026-11-07
+
+Stops learning mode from asking again about connections you already decided on.
+
+### Fixed
+- **Repeated popups in learning mode**: when a saved rule (or a decision cached this session) denied a connection, learning mode let the connection through as intended but then showed the popup again anyway. You were asked again and again for the same app, which made saved decisions look lost. Learning mode now lets the connection through without asking. In enforcement mode these rules block as before.
+
 ## [2.0.38] - 2026-09-29
 
 Maintenance release with no functional changes. It exists to verify the in-app updater end to end: updating from 2.0.37 through the tray menu should install the package and bring the GUI back on its own.
