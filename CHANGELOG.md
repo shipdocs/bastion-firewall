@@ -1,3 +1,11 @@
+## [2.0.40] - 2026-11-07
+
+Fixes deleting rules from the control panel.
+
+### Fixed
+- **Deleting rules did nothing**: the control panel sends each delete over a new socket connection. While the tray GUI is running, the daemon treats that as a secondary connection, which only accepted USB rule commands, so `delete_rule` was silently ignored. Rule deletion is now accepted there too (same `bastion` group check), and the daemon replies whether it worked.
+- The rules table no longer shows the `applications` and `services` meta fields from `rules.json` as DENY rules.
+
 ## [2.0.39] - 2026-11-07
 
 Stops learning mode from asking again about connections you already decided on.
