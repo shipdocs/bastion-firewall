@@ -343,6 +343,8 @@ fn process_packet(
                 return Verdict::Drop;
             } else {
                 info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (would block in enforcement)", display_name, dst_ip_str, dst_port);
+                // The user already decided; don't ask again.
+                return Verdict::Accept;
             }
         }
     }
@@ -365,6 +367,7 @@ fn process_packet(
                 return Verdict::Drop;
             } else {
                 info!("[LEARN:RULE-DENIED-BUT-ALLOWED] app=\"@name:{}\" dst=\"{}:{}\" (would block in enforcement)", app_name, dst_ip_str, dst_port);
+                return Verdict::Accept;
             }
         }
     }
@@ -386,6 +389,9 @@ fn process_packet(
                     dst_ip_str, dst_port
                 );
                 return Verdict::Drop;
+            } else {
+                info!("[LEARN:RULE-DENIED-BUT-ALLOWED] dst=\"@dest:{}:{}\" (would block in enforcement)", dst_ip_str, dst_port);
+                return Verdict::Accept;
             }
         }
     }
@@ -420,6 +426,7 @@ fn process_packet(
                 "[LEARN:SESSION-DENIED-BUT-ALLOWED] app=\"{}\" dst=\"{}:{}\" (cached deny ignored)",
                 app_name, dst_ip_str, dst_port
             );
+            return Verdict::Accept;
         }
     }
 
@@ -439,6 +446,7 @@ fn process_packet(
                     "[LEARN:UNKNOWN-DENIED-BUT-ALLOWED] dst=\"{}:{}\" (cached deny ignored)",
                     dst_ip_str, dst_port
                 );
+                return Verdict::Accept;
             }
         }
     }
