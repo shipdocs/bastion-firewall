@@ -10,18 +10,24 @@ use log::{debug, error, info, warn};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const RULES_PATH: &str = "/etc/bastion/rules.json";
 
 pub struct RuleManager {
+    path: PathBuf,
     // Key: (app_path, port) -> allow
     rules: RwLock<HashMap<(String, u16), bool>>,
 }
 
 impl RuleManager {
     pub fn new() -> Self {
+        Self::with_path(RULES_PATH)
+    }
+
+    pub fn with_path<P: AsRef<Path>>(path: P) -> Self {
         let manager = Self {
+            path: path.as_ref().to_path_buf(),
             rules: RwLock::new(HashMap::new()),
         };
         manager.load_rules();
@@ -33,9 +39,9 @@ impl RuleManager {
     }
 
     pub fn load_rules(&self) {
-        let path = Path::new(RULES_PATH);
+        let path = self.path.as_path();
         if !path.exists() {
-            info!("No rules file at {}, starting with empty rules", RULES_PATH);
+            info!("No rules file at {}, starting with empty rules", path.display());
             let mut rules = self.rules.write();
             rules.clear();
             return;
@@ -47,7 +53,7 @@ impl RuleManager {
             .map(|m| m.file_type().is_symlink())
             .unwrap_or(false)
         {
-            error!("Rules file is a symlink, refusing to load: {}", RULES_PATH);
+            error!("Rules file is a symlink, refusing to load: {}", path.display());
             let mut rules = self.rules.write();
             rules.clear();
             return;
@@ -100,7 +106,7 @@ impl RuleManager {
                             }
                         }
 
-                        info!("Loaded {} rules from {}", rules.len(), RULES_PATH);
+                        info!("Loaded {} rules from {}", rules.len(), path.display());
                     }
                     Err(e) => {
                         error!("Failed to parse rules file: {}", e);
@@ -204,7 +210,7 @@ impl RuleManager {
 
     fn save_rules(&self) {
         let rules = self.rules.read();
-        let path = Path::new(RULES_PATH);
+        let path = self.path.as_path();
 
         // Security: Reject symlinks
         if path.exists()
@@ -213,7 +219,7 @@ impl RuleManager {
                 .map(|m| m.file_type().is_symlink())
                 .unwrap_or(false)
         {
-            error!("Rules file is a symlink, refusing to save: {}", RULES_PATH);
+            error!("Rules file is a symlink, refusing to save: {}", path.display());
             return;
         }
 
@@ -246,17 +252,17 @@ impl RuleManager {
         match serde_json::to_string_pretty(&json) {
             Ok(content) => {
                 // Atomic write: write to temp file, then rename
-                let temp_path = format!("{}.tmp", RULES_PATH);
+                let temp_path = format!("{}.tmp", path.display());
                 if let Err(e) = fs::write(&temp_path, &content) {
                     error!("Failed to write temp rules file: {}", e);
                     return;
                 }
-                if let Err(e) = fs::rename(&temp_path, RULES_PATH) {
+                if let Err(e) = fs::rename(&temp_path, path) {
                     error!("Failed to rename temp rules file: {}", e);
                     // Try to clean up temp file
                     let _ = fs::remove_file(&temp_path);
                 } else {
-                    info!("Saved {} rules to {}", rules.len(), RULES_PATH);
+                    info!("Saved {} rules to {}", rules.len(), path.display());
                 }
             }
             Err(e) => {

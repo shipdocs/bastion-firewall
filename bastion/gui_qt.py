@@ -1465,6 +1465,9 @@ X-GNOME-Autostart-enabled=true
 
         # self.data_rules is dict: "app_path:port": allow_bool
         for key, allow in self.data_rules.items():
+            # Skip the "applications"/"services" meta fields; they are not rules
+            if not isinstance(allow, bool):
+                continue
             row = self.table_rules.rowCount()
             self.table_rules.insertRow(row)
 

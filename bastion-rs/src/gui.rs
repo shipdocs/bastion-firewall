@@ -505,15 +505,17 @@ pub fn run_socket_server(
 
                 // A second concurrent GUI never gets the prompt channel: the
                 // connected session owns it until it disconnects (prevents
-                // hijack, #33). It may only run the read-only/admin USB rule
-                // commands, so the control panel can manage rules meanwhile.
+                // hijack, #33). It may only run the rule-management commands
+                // (delete_rule, USB list/delete), so the control panel can manage
+                // rules meanwhile.
                 {
                     let mut state = gui_state.lock();
                     if state.is_connected() {
                         drop(state);
                         let usb_rules = usb_rules.clone();
                         let config = config.clone();
-                        thread::spawn(move || handle_admin_connection(s, config, usb_rules));
+                        let rules = rule_manager.clone();
+                        thread::spawn(move || handle_admin_connection(s, config, rules, usb_rules));
                         continue;
                     }
                     match s.try_clone() {
@@ -550,14 +552,23 @@ pub fn run_socket_server(
     }
 }
 
-/// Build the reply for `list_usb_rules` / `delete_usb_rule`; `None` for any other
-/// command. The caller decides how to write it (see `send_line`).
-fn usb_admin_reply(
+/// Build the reply for `delete_rule` / `list_usb_rules` / `delete_usb_rule`;
+/// `None` for any other command. The caller decides how to write it (see `send_line`).
+fn admin_reply(
     cmd: &GuiCommand,
     config: &ConfigManager,
+    rules: &RuleManager,
     usb_rules: &Mutex<UsbRuleManager>,
 ) -> Option<String> {
     let reply = match cmd {
+        GuiCommand::DeleteRule(req) => {
+            info!("[ASYNC:DELETE] Deleting rule from GUI: {}", req.key);
+            serde_json::to_string(&RuleDeletedResponse {
+                msg_type: "rule_deleted".to_string(),
+                key: req.key.clone(),
+                success: rules.delete_rule(&req.key),
+            })
+        }
         GuiCommand::ListUsbRules => {
             let rules = serde_json::to_value(usb_rules.lock().rules()).unwrap_or_default();
             serde_json::to_string(&UsbRulesListResponse {
@@ -590,6 +601,7 @@ fn usb_admin_reply(
 fn handle_admin_connection(
     mut stream: UnixStream,
     config: Arc<ConfigManager>,
+    rules: Arc<RuleManager>,
     usb_rules: Arc<Mutex<UsbRuleManager>>,
 ) {
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
@@ -604,11 +616,11 @@ fn handle_admin_connection(
             Ok(0) | Err(_) => break,
             Ok(_) => {
                 if let Ok(cmd) = serde_json::from_str::<GuiCommand>(&line) {
-                    match usb_admin_reply(&cmd, &config, &usb_rules) {
+                    match admin_reply(&cmd, &config, &rules, &usb_rules) {
                         // A secondary connection owns its own stream, so it writes directly.
                         Some(json) => {
                             if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
-                                debug!("Failed to send USB admin reply: {}", e);
+                                debug!("Failed to send admin reply: {}", e);
                             }
                         }
                         None => debug!("Secondary GUI connection: ignoring non-admin command"),
@@ -704,25 +716,6 @@ pub fn handle_gui_connection(
                             };
                             rules.add_rule(&rule_key, port, req.allow, req.all_ports);
                         }
-                        GuiCommand::DeleteRule(req) => {
-                            info!(
-                                "[ASYNC:DELETE] Deleting rule from GUI: {}",
-                                req.key
-                            );
-                            let success = rules.delete_rule(&req.key);
-
-                            // Send confirmation response
-                            let response = RuleDeletedResponse {
-                                msg_type: "rule_deleted".to_string(),
-                                key: req.key.clone(),
-                                success,
-                            };
-                            if let Ok(json) = serde_json::to_string(&response) {
-                                if !gui_state.lock().send_line(&json) {
-                                    debug!("Failed to send deletion confirmation");
-                                }
-                            }
-                        }
                         GuiCommand::ListRules => {
                             info!("[ASYNC:LIST] Sending rules list to GUI");
                             let rules_json = rules.get_all_rules();
@@ -736,10 +729,12 @@ pub fn handle_gui_connection(
                                 }
                             }
                         }
-                        GuiCommand::ListUsbRules | GuiCommand::DeleteUsbRule(_) => {
-                            if let Some(json) = usb_admin_reply(&cmd, &config, &usb_rules) {
+                        GuiCommand::DeleteRule(_)
+                        | GuiCommand::ListUsbRules
+                        | GuiCommand::DeleteUsbRule(_) => {
+                            if let Some(json) = admin_reply(&cmd, &config, &rules, &usb_rules) {
                                 if !gui_state.lock().send_line(&json) {
-                                    debug!("Failed to send USB admin reply");
+                                    debug!("Failed to send admin reply");
                                 }
                             }
                         }
@@ -870,7 +865,7 @@ mod tests {
     }
 
     #[test]
-    fn secondary_connection_can_list_and_delete_usb_rules_only() {
+    fn secondary_connection_can_delete_rules_and_manage_usb_rules() {
         use bastion_rs::usb::{Scope, Verdict};
         let dir = tempfile::tempdir().unwrap();
         let usb_rules = Arc::new(Mutex::new(UsbRuleManager::with_path(dir.path().join("usb.json"))));
@@ -888,11 +883,14 @@ mod tests {
         };
         let key = usb_rules.lock().add_rule(&device, Verdict::Allow, Scope::Model).unwrap();
 
+        let rules = Arc::new(RuleManager::with_path(dir.path().join("rules.json")));
+        rules.add_rule("@name:telemetry-queue", Some(443), false, false);
+
         let config = Arc::new(ConfigManager::with_path("/nonexistent/config.json"));
         let (server, client) = UnixStream::pair().unwrap();
         let handler = {
-            let (config, usb_rules) = (config.clone(), usb_rules.clone());
-            thread::spawn(move || handle_admin_connection(server, config, usb_rules))
+            let (config, rules, usb_rules) = (config.clone(), rules.clone(), usb_rules.clone());
+            thread::spawn(move || handle_admin_connection(server, config, rules, usb_rules))
         };
 
         let mut client_w = client.try_clone().unwrap();
@@ -915,6 +913,19 @@ mod tests {
         let deleted: UsbRuleDeletedResponse = serde_json::from_str(&line).unwrap();
         assert!(deleted.success);
         assert!(usb_rules.lock().rules().is_empty());
+
+        // The control panel deletes firewall rules over this connection too.
+        client_w
+            .write_all(b"{\"type\":\"delete_rule\",\"key\":\"@name:telemetry-queue:443\"}\n")
+            .unwrap();
+        line.clear();
+        client_r.read_line(&mut line).unwrap();
+        let deleted: RuleDeletedResponse = serde_json::from_str(&line).unwrap();
+        assert_eq!(deleted.msg_type, "rule_deleted");
+        assert!(deleted.success);
+        assert_eq!(rules.get_decision("@name:telemetry-queue", 443), None);
+        let saved = std::fs::read_to_string(dir.path().join("rules.json")).unwrap();
+        assert!(!saved.contains("telemetry-queue"));
 
         drop(client_w);
         drop(client_r);
