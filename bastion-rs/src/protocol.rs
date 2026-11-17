@@ -5,7 +5,12 @@ pub struct ConnectionRequest {
     #[serde(rename = "type")]
     pub msg_type: String,
     pub request_id: String, // Unique ID for this request
+    /// Display name; may carry a domain hint, e.g. "curl (example.com.)".
     pub app_name: String,
+    /// Bare process name without domain hint. GUIs must use this (not
+    /// `app_name`) when they send an `add_rule` back.
+    #[serde(default)]
+    pub process_name: String,
     pub app_path: String,
     pub app_category: String,
     pub dest_ip: String,
@@ -64,6 +69,10 @@ pub struct AddRuleRequest {
     pub all_ports: bool,
     #[serde(default)]
     pub dest_ip: String,
+    /// "session" keeps the decision in memory until the daemon restarts;
+    /// anything else (or missing, for older GUIs) saves a permanent rule.
+    #[serde(default)]
+    pub duration: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

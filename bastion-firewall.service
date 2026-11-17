@@ -15,7 +15,10 @@ User=root
 Group=root
 # CAP_CHOWN: the daemon gives its control socket to group "bastion" (root:bastion 0660);
 # without it the chown fails and the daemon refuses to serve the socket.
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF CAP_PERFMON CAP_SYS_ADMIN CAP_CHOWN
+# CAP_SYS_PTRACE: reading /proc/<pid>/exe and /proc/<pid>/fd of processes owned by
+# other users needs ptrace read access. Without it every user process shows up with an
+# empty path, rules fall back to (thread) names and saved decisions stop matching.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF CAP_PERFMON CAP_SYS_ADMIN CAP_CHOWN CAP_SYS_PTRACE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF CAP_PERFMON
 # Conservative hardening. NoNewPrivileges/RestrictSUIDSGID/PrivateTmp/ProtectHome are
 # deliberately NOT set: bastion-launch starts the GUI as the user via setuid helpers,

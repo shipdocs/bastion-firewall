@@ -65,6 +65,16 @@ impl GuiState {
         }
     }
 
+    /// Key under which a decision for this process and port is remembered for the
+    /// session. Must stay identical between the packet path and the GUI handler.
+    pub fn session_cache_key(app_name: &str, app_path: &str, port: u16) -> String {
+        if app_path.is_empty() || app_path == "unknown" {
+            format!("@name:{}:{}", app_name, port)
+        } else {
+            format!("{}:{}", app_path, port)
+        }
+    }
+
     pub fn get_session_decision(&self, cache_key: &str) -> Option<bool> {
         if let Some(decision) = self.session_decisions.get(cache_key) {
             if decision.timestamp.elapsed() < Duration::from_secs(3600) {
@@ -142,11 +152,12 @@ impl GuiState {
             debug!("Cleaned pending cache (size was > 1000)");
         }
 
-        let cache_key = if request.app_path.is_empty() || request.app_path == "unknown" {
-            format!("@name:{}:{}", request.app_name, request.dest_port)
+        let name = if request.process_name.is_empty() {
+            &request.app_name
         } else {
-            format!("{}:{}", request.app_path, request.dest_port)
+            &request.process_name
         };
+        let cache_key = Self::session_cache_key(name, &request.app_path, request.dest_port);
 
         if let Some(time) = self.pending_cache.get(&cache_key) {
             if time.elapsed() < Duration::from_secs(30) {
@@ -631,6 +642,46 @@ fn handle_admin_connection(
     }
 }
 
+/// Learning-mode "For This Session" answer: remember it in memory so the same
+/// process and port are not asked about again until the daemon restarts.
+fn remember_session_decision(gui_state: &Arc<Mutex<GuiState>>, req: &AddRuleRequest) {
+    let mut state = gui_state.lock();
+    if req.app_name == "unknown" || req.app_name.is_empty() {
+        // Unknown processes are remembered per destination, never per name.
+        if !req.dest_ip.is_empty() {
+            state.cache_unknown_decision(&req.dest_ip, req.port, req.allow);
+        }
+    } else {
+        let key = GuiState::session_cache_key(&req.app_name, &req.app_path, req.port);
+        state.cache_session_decision(&key, req.allow);
+        info!("[ASYNC:SESSION] Remembering {} for this session (allow: {})", key, req.allow);
+    }
+}
+
+fn add_permanent_rule(rules: &RuleManager, req: AddRuleRequest) {
+    info!(
+        "[ASYNC:RULE] Adding rule from GUI: {} -> {} (allow: {})",
+        req.app_name, req.port, req.allow
+    );
+    // For unknown apps, use destination-based rules (@dest:IP:PORT)
+    // This is more secure than @name:unknown which would allow any unknown app
+    let rule_key = if !req.app_path.is_empty() && req.app_path != "unknown" {
+        req.app_path
+    } else if req.app_name == "unknown" && !req.dest_ip.is_empty() {
+        // Destination-based rule for unknown apps
+        format!("@dest:{}:{}", req.dest_ip, req.port)
+    } else {
+        format!("@name:{}", req.app_name)
+    };
+    // For @dest rules, port is embedded in key, so pass 0
+    let port = if rule_key.starts_with("@dest:") {
+        None
+    } else {
+        Some(req.port)
+    };
+    rules.add_rule(&rule_key, port, req.allow, req.all_ports);
+}
+
 pub fn handle_gui_connection(
     mut stream: UnixStream,
     stats: Arc<Mutex<Stats>>,
@@ -693,28 +744,11 @@ pub fn handle_gui_connection(
                             info!("[GUI:CANCEL] Cancel request received for {}", req.request_id);
                         }
                         GuiCommand::AddRule(req) => {
-                            info!(
-                                "[ASYNC:RULE] Adding rule from GUI: {} -> {} (allow: {})",
-                                req.app_name, req.port, req.allow
-                            );
-                            // For unknown apps, use destination-based rules (@dest:IP:PORT)
-                            // This is more secure than @name:unknown which would allow any unknown app
-                            let rule_key = if !req.app_path.is_empty() && req.app_path != "unknown"
-                            {
-                                req.app_path
-                            } else if req.app_name == "unknown" && !req.dest_ip.is_empty() {
-                                // Destination-based rule for unknown apps
-                                format!("@dest:{}:{}", req.dest_ip, req.port)
+                            if req.duration == "session" {
+                                remember_session_decision(&gui_state, &req);
                             } else {
-                                format!("@name:{}", req.app_name)
-                            };
-                            // For @dest rules, port is embedded in key, so pass 0
-                            let port = if rule_key.starts_with("@dest:") {
-                                None
-                            } else {
-                                Some(req.port)
-                            };
-                            rules.add_rule(&rule_key, port, req.allow, req.all_ports);
+                                add_permanent_rule(&rules, req);
+                            }
                         }
                         GuiCommand::ListRules => {
                             info!("[ASYNC:LIST] Sending rules list to GUI");
@@ -802,6 +836,44 @@ pub fn handle_gui_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn learning_add_rule(line: &str) -> AddRuleRequest {
+        match serde_json::from_str::<GuiCommand>(line).unwrap() {
+            GuiCommand::AddRule(r) => r,
+            other => panic!("unexpected {:?}", other),
+        }
+    }
+
+    #[test]
+    fn session_add_rule_is_remembered_not_saved() {
+        let state = Arc::new(Mutex::new(GuiState::new()));
+        let req = learning_add_rule(
+            r#"{"type":"add_rule","app_name":"curl","app_path":"/usr/bin/curl","port":443,"dest_ip":"1.2.3.4","allow":true,"all_ports":false,"duration":"session"}"#,
+        );
+        remember_session_decision(&state, &req);
+        let key = GuiState::session_cache_key("curl", "/usr/bin/curl", 443);
+        assert_eq!(state.lock().get_session_decision(&key), Some(true));
+    }
+
+    #[test]
+    fn session_add_rule_for_unknown_app_uses_destination() {
+        let state = Arc::new(Mutex::new(GuiState::new()));
+        let req = learning_add_rule(
+            r#"{"type":"add_rule","app_name":"unknown","app_path":"unknown","port":53,"dest_ip":"9.9.9.9","allow":false,"all_ports":false,"duration":"session"}"#,
+        );
+        remember_session_decision(&state, &req);
+        let mut s = state.lock();
+        assert_eq!(s.get_session_decision("@name:unknown:53"), None);
+        assert_eq!(s.check_unknown_decision("9.9.9.9", 53), Some(false));
+    }
+
+    #[test]
+    fn add_rule_without_duration_still_parses() {
+        let req = learning_add_rule(
+            r#"{"type":"add_rule","app_name":"curl","app_path":"","port":80,"allow":true,"all_ports":false}"#,
+        );
+        assert_eq!(req.duration, "");
+    }
 
     fn usb_prompt() -> UsbDevicePrompt {
         UsbDevicePrompt {

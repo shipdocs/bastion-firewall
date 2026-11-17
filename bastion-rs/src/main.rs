@@ -397,11 +397,7 @@ fn process_packet(
     }
 
     // No rule found - check session cache first, then ask user
-    let session_cache_key = if app_path.is_empty() || app_path == "unknown" {
-        format!("@name:{}:{}", app_name, dst_port)
-    } else {
-        format!("{}:{}", app_path, dst_port)
-    };
+    let session_cache_key = GuiState::session_cache_key(&app_name, &app_path, dst_port);
 
     let mut gui = gui_state.lock();
 
@@ -456,6 +452,7 @@ fn process_packet(
         msg_type: "connection_request".to_string(),
         request_id: request_id.clone(),
         app_name: display_name.clone(),
+        process_name: app_name.clone(),
         app_path: app_path.clone(),
         app_category: "unknown".to_string(),
         dest_ip: dst_ip_str.clone(),
