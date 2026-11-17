@@ -14,6 +14,28 @@ use std::path::{Path, PathBuf};
 
 const RULES_PATH: &str = "/etc/bastion/rules.json";
 
+/// Strip a DNS domain hint that leaked into a name-based rule key.
+///
+/// Popups show "<name> (<domain>.)" when the daemon knows the destination's domain.
+/// Older GUIs sent that display text back as the app name, which produced keys like
+/// `@name:Socket Thread (start.thunderbird.net.)` that never match, because lookups
+/// use the bare process name. Domain hints from the DNS cache always end in a dot,
+/// so only a trailing " (<something>.)" is removed; names such as
+/// `next-server (v1` (a truncated comm) are left alone.
+pub fn normalize_rule_app(app: &str) -> String {
+    if let Some(name) = app.strip_prefix("@name:") {
+        if name.ends_with(".)") {
+            if let Some(pos) = name.rfind(" (") {
+                let base = &name[..pos];
+                if !base.is_empty() {
+                    return format!("@name:{}", base);
+                }
+            }
+        }
+    }
+    app.to_string()
+}
+
 pub struct RuleManager {
     path: PathBuf,
     // Key: (app_path, port) -> allow
@@ -66,6 +88,8 @@ impl RuleManager {
                     Ok(json) => {
                         let mut rules = self.rules.write();
                         rules.clear();
+                        // Keys with a leaked domain hint: (fixed key, port, allow).
+                        let mut migrated: Vec<(String, String, u16, bool)> = Vec::new();
 
                         if let serde_json::Value::Object(map) = json {
                             for (key, value) in map {
@@ -89,6 +113,11 @@ impl RuleManager {
                                     };
 
                                     if let serde_json::Value::Bool(allow) = value {
+                                        let fixed = normalize_rule_app(app_path);
+                                        if fixed != app_path {
+                                            migrated.push((key.clone(), fixed, port, allow));
+                                            continue;
+                                        }
                                         rules.insert((app_path.to_string(), port), allow);
                                         let port_display = if port == 0 {
                                             "*".to_string()
@@ -106,7 +135,23 @@ impl RuleManager {
                             }
                         }
 
+                        // Apply fixed keys after the clean ones, so an explicit rule
+                        // without a domain wins over a repaired one.
+                        let needs_save = !migrated.is_empty();
+                        for (old_key, fixed, port, allow) in migrated {
+                            if rules.contains_key(&(fixed.clone(), port)) {
+                                info!("Removed unmatchable rule {} (already covered)", old_key);
+                            } else {
+                                info!("Repaired unmatchable rule {} -> {}", old_key, fixed);
+                                rules.insert((fixed, port), allow);
+                            }
+                        }
+
                         info!("Loaded {} rules from {}", rules.len(), path.display());
+                        drop(rules);
+                        if needs_save {
+                            self.save_rules();
+                        }
                     }
                     Err(e) => {
                         error!("Failed to parse rules file: {}", e);
@@ -144,9 +189,10 @@ impl RuleManager {
             0 // Default to 0 for @dest rules where port is already in the app_path
         };
 
+        let app_path = normalize_rule_app(app_path);
         {
             let mut rules = self.rules.write();
-            rules.insert((app_path.to_string(), stored_port), allow);
+            rules.insert((app_path, stored_port), allow);
         }
         self.save_rules();
     }
@@ -269,5 +315,63 @@ impl RuleManager {
                 error!("Failed to serialize rules: {}", e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_strips_only_domain_hints() {
+        assert_eq!(
+            normalize_rule_app("@name:Socket Thread (start.thunderbird.net.)"),
+            "@name:Socket Thread"
+        );
+        assert_eq!(
+            normalize_rule_app("@name:npm view @cloud (registry.npmjs.org.)"),
+            "@name:npm view @cloud"
+        );
+        // A truncated comm that merely contains a parenthesis stays as-is.
+        assert_eq!(normalize_rule_app("@name:next-server (v1"), "@name:next-server (v1");
+        assert_eq!(normalize_rule_app("/usr/bin/curl"), "/usr/bin/curl");
+        assert_eq!(normalize_rule_app("@dest:1.2.3.4:443"), "@dest:1.2.3.4:443");
+    }
+
+    #[test]
+    fn load_repairs_domain_keys_and_rewrites_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rules.json");
+        fs::write(
+            &path,
+            r#"{
+                "applications": {}, "services": {},
+                "@name:Socket Thread:443": true,
+                "@name:Socket Thread (start.thunderbird.net.):443": false,
+                "@name:copilot-cabi (api.githubcopilot.com.):443": true,
+                "@name:next-server (v1:443": true
+            }"#,
+        )
+        .unwrap();
+
+        let rm = RuleManager::with_path(&path);
+        // Existing clean rule wins over the repaired duplicate.
+        assert_eq!(rm.get_decision("@name:Socket Thread", 443), Some(true));
+        assert_eq!(rm.get_decision("@name:copilot-cabi", 443), Some(true));
+        assert_eq!(rm.get_decision("@name:next-server (v1", 443), Some(true));
+
+        let saved: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let keys: Vec<&String> = saved.as_object().unwrap().keys().collect();
+        assert!(keys.iter().all(|k| !k.contains(".)")), "{:?}", keys);
+        assert!(saved.get("@name:copilot-cabi:443").is_some());
+    }
+
+    #[test]
+    fn add_rule_drops_domain_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        let rm = RuleManager::with_path(dir.path().join("rules.json"));
+        rm.add_rule("@name:Chrome_ChildIOT (static.whatsapp.net.)", Some(5222), true, false);
+        assert_eq!(rm.get_decision("@name:Chrome_ChildIOT", 5222), Some(true));
     }
 }

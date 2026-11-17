@@ -20,6 +20,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, QTimer, QSocketNotifier
 from bastion.gui.dialogs.firewall_dialog import FirewallDialog
 from bastion.gui.dialogs.usb_dialog import USBPromptDialog
 from bastion.usb_client import build_usb_response, dialog_timeout
+from bastion.connection_client import build_learning_add_rule
 from bastion.icon_manager import IconManager
 from bastion import __version__ as BASTION_VERSION
 import urllib.request
@@ -362,21 +363,14 @@ class BastionClient(QObject):
 
             # Send response
             if learning_mode:
-                # In learning mode, we only care about permanent rules
-                if permanent:
-                    resp = json.dumps({
-                        'type': 'add_rule',
-                        'app_name': req.get('app_name'),
-                        'app_path': req.get('app_path'),
-                        'port': req.get('dest_port'),
-                        'dest_ip': req.get('dest_ip'),  # For @dest rules on unknown apps
-                        'allow': decision,
-                        'all_ports': all_ports
-                    }) + '\n'
-                    print(f"[GUI] Sending async rule addition: {req.get('app_name')} -> {req.get('dest_port')}")
-                else:
+                # In learning mode the connection was already let through; only
+                # decisions that should be remembered need to reach the daemon.
+                resp = build_learning_add_rule(req, decision, all_ports, duration, permanent)
+                if resp is None:
                     dialog.deleteLater()
-                    return # No-op for temporary decisions in learning mode
+                    return  # "This Time Only": nothing to remember
+                print(f"[GUI] Sending async rule addition ({duration}): "
+                      f"{req.get('process_name') or req.get('app_name')} -> {req.get('dest_port')}")
             else:
                 # Normal enforcement mode - response to blocking request
                 resp = json.dumps({

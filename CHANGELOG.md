@@ -1,3 +1,12 @@
+## [2.0.41] - 2026-11-18
+
+Fixes saved decisions that stopped matching, so you were asked again for things you had already answered.
+
+### Fixed
+- **The daemon could not see which program made a connection**: the systemd unit did not allow `CAP_SYS_PTRACE`, which is needed to read `/proc/<pid>/exe` and `/proc/<pid>/fd` of processes owned by your user. Every program showed up without a path, so rules were saved under thread names such as `Socket Thread` or `Chrome_ChildIOT`, and those change from connection to connection. The unit now allows `CAP_SYS_PTRACE`, so rules are saved under the program path again.
+- **Rules saved with a domain name never matched**: when the popup showed a domain (`curl (example.com.)`), "Always" saved that whole display text as the rule name, but lookups use the bare program name. Popups now carry the bare name separately, the daemon strips a leftover domain when it saves a rule, and existing broken rules in `rules.json` are repaired once when the daemon starts.
+- **"For This Session" was ignored in learning mode**: only "Always" reached the daemon. Session decisions are now remembered until the daemon restarts.
+
 ## [2.0.40] - 2026-11-07
 
 Fixes deleting rules from the control panel.
