@@ -765,17 +765,40 @@ fn try_udp_sendmsg(ctx: &KProbe) -> Result<(), i32> {
         let dst_port = u16::from_be(dport_be);
 
         // daddr is already read from offset 0
-        if daddr == 0 {
+        if daddr == 0 || dst_port == 0 {
             return Ok(());
         }
 
-        if dst_port == 53 {
-            let comm = match aya_ebpf::helpers::bpf_get_current_comm() {
-                Ok(c) => c,
-                Err(_) => [0u8; 16],
-            };
-            let timestamp = unsafe { aya_ebpf::helpers::bpf_ktime_get_ns() };
+        let comm = match aya_ebpf::helpers::bpf_get_current_comm() {
+            Ok(c) => c,
+            Err(_) => [0u8; 16],
+        };
+        let timestamp = unsafe { aya_ebpf::helpers::bpf_ktime_get_ns() };
 
+        // Record the connection like the sendto() path below does. Browsers send
+        // QUIC (UDP 443) on connected sockets; without this entry their first
+        // packets could not be tied to the browser and showed up as "unknown".
+        // skc_daddr holds the address bytes in network order; store it as the
+        // big-endian value, the same form ipv4_from_sockaddr() produces.
+        let conn_key = ConnectionKey {
+            src_port: 0,
+            ip_version: 4,
+            _pad: [0u8; 1],
+            dst_port,
+            pid,
+            dst_ip_v4: u32::from_be(daddr),
+            dst_ip_v6: [0u8; 16],
+        };
+        let conn_info = ConnectionInfo {
+            pid,
+            timestamp,
+            comm,
+        };
+        unsafe {
+            let _ = CONN_MAP.insert(&conn_key, &conn_info, 0);
+        }
+
+        if dst_port == 53 {
             let dns_key = DnsQueryKey {
                 domain_hash: pid,
                 _pad: [0u8; 4],

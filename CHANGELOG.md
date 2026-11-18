@@ -1,8 +1,9 @@
 ## [2.0.44] - 2026-11-18
 
-Fixes the empty totals on the control panel's Status page.
+Fixes "unknown" popups for every new website in Brave and other Chromium browsers, and the empty totals on the control panel's Status page.
 
 ### Fixed
+- **A popup for every website ("unknown")**: browsers send QUIC (UDP port 443) on *connected* UDP sockets. The kernel tracker only recorded the owner of such sockets for DNS, so the first packets to each new server could not be tied to the browser. They showed up as "unknown", and an "unknown" answer only covers that one server address. These connections are now recorded too, so they are matched to the browser and its rule.
 - **Status page showed no totals while the tray was running**: the daemon only sends live numbers to the tray, so the control panel's "Total Connections", "Blocked" and "Active Rules" cards stayed empty. The control panel now asks the daemon for the numbers every 2 seconds (new read-only `get_stats` command), and "Active Rules" is read straight from `rules.json`, so it shows even when the daemon is stopped.
 
 ## [2.0.43] - 2026-11-18
