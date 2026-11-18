@@ -18,7 +18,11 @@ Group=root
 # CAP_SYS_PTRACE: reading /proc/<pid>/exe and /proc/<pid>/fd of processes owned by
 # other users needs ptrace read access. Without it every user process shows up with an
 # empty path, rules fall back to (thread) names and saved decisions stop matching.
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF CAP_PERFMON CAP_SYS_ADMIN CAP_CHOWN CAP_SYS_PTRACE
+# CAP_DAC_READ_SEARCH: /proc/<pid>/fd is mode 0500 and owned by the process's user,
+# so root without this capability cannot list it. It is how the daemon finds the exact
+# process that owns a socket (and tells two programs talking to the same server apart);
+# without it only the eBPF tracker can name the program.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF CAP_PERFMON CAP_SYS_ADMIN CAP_CHOWN CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF CAP_PERFMON
 # Conservative hardening. NoNewPrivileges/RestrictSUIDSGID/PrivateTmp/ProtectHome are
 # deliberately NOT set: bastion-launch starts the GUI as the user via setuid helpers,

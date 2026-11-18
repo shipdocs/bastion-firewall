@@ -4,6 +4,7 @@ Fixes "unknown" popups for every new website in Brave and other Chromium browser
 
 ### Fixed
 - **A popup for every website ("unknown")**: browsers send QUIC (UDP port 443) on *connected* UDP sockets. The kernel tracker only recorded the owner of such sockets for DNS, so the first packets to each new server could not be tied to the browser. They showed up as "unknown", and an "unknown" answer only covers that one server address. These connections are now recorded too, so they are matched to the browser and its rule.
+- **Socket owner lookup via /proc never worked for user programs**: the service lacked `CAP_DAC_READ_SEARCH`, which root needs to list another user's `/proc/<pid>/fd`. The daemon now has it, so it can find the exact program behind a connection instead of relying on the eBPF tracker alone. The capability lets the daemon read any file; it already runs as root.
 - **Status page showed no totals while the tray was running**: the daemon only sends live numbers to the tray, so the control panel's "Total Connections", "Blocked" and "Active Rules" cards stayed empty. The control panel now asks the daemon for the numbers every 2 seconds (new read-only `get_stats` command), and "Active Rules" is read straight from `rules.json`, so it shows even when the daemon is stopped.
 
 ## [2.0.43] - 2026-11-18
