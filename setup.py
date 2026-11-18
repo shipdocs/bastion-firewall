@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="bastion-firewall",
-    version="2.0.43",
+    version="2.0.44",
     description="Bastion Firewall - Application Firewall for Linux",
     author="Bastion Team",
     packages=find_packages(),

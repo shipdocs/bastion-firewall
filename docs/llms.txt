@@ -2,7 +2,7 @@
 
 > Bastion Firewall is a free, open-source (GPL-3.0) outbound application firewall for Linux. It intercepts each new outbound connection, identifies the program that makes it, and asks the user whether to allow or block it — once, for the session, or always. A Rust daemon with eBPF process tracking does the filtering; a Qt tray app shows the prompts and a control panel.
 
-Latest release: v2.0.43 (2026-11-18)
+Latest release: v2.0.44 (2026-11-18)
 
 Key facts:
 
