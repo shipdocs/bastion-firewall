@@ -1,3 +1,10 @@
+## [2.0.42] - 2026-11-18
+
+Fixes the destination details in the connection popup.
+
+### Fixed
+- **Popup never showed who a destination belongs to**: the popup looks up the host name (or, failing that, the organisation) of the destination IP in the background, but handed the result back with a `QTimer.singleShot` lambda from a plain Python thread. That never runs, so the popup kept showing only the bare IP address. The result is now passed with a Qt signal.
+
 ## [2.0.41] - 2026-11-18
 
 Fixes saved decisions that stopped matching, so you were asked again for things you had already answered.
