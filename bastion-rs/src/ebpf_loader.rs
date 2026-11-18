@@ -127,6 +127,34 @@ pub struct DnsQueryValue {
 unsafe impl Pod for DnsQueryValue {}
 
 
+/// Only trust an eBPF-only match if the connect() happened this recently.
+pub const EBPF_MATCH_MAX_AGE_NS: u64 = 10 * 1_000_000_000;
+
+/// A process eBPF saw connecting to a destination.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EbpfCandidate {
+    pub pid: u32,
+    pub comm: String,
+    pub timestamp_ns: u64,
+}
+
+fn key_matches(key: &ConnectionKey, ip_version: u8, dst_ip_v4: u32, dst_ip_v6: [u8; 16], dst_port: u16) -> bool {
+    key.ip_version == ip_version
+        && key.dst_port == dst_port
+        && match ip_version {
+            4 => key.dst_ip_v4 == dst_ip_v4,
+            6 => key.dst_ip_v6 == dst_ip_v6,
+            _ => false,
+        }
+}
+
+/// Newest candidate (input is sorted newest first) that is not older than `max_age_ns`.
+pub fn pick_recent(candidates: &[EbpfCandidate], now_ns: u64, max_age_ns: u64) -> Option<&EbpfCandidate> {
+    candidates
+        .iter()
+        .find(|c| now_ns.saturating_sub(c.timestamp_ns) <= max_age_ns)
+}
+
 pub struct EbpfManager {
     bpf: Option<aya::Ebpf>,
     pub metrics: EbpfMetrics,
@@ -237,166 +265,69 @@ impl EbpfManager {
         Ok(())
     }
 
-    /// Lookup process info with multiple strategies and retry logic.
-    /// This is the main entry point for process identification.
-    pub fn lookup_process_info(
-        &mut self,
-        src_port: u16,
-        dst_ip: &str,
-        dst_port: u16,
-    ) -> Option<(u32, String)> {
-        // Log metrics summary every 30 seconds
+    /// All processes that eBPF saw connecting to exactly this destination, newest first.
+    ///
+    /// The kernel side stores every connection with src_port=0 (keyed per pid), so the
+    /// source port cannot be used here; callers that know the source port should first
+    /// resolve the socket owner via /proc and use these candidates only to narrow that
+    /// search or as a last resort.
+    pub fn connection_candidates(&mut self, dst_ip: &str, dst_port: u16) -> Vec<EbpfCandidate> {
+        let mut out = Vec::new();
+        let Some((ip_version, dst_ip_v4, dst_ip_v6)) = parse_dst_ip(dst_ip) else {
+            return out;
+        };
+        let Some(bpf) = self.bpf.as_ref() else {
+            return out;
+        };
+        let Some(conn_map) = bpf
+            .map("CONN_MAP")
+            .and_then(|m| HashMap::<_, ConnectionKey, ConnectionInfo>::try_from(m).ok())
+        else {
+            return out;
+        };
+
+        for (key, info) in conn_map.iter().flatten() {
+            if key_matches(&key, ip_version, dst_ip_v4, dst_ip_v6, dst_port) {
+                out.push(EbpfCandidate {
+                    pid: info.pid,
+                    comm: info.comm_str(),
+                    timestamp_ns: info.timestamp,
+                });
+            }
+        }
+        out.sort_by(|a, b| b.timestamp_ns.cmp(&a.timestamp_ns));
+        self.metrics.record_lookup(!out.is_empty());
         self.metrics.log_summary();
-
-        let (ip_version, dst_ip_v4, dst_ip_v6) = parse_dst_ip(dst_ip)?;
-
-        // Strategy 1: Try with src_port=0 in CONN_MAP first
-        // Most connections are stored with src_port=0 since it's assigned after connect()
-        if let Some(result) = self.lookup_conn_map_pending(ip_version, dst_port, dst_ip_v4, dst_ip_v6) {
-            self.metrics.record_lookup(true);
-            return Some(result);
-        }
-
-        // Strategy 2: Try exact match in CONN_MAP (including src_port)
-        // This works if the kretprobe successfully updated the source port
-        if let Some(result) =
-            self.lookup_conn_map_exact(src_port, ip_version, dst_port, dst_ip_v4, dst_ip_v6)
-        {
-            self.metrics.record_lookup(true);
-            return Some(result);
-        }
-
-        // Strategy 3: Fallback to iterating CONN_MAP (slow, but comprehensive)
-        if let Some(result) = self.lookup_conn_map_iterate(ip_version, dst_port, dst_ip_v4, dst_ip_v6) {
-            self.metrics.record_lookup(true);
-            return Some(result);
-        }
-
-        self.metrics.record_lookup(false);
-        None
+        out
     }
 
-    /// Strategy 1: Lookup with src_port=0 - iterate to find any matching connection
-    /// Since key includes pid, we need to iterate to find any process connecting to this destination
-    fn lookup_conn_map_pending(
-        &mut self,
-        ip_version: u8,
-        dst_port: u16,
-        dst_ip_v4: u32,
-        dst_ip_v6: [u8; 16],
-    ) -> Option<(u32, String)> {
-        let bpf = self.bpf.as_ref()?;
-        let conn_map: HashMap<_, ConnectionKey, ConnectionInfo> =
-            bpf.map("CONN_MAP").and_then(|m| HashMap::try_from(m).ok())?;
-
-        // Iterate to find src_port=0 entries matching dst_ip:dst_port (any pid)
-        let mut count = 0u32;
-        for (key, info) in conn_map.iter().flatten() {
-            count += 1;
-            if count <= 3 {
-                debug!("eBPF map entry {}: src_port={}, ip_ver={}, dst_port={}, pid={}, comm={}",
-                    count, key.src_port, key.ip_version, key.dst_port, info.pid, info.comm_str());
-            }
-
-            if key.src_port == 0 && key.ip_version == ip_version && key.dst_port == dst_port {
-                let ip_matches = match ip_version {
-                    4 => key.dst_ip_v4 == dst_ip_v4,
-                    6 => key.dst_ip_v6 == dst_ip_v6,
-                    _ => false,
-                };
-
-                if ip_matches {
-                    let pid = info.pid;
-                    let comm = info.comm_str();
-                    debug!("eBPF src_port=0 match: PID {} ({})", pid, comm);
-                    return Some((pid, comm));
-                }
+    /// Remove CONN_MAP entries older than `max_age_ns`. The kernel side never deletes
+    /// entries; without this the map fills up (100k entries) and new connections are
+    /// silently no longer recorded.
+    pub fn prune_conn_map(&mut self, max_age_ns: u64) -> usize {
+        let Some(bpf) = self.bpf.as_mut() else {
+            return 0;
+        };
+        let Some(mut conn_map) = bpf
+            .map_mut("CONN_MAP")
+            .and_then(|m| HashMap::<_, ConnectionKey, ConnectionInfo>::try_from(m).ok())
+        else {
+            return 0;
+        };
+        let now = get_monotonic_ns();
+        let stale: Vec<ConnectionKey> = conn_map
+            .iter()
+            .flatten()
+            .filter(|(_, info)| now.saturating_sub(info.timestamp) > max_age_ns)
+            .map(|(key, _)| key)
+            .collect();
+        let mut removed = 0;
+        for key in &stale {
+            if conn_map.remove(key).is_ok() {
+                removed += 1;
             }
         }
-
-        if count == 0 {
-            debug!("eBPF CONN_MAP is empty!");
-        } else {
-            debug!("eBPF CONN_MAP has {} entries, no match found for {}:{}",
-                count, dst_ip_v4, dst_port);
-        }
-
-        None
-    }
-
-    /// Strategy 2: Exact match with source port - iterate to find matching connection
-    fn lookup_conn_map_exact(
-        &mut self,
-        src_port: u16,
-        ip_version: u8,
-        dst_port: u16,
-        dst_ip_v4: u32,
-        dst_ip_v6: [u8; 16],
-    ) -> Option<(u32, String)> {
-        let bpf = self.bpf.as_ref()?;
-        let conn_map: HashMap<_, ConnectionKey, ConnectionInfo> =
-            bpf.map("CONN_MAP").and_then(|m| HashMap::try_from(m).ok())?;
-
-        // Iterate to find entries matching full 4-tuple (any pid)
-        for (key, info) in conn_map.iter().flatten() {
-            if key.src_port == src_port && key.ip_version == ip_version && key.dst_port == dst_port {
-                let ip_matches = match ip_version {
-                    4 => key.dst_ip_v4 == dst_ip_v4,
-                    6 => key.dst_ip_v6 == dst_ip_v6,
-                    _ => false,
-                };
-
-                if ip_matches {
-                    let pid = info.pid;
-                    let comm = info.comm_str();
-                    debug!("eBPF exact match: PID {} ({})", pid, comm);
-                    return Some((pid, comm));
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Strategy 3: Full iteration of CONN_MAP (slow, comprehensive fallback)
-    fn lookup_conn_map_iterate(
-        &mut self,
-        ip_version: u8,
-        dst_port: u16,
-        _dst_ip_v4: u32,
-        dst_ip_v6: [u8; 16],
-    ) -> Option<(u32, String)> {
-        let bpf = self.bpf.as_ref()?;
-        let conn_map: HashMap<_, ConnectionKey, ConnectionInfo> =
-            bpf.map("CONN_MAP").and_then(|m| HashMap::try_from(m).ok())?;
-
-        // Only log this occasionally since it's the slow path
-        let start = Instant::now();
-
-        for (key, info) in conn_map.iter().flatten() {
-            let matches = match key.ip_version {
-                4 => key.ip_version == ip_version && key.dst_port == dst_port,
-                6 => {
-                    key.ip_version == ip_version
-                        && key.dst_port == dst_port
-                        && key.dst_ip_v6 == dst_ip_v6
-                }
-                _ => false,
-            };
-
-            if matches {
-                let elapsed = start.elapsed();
-                warn!(
-                    "eBPF iteration took {:?} - found PID {} ({})",
-                    elapsed,
-                    info.pid,
-                    info.comm_str()
-                );
-                return Some((info.pid, info.comm_str()));
-            }
-        }
-
-        None
+        removed
     }
 
     /// Poll DNS queries for a specific DNS server within a time window
@@ -471,5 +402,47 @@ fn parse_dst_ip(dst_ip: &str) -> Option<(u8, u32, [u8; 16])> {
             Ok(ip) => Some((4u8, u32::from_be_bytes(ip.octets()), [0u8; 16])),
             Err(_) => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod lookup_tests {
+    use super::*;
+
+    fn key(dst_ip_v4: u32, dst_port: u16) -> ConnectionKey {
+        ConnectionKey {
+            src_port: 0,
+            ip_version: 4,
+            _pad: [0],
+            dst_port,
+            pid: 1,
+            dst_ip_v4,
+            dst_ip_v6: [0; 16],
+        }
+    }
+
+    #[test]
+    fn key_must_match_ip_not_only_port() {
+        let (_, ip, v6) = parse_dst_ip("104.18.25.232").unwrap();
+        assert!(key_matches(&key(ip, 443), 4, ip, v6, 443));
+        // Same port, other host: this used to match in the old fallback.
+        let (_, other, _) = parse_dst_ip("1.1.1.1").unwrap();
+        assert!(!key_matches(&key(other, 443), 4, ip, v6, 443));
+        assert!(!key_matches(&key(ip, 80), 4, ip, v6, 443));
+    }
+
+    #[test]
+    fn pick_recent_takes_newest_and_ignores_stale() {
+        let now = 10_000 * 1_000_000_000;
+        let c = |pid, age_s: u64| EbpfCandidate {
+            pid,
+            comm: format!("p{}", pid),
+            timestamp_ns: now - age_s * 1_000_000_000,
+        };
+        // Sorted newest first, as connection_candidates returns them.
+        let list = vec![c(2, 1), c(1, 5)];
+        assert_eq!(pick_recent(&list, now, EBPF_MATCH_MAX_AGE_NS).unwrap().pid, 2);
+        let stale = vec![c(3, 3600)];
+        assert!(pick_recent(&stale, now, EBPF_MATCH_MAX_AGE_NS).is_none());
     }
 }

@@ -1,12 +1,14 @@
 ## [2.0.42] - 2026-11-18
 
-Adds Quit and Check for Updates to the tray menu, and fixes the destination details in the connection popup.
+Adds Quit and Check for Updates to the tray menu, makes the daemon attribute connections to the right program, and fixes the destination details in the connection popup.
 
 ### Added
 - **Check for Updates** in the tray menu: checks right away instead of waiting for the next automatic check (every 6 hours), and also tells you when you already have the latest version or when the check failed.
 - **Quit** in the tray menu: closes the tray app after a confirmation. The firewall itself keeps running; in enforcement mode, connections from programs without a rule are blocked without asking until the tray is started again.
 
 ### Fixed
+- **Connections could be attributed to the wrong program**, which then got that program's rule (allow or deny). The daemon remembered "who connected to this IP and port" for a minute without looking at the source port, so a second program connecting to the same address was taken for the first. Its eBPF lookup also took whichever recorded process happened to come first for a destination (possibly an old one), and its last fallback matched on the port alone, ignoring the IP address. The daemon now first finds the exact socket in `/proc` (source port + destination) and the process that holds it; eBPF is only used to narrow that search, or as a last resort with the newest recent entry for exactly that IP and port. The program name is now the process name (e.g. `thunderbird`) instead of a thread name (e.g. `Socket Thread`).
+- **eBPF connection table filled up**: entries were never removed, so after 100,000 connections new ones were no longer recorded. Entries older than 5 minutes are now pruned every minute.
 - **Popup never showed who a destination belongs to**: the popup looks up the host name (or, failing that, the organisation) of the destination IP in the background, but handed the result back with a `QTimer.singleShot` lambda from a plain Python thread. That never runs, so the popup kept showing only the bare IP address. The result is now passed with a Qt signal.
 
 ## [2.0.41] - 2026-11-18
