@@ -9,6 +9,7 @@
         content="Free, open-source application firewall for Linux. Bastion asks per program before it may connect to the internet. Rust + eBPF, for Ubuntu, Debian and Fedora.">
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
     <link rel="canonical" href="https://shipdocs.github.io/bastion-firewall/">
+    <meta name="google-site-verification" content="o3XM-d_82bVHzRwTGha-j7EucoxHv4H08RzVpUdS0yg" />
     <meta name="theme-color" content="#0f172a">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="alternate" type="text/plain" href="llms.txt" title="Summary for AI agents (llms.txt)">
@@ -21,18 +22,18 @@
     <meta property="og:title" content="Bastion Firewall – Outbound Application Firewall for Linux">
     <meta property="og:description"
         content="Decide per program which apps may connect to the internet. Free and open source, with a Rust daemon and eBPF process tracking.">
-    <meta property="og:image" content="https://shipdocs.github.io/bastion-firewall/screenshots/status.png">
-    <meta property="og:image:width" content="1107">
-    <meta property="og:image:height" content="784">
-    <meta property="og:image:alt" content="Bastion Firewall control panel showing outbound and inbound protection status">
+    <meta property="og:image" content="https://shipdocs.github.io/bastion-firewall/screenshots/social-card.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Bastion Firewall: a connection request popup asking whether curl may connect to registry.npmjs.org">
 
     <!-- Twitter / X -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Bastion Firewall – Outbound Application Firewall for Linux">
     <meta name="twitter:description"
         content="Decide per program which apps may connect to the internet. Free and open source, with a Rust daemon and eBPF process tracking.">
-    <meta name="twitter:image" content="https://shipdocs.github.io/bastion-firewall/screenshots/status.png">
-    <meta name="twitter:image:alt" content="Bastion Firewall control panel showing outbound and inbound protection status">
+    <meta name="twitter:image" content="https://shipdocs.github.io/bastion-firewall/screenshots/social-card.png">
+    <meta name="twitter:image:alt" content="Bastion Firewall: a connection request popup asking whether curl may connect to registry.npmjs.org">
 
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -69,11 +70,14 @@
           "downloadUrl": "https://github.com/shipdocs/bastion-firewall/releases/latest",
           "installUrl": "https://shipdocs.github.io/bastion-firewall/#installation",
           "screenshot": [
+            "https://shipdocs.github.io/bastion-firewall/screenshots/popup.png",
             "https://shipdocs.github.io/bastion-firewall/screenshots/status.png",
             "https://shipdocs.github.io/bastion-firewall/screenshots/rules.png",
             "https://shipdocs.github.io/bastion-firewall/screenshots/logs.png",
+            "https://shipdocs.github.io/bastion-firewall/screenshots/usb.png",
             "https://shipdocs.github.io/bastion-firewall/screenshots/settings.png"
           ],
+          "image": "https://shipdocs.github.io/bastion-firewall/screenshots/social-card.png",
           "featureList": [
             "Per-application prompts for outbound connections",
             "Allow or block once, for the session, or always",
@@ -230,6 +234,23 @@
                             it and where it goes, and lets you allow or block it. Your rules are kept per program.</p>
                     </div>
                 </div>
+            </div>
+        </section>
+
+        <!-- The popup -->
+        <section class="popup-showcase" aria-labelledby="popup-title">
+            <div class="container popup-showcase-inner">
+                <div class="popup-showcase-text">
+                    <h2 id="popup-title">One question per program</h2>
+                    <p>When a program without a rule wants to go online, Bastion shows who it is, its path and where it
+                        wants to connect. Allow or deny it once, for this session, or always, and optionally for all
+                        ports of that program.</p>
+                </div>
+                <picture class="popup-shot">
+                    <source srcset="screenshots/popup.webp" type="image/webp">
+                    <img src="screenshots/popup.png" width="800" height="832" decoding="async" loading="lazy"
+                        alt="Bastion connection request popup: curl at /usr/bin/curl wants to connect to registry.npmjs.org on port 443, with Allow, Deny and duration options">
+                </picture>
             </div>
         </section>
 
@@ -451,32 +472,55 @@ sudo apt install ./bastion-firewall_*_amd64.deb</code></pre>
                 <h2 class="section-title">Screenshots</h2>
                 <div class="screenshots-grid">
                     <figure class="screenshot-card">
-                        <img src="screenshots/status.png" width="1107" height="784" loading="lazy" decoding="async"
-                            alt="Control panel status page with outbound and inbound protection and connection statistics">
+                        <picture>
+                            <source srcset="screenshots/status.webp" type="image/webp">
+                            <img src="screenshots/status.png" width="1600" height="705" loading="lazy" decoding="async"
+                                alt="Status page: outbound and inbound protection both active, with live connection statistics">
+                        </picture>
                         <figcaption>
                             <h3>Status</h3>
                             <p>Outbound and inbound protection at a glance, with live statistics.</p>
                         </figcaption>
                     </figure>
                     <figure class="screenshot-card">
-                        <img src="screenshots/rules.png" width="1107" height="784" loading="lazy" decoding="async"
-                            alt="Rules table listing applications with allow and deny decisions per port">
+                        <picture>
+                            <source srcset="screenshots/rules.webp" type="image/webp">
+                            <img src="screenshots/rules.png" width="1600" height="1031" loading="lazy" decoding="async"
+                                alt="Rules table listing applications by path with allow and deny decisions per port, including an all-ports rule">
+                        </picture>
                         <figcaption>
                             <h3>Rules</h3>
-                            <p>Per-application allow and deny rules, searchable.</p>
+                            <p>Per-program allow and deny rules, searchable and filterable.</p>
                         </figcaption>
                     </figure>
                     <figure class="screenshot-card">
-                        <img src="screenshots/logs.png" width="1107" height="784" loading="lazy" decoding="async"
-                            alt="Connection log with time, application, destination, action and reason columns">
+                        <picture>
+                            <source srcset="screenshots/logs.webp" type="image/webp">
+                            <img src="screenshots/logs.png" width="1600" height="1031" loading="lazy" decoding="async"
+                                alt="Connection log with time, event type, action, application, destination and protocol columns">
+                        </picture>
                         <figcaption>
                             <h3>Logs</h3>
                             <p>Recent connections with filters; turn a blocked entry into a rule.</p>
                         </figcaption>
                     </figure>
                     <figure class="screenshot-card">
-                        <img src="screenshots/settings.png" width="1107" height="784" loading="lazy" decoding="async"
-                            alt="Settings page with learning mode, startup and inbound firewall options">
+                        <picture>
+                            <source srcset="screenshots/usb.webp" type="image/webp">
+                            <img src="screenshots/usb.png" width="1600" height="1031" loading="lazy" decoding="async"
+                                alt="USB devices page with saved allow and block decisions per device, model or vendor">
+                        </picture>
+                        <figcaption>
+                            <h3>USB devices</h3>
+                            <p>Approve new USB devices per device, model or vendor.</p>
+                        </figcaption>
+                    </figure>
+                    <figure class="screenshot-card">
+                        <picture>
+                            <source srcset="screenshots/settings.webp" type="image/webp">
+                            <img src="screenshots/settings.png" width="1600" height="1031" loading="lazy" decoding="async"
+                                alt="Settings page with learning mode, startup behaviour and inbound firewall options">
+                        </picture>
                         <figcaption>
                             <h3>Settings</h3>
                             <p>Learning or enforcement mode, startup and inbound protection.</p>
