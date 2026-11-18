@@ -1,3 +1,10 @@
+## [2.0.44] - 2026-11-18
+
+Fixes the empty totals on the control panel's Status page.
+
+### Fixed
+- **Status page showed no totals while the tray was running**: the daemon only sends live numbers to the tray, so the control panel's "Total Connections", "Blocked" and "Active Rules" cards stayed empty. The control panel now asks the daemon for the numbers every 2 seconds (new read-only `get_stats` command), and "Active Rules" is read straight from `rules.json`, so it shows even when the daemon is stopped.
+
 ## [2.0.43] - 2026-11-18
 
 Fixes the rule count in the control panel.

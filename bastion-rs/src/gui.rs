@@ -522,8 +522,8 @@ pub fn run_socket_server(
                 // A second concurrent GUI never gets the prompt channel: the
                 // connected session owns it until it disconnects (prevents
                 // hijack, #33). It may only run the rule-management commands
-                // (delete_rule, USB list/delete), so the control panel can manage
-                // rules meanwhile.
+                // (delete_rule, USB list/delete) and read the stats, so the
+                // control panel can manage rules and show totals meanwhile.
                 {
                     let mut state = gui_state.lock();
                     if state.is_connected() {
@@ -531,7 +531,10 @@ pub fn run_socket_server(
                         let usb_rules = usb_rules.clone();
                         let config = config.clone();
                         let rules = rule_manager.clone();
-                        thread::spawn(move || handle_admin_connection(s, config, rules, usb_rules));
+                        let stats = stats.clone();
+                        thread::spawn(move || {
+                            handle_admin_connection(s, stats, config, rules, usb_rules)
+                        });
                         continue;
                     }
                     match s.try_clone() {
@@ -568,15 +571,33 @@ pub fn run_socket_server(
     }
 }
 
-/// Build the reply for `delete_rule` / `list_usb_rules` / `delete_usb_rule`;
-/// `None` for any other command. The caller decides how to write it (see `send_line`).
+/// The `stats_update` line sent to GUIs (pushed to the tray, or as the reply to `get_stats`).
+fn stats_update_json(stats: &Mutex<Stats>, config: &ConfigManager) -> Option<String> {
+    let s = stats.lock().clone();
+    let update = StatsUpdate {
+        msg_type: "stats_update".to_string(),
+        stats: StatsData {
+            total_connections: s.total_connections,
+            allowed_connections: s.allowed_connections,
+            blocked_connections: s.blocked_connections,
+            learning_mode: config.is_learning_mode(),
+        },
+    };
+    serde_json::to_string(&update).ok()
+}
+
+/// Build the reply for `delete_rule` / `list_usb_rules` / `delete_usb_rule` /
+/// `get_stats`; `None` for any other command. The caller decides how to write it
+/// (see `send_line`).
 fn admin_reply(
     cmd: &GuiCommand,
+    stats: &Mutex<Stats>,
     config: &ConfigManager,
     rules: &RuleManager,
     usb_rules: &Mutex<UsbRuleManager>,
 ) -> Option<String> {
     let reply = match cmd {
+        GuiCommand::GetStats => return stats_update_json(stats, config),
         GuiCommand::DeleteRule(req) => {
             info!("[ASYNC:DELETE] Deleting rule from GUI: {}", req.key);
             serde_json::to_string(&RuleDeletedResponse {
@@ -616,6 +637,7 @@ fn admin_reply(
 /// It cannot answer prompts or touch the connected GUI's state.
 fn handle_admin_connection(
     mut stream: UnixStream,
+    stats: Arc<Mutex<Stats>>,
     config: Arc<ConfigManager>,
     rules: Arc<RuleManager>,
     usb_rules: Arc<Mutex<UsbRuleManager>>,
@@ -625,14 +647,20 @@ fn handle_admin_connection(
     let Ok(clone) = stream.try_clone() else { return };
     let mut reader = BufReader::new(clone);
     let mut line = String::new();
-    // A handful of commands per connection, then hang up.
-    for _ in 0..16 {
+    // A handful of rule commands per connection, then hang up. Stats polls are
+    // read-only and don't count, so the control panel can keep one connection
+    // open (it hangs up anyway after 5 s without a command).
+    let mut commands = 0;
+    while commands < 16 {
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) | Err(_) => break,
             Ok(_) => {
                 if let Ok(cmd) = serde_json::from_str::<GuiCommand>(&line) {
-                    match admin_reply(&cmd, &config, &rules, &usb_rules) {
+                    if !matches!(cmd, GuiCommand::GetStats) {
+                        commands += 1;
+                    }
+                    match admin_reply(&cmd, &stats, &config, &rules, &usb_rules) {
                         // A secondary connection owns its own stream, so it writes directly.
                         Some(json) => {
                             if let Err(e) = stream.write_all((json + "\n").as_bytes()) {
@@ -767,8 +795,11 @@ pub fn handle_gui_connection(
                         }
                         GuiCommand::DeleteRule(_)
                         | GuiCommand::ListUsbRules
-                        | GuiCommand::DeleteUsbRule(_) => {
-                            if let Some(json) = admin_reply(&cmd, &config, &rules, &usb_rules) {
+                        | GuiCommand::DeleteUsbRule(_)
+                        | GuiCommand::GetStats => {
+                            if let Some(json) =
+                                admin_reply(&cmd, &stats, &config, &rules, &usb_rules)
+                            {
                                 if !gui_state.lock().send_line(&json) {
                                     debug!("Failed to send admin reply");
                                 }
@@ -808,19 +839,7 @@ pub fn handle_gui_connection(
         }
 
         if last_stats_send.elapsed() >= Duration::from_secs(2) {
-            let s = stats.lock().clone();
-            let learning_mode = config.is_learning_mode();
-            let update = StatsUpdate {
-                msg_type: "stats_update".to_string(),
-                stats: StatsData {
-                    total_connections: s.total_connections,
-                    allowed_connections: s.allowed_connections,
-                    blocked_connections: s.blocked_connections,
-                    learning_mode,
-                },
-            };
-            // Stats unlocked implicitly when moving to json serialization or scope ends
-            if let Ok(json) = serde_json::to_string(&update) {
+            if let Some(json) = stats_update_json(&stats, &config) {
                 if !gui_state.lock().send_line(&json) {
                     debug!("GUI handler write error");
                     break;
@@ -972,9 +991,15 @@ mod tests {
 
         let config = Arc::new(ConfigManager::with_path("/nonexistent/config.json"));
         let (server, client) = UnixStream::pair().unwrap();
+        let stats = Arc::new(Mutex::new(Stats {
+            total_connections: 42,
+            allowed_connections: 40,
+            blocked_connections: 2,
+            learning_mode: false,
+        }));
         let handler = {
             let (config, rules, usb_rules) = (config.clone(), rules.clone(), usb_rules.clone());
-            thread::spawn(move || handle_admin_connection(server, config, rules, usb_rules))
+            thread::spawn(move || handle_admin_connection(server, stats, config, rules, usb_rules))
         };
 
         let mut client_w = client.try_clone().unwrap();
@@ -1010,6 +1035,18 @@ mod tests {
         assert_eq!(rules.get_decision("@name:telemetry-queue", 443), None);
         let saved = std::fs::read_to_string(dir.path().join("rules.json")).unwrap();
         assert!(!saved.contains("telemetry-queue"));
+
+        // The control panel reads the totals here while the tray owns the
+        // primary connection; stats polls don't use up the command budget.
+        for _ in 0..20 {
+            client_w.write_all(b"{\"type\":\"get_stats\"}\n").unwrap();
+            line.clear();
+            client_r.read_line(&mut line).unwrap();
+            let update: StatsUpdate = serde_json::from_str(&line).unwrap();
+            assert_eq!(update.msg_type, "stats_update");
+            assert_eq!(update.stats.total_connections, 42);
+            assert_eq!(update.stats.blocked_connections, 2);
+        }
 
         drop(client_w);
         drop(client_r);
