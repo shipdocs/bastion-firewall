@@ -18,6 +18,8 @@ echo "============================================================"
 # 1. Update VERSION file (single source of truth)
 echo "[1/6] Updating VERSION file..."
 echo "$NEW_VERSION" > VERSION
+# Static version info on the website (what search engines and agents read)
+./docs/update_version.sh "$NEW_VERSION"
 
 # 2. Build Packages (build_deb.sh syncs version to all files automatically)
 echo "[2/6] Building packages locally..."

@@ -4,72 +4,157 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bastion Firewall – Outbound Application Firewall for Linux</title>
     <meta name="description"
-        content="🏰 Bastion Firewall - A high-performance, production-ready application firewall for Linux (Ubuntu/Zorin OS). Features kernel-level eBPF process tracking for real-time outbound connection control.">
-    <meta name="keywords"
-        content="linux firewall, outbound firewall, ebpf, rust, security, application firewall, ubuntu, zorin os, network security">
-    <meta name="author" content="Bastion Firewall Team">
-    <meta name="robots" content="index, follow">
-
-    <!-- Open Graph / Facebook -->
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://shipdocs.github.io/bastion-firewall/">
-    <meta property="og:title" content="Bastion Firewall - Your Last Line of Defense">
-    <meta property="og:description"
-        content="Production-ready application firewall for Linux with kernel-level eBPF monitoring. Protect your system from unsolicited outbound connections.">
-    <meta property="og:image" content="https://shipdocs.github.io/bastion-firewall/screenshots/status.png">
-
-    <!-- Twitter -->
-    <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://shipdocs.github.io/bastion-firewall/">
-    <meta property="twitter:title" content="Bastion Firewall - Your Last Line of Defense">
-    <meta property="twitter:description"
-        content="Production-ready application firewall for Linux with kernel-level eBPF monitoring. Protect your system from unsolicited outbound connections.">
-    <meta property="twitter:image" content="https://shipdocs.github.io/bastion-firewall/screenshots/status.png">
-
-    <title>🏰 Bastion Firewall - Your Last Line of Defense</title>
+        content="Free, open-source application firewall for Linux. Bastion asks per program before it may connect to the internet. Rust + eBPF, for Ubuntu, Debian and Fedora.">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
     <link rel="canonical" href="https://shipdocs.github.io/bastion-firewall/">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="text/plain" href="llms.txt" title="Summary for AI agents (llms.txt)">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Bastion Firewall">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:url" content="https://shipdocs.github.io/bastion-firewall/">
+    <meta property="og:title" content="Bastion Firewall – Outbound Application Firewall for Linux">
+    <meta property="og:description"
+        content="Decide per program which apps may connect to the internet. Free and open source, with a Rust daemon and eBPF process tracking.">
+    <meta property="og:image" content="https://shipdocs.github.io/bastion-firewall/screenshots/status.png">
+    <meta property="og:image:width" content="1107">
+    <meta property="og:image:height" content="784">
+    <meta property="og:image:alt" content="Bastion Firewall control panel showing outbound and inbound protection status">
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Bastion Firewall – Outbound Application Firewall for Linux">
+    <meta name="twitter:description"
+        content="Decide per program which apps may connect to the internet. Free and open source, with a Rust daemon and eBPF process tracking.">
+    <meta name="twitter:image" content="https://shipdocs.github.io/bastion-firewall/screenshots/status.png">
+    <meta name="twitter:image:alt" content="Bastion Firewall control panel showing outbound and inbound protection status">
+
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
         rel="stylesheet">
 
-    <!-- Structured Data for AI/Search Engines -->
+    <!-- Structured data. softwareVersion and dateModified are updated by release_tool.sh. -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "Bastion Firewall",
-      "operatingSystem": "Linux",
-      "applicationCategory": "SecurityApplication",
-      "description": "Production-ready application firewall for Linux using a high-performance Rust daemon and kernel-level eBPF.",
-      "softwareVersion": "2.0.33",
-      "license": "https://opensource.org/licenses/GPL-3.0",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
-      }
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://shipdocs.github.io/bastion-firewall/#website",
+          "url": "https://shipdocs.github.io/bastion-firewall/",
+          "name": "Bastion Firewall",
+          "inLanguage": "en"
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://shipdocs.github.io/bastion-firewall/#software",
+          "name": "Bastion Firewall",
+          "url": "https://shipdocs.github.io/bastion-firewall/",
+          "description": "Open-source outbound application firewall for Linux. It intercepts new outbound connections, identifies the program that makes them, and asks the user whether to allow or block it. Rust daemon with eBPF process tracking and a Qt tray app.",
+          "applicationCategory": "SecurityApplication",
+          "applicationSubCategory": "Application firewall",
+          "operatingSystem": "Linux (Ubuntu, Debian, Linux Mint, Pop!_OS, Zorin OS, Fedora)",
+          "processorRequirements": "x86_64 (amd64)",
+          "softwareRequirements": "Linux kernel 6.0 or newer with BTF (eBPF) support, iptables, X11 or Wayland desktop",
+          "softwareVersion": "2.0.42",
+          "dateModified": "2026-11-18",
+          "releaseNotes": "https://github.com/shipdocs/bastion-firewall/blob/master/CHANGELOG.md",
+          "downloadUrl": "https://github.com/shipdocs/bastion-firewall/releases/latest",
+          "installUrl": "https://shipdocs.github.io/bastion-firewall/#installation",
+          "screenshot": [
+            "https://shipdocs.github.io/bastion-firewall/screenshots/status.png",
+            "https://shipdocs.github.io/bastion-firewall/screenshots/rules.png",
+            "https://shipdocs.github.io/bastion-firewall/screenshots/logs.png",
+            "https://shipdocs.github.io/bastion-firewall/screenshots/settings.png"
+          ],
+          "featureList": [
+            "Per-application prompts for outbound connections",
+            "Allow or block once, for the session, or always",
+            "Learning mode and enforcement mode",
+            "eBPF process identification with /proc fallback",
+            "IPv4 and IPv6",
+            "Inbound protection via UFW or standalone rules",
+            "Optional USB device control",
+            "Control panel with rules, logs and settings",
+            "Update from the tray menu"
+          ],
+          "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+          "isAccessibleForFree": true,
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+          "author": { "@type": "Organization", "name": "shipdocs", "url": "https://github.com/shipdocs" },
+          "sameAs": ["https://github.com/shipdocs/bastion-firewall"]
+        },
+        {
+          "@type": "SoftwareSourceCode",
+          "name": "Bastion Firewall source code",
+          "codeRepository": "https://github.com/shipdocs/bastion-firewall",
+          "programmingLanguage": ["Rust", "Python"],
+          "runtimePlatform": "Linux",
+          "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+          "targetProduct": { "@id": "https://shipdocs.github.io/bastion-firewall/#software" }
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What does Bastion Firewall do?",
+              "acceptedAnswer": { "@type": "Answer", "text": "Linux allows every program to connect to the internet by default. Bastion intercepts each new outbound connection, finds out which program makes it, and asks you whether to allow or block it. Your answer can apply once, for the session, or always." }
+            },
+            {
+              "@type": "Question",
+              "name": "Is Bastion a Little Snitch or OpenSnitch alternative for Linux?",
+              "acceptedAnswer": { "@type": "Answer", "text": "It works in a similar way: an outbound application firewall that asks per program before a connection is allowed. Bastion is free and open source (GPL-3.0) and uses a Rust daemon with eBPF to identify programs." }
+            },
+            {
+              "@type": "Question",
+              "name": "Which Linux distributions are supported?",
+              "acceptedAnswer": { "@type": "Answer", "text": "A .deb package is provided for Ubuntu 22.04+, Debian 12+ and derivatives such as Linux Mint, Pop!_OS and Zorin OS, and an .rpm package for Fedora-based systems. It needs an x86_64 machine with Linux kernel 6.0+ and BTF support." }
+            },
+            {
+              "@type": "Question",
+              "name": "What is the difference between learning mode and enforcement mode?",
+              "acceptedAnswer": { "@type": "Answer", "text": "In learning mode every connection is let through and Bastion only asks you what to remember, so nothing breaks while you build your rules. In enforcement mode a connection waits for your answer and is blocked if you deny it or do not answer within 60 seconds." }
+            },
+            {
+              "@type": "Question",
+              "name": "Does Bastion send data to third parties?",
+              "acceptedAnswer": { "@type": "Answer", "text": "Process identification and DNS hostname matching happen locally. For a destination IP without a hostname, the popup looks up the organisation of that IP address at ip-api.com. Update checks read the version number from GitHub." }
+            },
+            {
+              "@type": "Question",
+              "name": "Is Bastion Firewall free?",
+              "acceptedAnswer": { "@type": "Answer", "text": "Yes. Bastion Firewall is free and open-source software under the GNU General Public License v3.0." }
+            }
+          ]
+        }
+      ]
     }
     </script>
 </head>
 
 <body>
     <!-- Navigation -->
-    <nav class="navbar">
+    <nav class="navbar" aria-label="Main">
         <div class="container">
-            <div class="nav-brand">
+            <a class="nav-brand" href="./">
                 <span class="shield-icon" aria-hidden="true">🏰</span>
                 <span class="brand-name">Bastion Firewall</span>
-            </div>
+            </a>
             <div class="nav-links">
                 <a href="#features">Features</a>
                 <a href="#screenshots">Screenshots</a>
                 <a href="#installation">Installation</a>
-                <a href="#docs">Documentation</a>
-                <a href="https://github.com/shipdocs/bastion-firewall" target="_blank" class="github-link">
-                    <svg height="24" width="24" viewBox="0 0 16 16" fill="currentColor">
+                <a href="#faq">FAQ</a>
+                <a href="https://github.com/shipdocs/bastion-firewall" class="github-link" rel="noopener">
+                    <svg height="24" width="24" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                         <path
                             d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z">
                         </path>
@@ -80,533 +165,503 @@
         </div>
     </nav>
 
-    <!-- Hero Section -->
-    <section class="hero">
-        <div class="container">
-            <div class="hero-content">
-                <h1 class="hero-title">
-                    <span aria-hidden="true">🏰</span> <span class="gradient-text">Your Last Line of Defense</span>
-                </h1>
-                <p class="hero-subtitle">
-                    Production-ready application firewall with a <strong>high-performance Rust daemon and kernel-level
-                        eBPF</strong> for <1µs process identification. Like a medieval bastion protecting a fortress,
-                        Bastion stands guard over your network connections, giving you complete control over outbound
-                        traffic. </p>
-
-                        <div
-                            style="background: linear-gradient(135deg, #1a3a5f 0%, #2d5a8a 100%); padding: 15px 25px; border-radius: 8px; margin: 20px auto; max-width: 700px; border-left: 4px solid #4a9eff;">
-                            <div style="font-size: 14px; font-weight: 600; margin-bottom: 5px;">🎉 v2.0.33 Released!
-                            </div>
-                            <div style="font-size: 13px; opacity: 0.95;">NEW: One-Click Auto-Update, full IPv6 support, duration dropdown for decisions,
-                                enhanced logs view with filtering, and create allow rules from blocked entries. Plus DNS snooping,
-                                LAN broadcast auto-allow, and eBPF process tracking.</div>
-                        </div>
-
-                        <!-- Dynamic Release Cards -->
-                        <div class="release-cards"
-                            style="display: flex; gap: 20px; justify-content: center; margin: 30px 0; flex-wrap: wrap;">
-                            <!-- Stable Release -->
-                            <div class="release-card" id="stable-release"
-                                style="background: linear-gradient(135deg, #1a5f2a 0%, #2d8a3e 100%); padding: 20px 30px; border-radius: 12px; min-width: 280px;">
-                                <div
-                                    style="font-size: 12px; text-transform: uppercase; opacity: 0.8; margin-bottom: 5px;">
-                                    ✅ Stable Release</div>
-                                <div style="font-size: 24px; font-weight: bold;" id="stable-version">v2.0.33</div>
-                                <div style="font-size: 13px; opacity: 0.9; margin: 8px 0;" id="stable-name">The
-                                    Auto-Update Release</div>
-                                <a href="https://github.com/shipdocs/bastion-firewall/releases/latest" class="btn"
-                                    style="background: white; color: #1a5f2a; padding: 8px 16px; font-size: 13px; margin-top: 10px; display: inline-block; text-decoration: none; border-radius: 6px;">Download
-                                    Stable</a>
-                            </div>
-                            <!-- Pre-release -->
-                            <div class="release-card" id="prerelease-card"
-                                style="background: linear-gradient(135deg, #5a4a1a 0%, #8a7a2d 100%); padding: 20px 30px; border-radius: 12px; min-width: 280px;">
-                                <div
-                                    style="font-size: 12px; text-transform: uppercase; opacity: 0.8; margin-bottom: 5px;">
-                                    🧪 Pre-release</div>
-                                <div style="font-size: 24px; font-weight: bold;" id="prerelease-version">v1.4.1</div>
-                                <div style="font-size: 13px; opacity: 0.9; margin: 8px 0;" id="prerelease-name">GUI &
-                                    Tray Improvements</div>
-                                <a href="https://github.com/shipdocs/bastion-firewall/releases" id="prerelease-link"
-                                    class="btn"
-                                    style="background: white; color: #5a4a1a; padding: 8px 16px; font-size: 13px; margin-top: 10px; display: inline-block; text-decoration: none; border-radius: 6px;">View
-                                    Pre-releases</a>
-                            </div>
-                        </div>
-
-                        <div class="hero-buttons">
-                            <a href="#installation" class="btn btn-primary">Get Started</a>
-                            <a href="https://github.com/shipdocs/bastion-firewall" class="btn btn-secondary"
-                                target="_blank">View on GitHub</a>
-                        </div>
-                        <div class="hero-badges"
-                            style="margin-top: 20px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-                            <img src="https://img.shields.io/github/v/release/shipdocs/bastion-firewall?label=Stable&color=green"
-                                alt="Stable Release">
-                            <img src="https://img.shields.io/github/v/release/shipdocs/bastion-firewall?include_prereleases&label=Latest&color=yellow"
-                                alt="Latest Release">
-                            <img src="https://img.shields.io/badge/Zorin%20OS%2018-Optimized-blue" alt="Zorin OS 18">
-                            <img src="https://img.shields.io/badge/Security-Hardened-green" alt="Security Hardened">
-                        </div>
-                        <div class="hero-stats">
-                            <div class="stat">
-                                <div class="stat-value">🔒</div>
-                                <div class="stat-label">Secure by Default</div>
-                            </div>
-                            <div class="stat">
-                                <div class="stat-value">⚡</div>
-                                <div class="stat-label">Real-time Protection</div>
-                            </div>
-                            <div class="stat">
-                                <div class="stat-value">🎯</div>
-                                <div class="stat-label">Per-App Control</div>
-                            </div>
-                        </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Problem/Solution Section -->
-    <section class="problem-solution">
-        <div class="container">
-            <div class="grid-2">
-                <div class="problem-card">
-                    <h3>🚨 The Problem</h3>
-                    <p>Linux by default <strong>allows ALL outbound connections</strong>. Any application can connect to
-                        any server without your knowledge or permission. This is a security risk.</p>
-                </div>
-                <div class="solution-card">
-                    <h3>✅ The Solution</h3>
-                    <p>Bastion intercepts <strong>every outbound connection</strong> and shows you a GUI popup. You
-                        decide which applications can access the network - Allow or Deny, Once or Always.</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Features Section -->
-    <section id="features" class="features">
-        <div class="container">
-            <h2 class="section-title">Production-Ready Features</h2>
-            <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon">🔌</div>
-                    <h3>Real Packet Interception</h3>
-                    <p>Integrates with netfilter/iptables NFQUEUE to intercept actual packets in real-time</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🔍</div>
-                    <h3>eBPF Process Tracking</h3>
-                    <p>Kernel-level hooks capture process info at connection creation with ~<1µs latency - solves timing
-                            issues with short-lived connections</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">⚡</div>
-                    <h3>Rust Daemon</h3>
-                    <p>High-performance memory-safe daemon with eBPF + /proc fallback for maximum compatibility</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🎨</div>
-                    <h3>Enhanced Context</h3>
-                    <p>Dialogs show Organization/ISP info for unknown IPs, reverse DNS hostnames, and risk levels.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">⚙️</div>
-                    <h3>Control Panel</h3>
-                    <p>Full-featured GUI with beautiful progress dialogs, instant rule reload, and pkexec integration
-                        for secure permissions</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🛡️</div>
-                    <h3>Decoupled Architecture</h3>
-                    <p>Internal rule engine prevents conflicts with system firewall; UFW handles inbound, Bastion
-                        handles
-                        outbound.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">⏱️</div>
-                    <h3>Timeout Protection</h3>
-                    <p>Auto-deny after 60 seconds (configurable) to prevent hanging connections</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🔐</div>
-                    <h3>Learning Mode</h3>
-                    <p>Safe testing mode that shows popups but always allows connections. Rules are automatically saved!
+    <main>
+        <!-- Hero -->
+        <section class="hero">
+            <div class="container">
+                <div class="hero-content">
+                    <h1 class="hero-title">
+                        <span class="gradient-text">Outbound application firewall for Linux</span>
+                    </h1>
+                    <p class="hero-subtitle">
+                        Bastion asks you, per program, before it may connect to the internet. Allow or block once, for
+                        this session, or always. A <strong>Rust daemon with kernel-level eBPF</strong> identifies the
+                        program behind each connection. Free and open source.
                     </p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">💾</div>
-                    <h3>Auto-Save Rules</h3>
-                    <p>All decisions are saved immediately to disk, even in learning mode. No data loss on restart!</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🌐</div>
-                    <h3>Wildcard Port Rules</h3>
-                    <p>Allow or deny an application on ALL ports with a single rule - perfect for Zoom, Slack, Teams</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🛡️</div>
-                    <h3>Inbound Protection</h3>
-                    <p>Automatic inbound firewall via UFW integration or standalone INPUT rules - blocks unsolicited
-                        connections</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">📡</div>
-                    <h3>mDNS Auto-Allow</h3>
-                    <p>No popups for local network discovery - .local hostnames just work out of the box</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🎯</div>
-                    <h3>Interactive Installation</h3>
-                    <p>Guided setup with whiptail dialogs - choose mode, autostart, and start now during installation
-                    </p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">⚡</div>
-                    <h3>Instant Rule Reload</h3>
-                    <p>Delete rules and they take effect immediately via SIGHUP - no restart needed!</p>
-                </div>
-            </div>
-        </div>
-    </section>
 
-    <!-- Architecture Section -->
-    <section class="architecture">
-        <div class="container">
-            <h2 class="section-title">Two-Process Architecture</h2>
-            <div class="architecture-diagram">
-                <div class="arch-box daemon">
-                    <h4>🔧 Bastion Daemon (Root)</h4>
-                    <ul>
-                        <li>Intercepts packets via NetfilterQueue</li>
-                        <li>Identifies applications via eBPF/proc</li>
-                        <li>Checks whitelist & cached rules</li>
-                        <li>Internal decision engine (Decoupled from UFW)</li>
-                    </ul>
-                </div>
-                <div class="arch-arrow">⬍</div>
-                <div class="arch-box gui">
-                    <h4>🖥️ GUI Client (User)</h4>
-                    <ul>
-                        <li>Shows popup dialogs with DISPLAY access</li>
-                        <li>System tray icon with menu</li>
-                        <li>Sends decisions back to daemon</li>
-                        <li>Control panel for management</li>
-                    </ul>
-                </div>
-            </div>
-            <div class="arch-flow">
-                <div class="flow-step">
-                    <span class="step-number">1</span>
-                    <p>Application tries to connect</p>
-                </div>
-                <div class="flow-arrow">→</div>
-                <div class="flow-step">
-                    <span class="step-number">2</span>
-                    <p>Packet queued to NFQUEUE</p>
-                </div>
-                <div class="flow-arrow">→</div>
-                <div class="flow-step">
-                    <span class="step-number">3</span>
-                    <p>Daemon identifies app</p>
-                </div>
-                <div class="flow-arrow">→</div>
-                <div class="flow-step">
-                    <span class="step-number">4</span>
-                    <p>GUI shows popup</p>
-                </div>
-                <div class="flow-arrow">→</div>
-                <div class="flow-step">
-                    <span class="step-number">5</span>
-                    <p>User decides</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Installation Section -->
-    <section id="installation" class="installation">
-        <div class="container">
-            <h2 class="section-title">Quick Installation</h2>
-            <div class="install-methods">
-                <div class="install-card recommended">
-                    <div class="install-badge">Recommended</div>
-                    <h3>📦 Install from .deb Package</h3>
-                    <div class="code-block">
-                        <pre><code># Download the latest .deb from GitHub Releases page
-# Then install with:
-sudo dpkg -i bastion-firewall_*.deb
-
-# Fix dependencies if needed
-sudo apt-get install -f</code></pre>
+                    <div class="release-banner">
+                        <div class="release-banner-title">
+                            Latest release: <a id="latest-release-link"
+                                href="https://github.com/shipdocs/bastion-firewall/releases/tag/v2.0.42"
+                                rel="noopener"><span id="stable-version">v2.0.42</span></a>
+                        </div>
+                        <div class="release-banner-text" id="latest-release-date">
+                            Released 2026-11-18 ·
+                            <a href="https://github.com/shipdocs/bastion-firewall/blob/master/CHANGELOG.md"
+                                rel="noopener">What's new</a>
+                        </div>
                     </div>
-                    <p
-                        style="margin-top: 15px; text-align: center; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-                        <a href="https://github.com/shipdocs/bastion-firewall/releases/latest" class="btn btn-primary"
-                            target="_blank">Download Stable</a>
-                        <a href="https://github.com/shipdocs/bastion-firewall/releases" class="btn btn-secondary"
-                            target="_blank">All Releases</a>
-                    </p>
+
+                    <div class="hero-buttons">
+                        <a href="#installation" class="btn btn-primary">Install</a>
+                        <a href="https://github.com/shipdocs/bastion-firewall/releases/latest" class="btn btn-secondary"
+                            rel="noopener">Download .deb / .rpm</a>
+                    </div>
+                    <ul class="hero-stats">
+                        <li class="stat">
+                            <div class="stat-value" aria-hidden="true">🎯</div>
+                            <div class="stat-label">Per-app control</div>
+                        </li>
+                        <li class="stat">
+                            <div class="stat-value" aria-hidden="true">⚡</div>
+                            <div class="stat-label">Rust + eBPF</div>
+                        </li>
+                        <li class="stat">
+                            <div class="stat-value" aria-hidden="true">🔓</div>
+                            <div class="stat-label">GPL-3.0, free</div>
+                        </li>
+                    </ul>
                 </div>
-                <div class="install-card">
-                    <h3>🔧 Build from Source</h3>
-                    <div class="code-block">
-                        <pre><code># Clone the repository
-git clone https://github.com/shipdocs/bastion-firewall.git
+            </div>
+        </section>
+
+        <!-- Problem / solution -->
+        <section class="problem-solution" aria-label="Why Bastion">
+            <div class="container">
+                <div class="grid-2">
+                    <div class="problem-card">
+                        <h2>The problem</h2>
+                        <p>Linux <strong>allows every outbound connection</strong> by default. Any program can talk to
+                            any server without you knowing. Tools like UFW mostly protect incoming traffic.</p>
+                    </div>
+                    <div class="solution-card">
+                        <h2>The solution</h2>
+                        <p>Bastion intercepts each <strong>new outbound connection</strong>, shows which program makes
+                            it and where it goes, and lets you allow or block it. Your rules are kept per program.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features -->
+        <section id="features" class="features">
+            <div class="container">
+                <h2 class="section-title">Features</h2>
+                <div class="features-grid">
+                    <article class="feature-card">
+                        <div class="feature-icon" aria-hidden="true">🎯</div>
+                        <h3>Per-application rules</h3>
+                        <p>Rules are bound to the program's executable path and port, so a decision for one app never
+                            applies to another.</p>
+                    </article>
+                    <article class="feature-card">
+                        <div class="feature-icon" aria-hidden="true">⏳</div>
+                        <h3>Once, session or always</h3>
+                        <p>Choose how long a decision lasts: this connection only, until the firewall restarts, or
+                            permanently. Optionally for all ports of an app.</p>
+                    </article>
+                    <article class="feature-card">
+                        <div class="feature-icon" aria-hidden="true">🔍</div>
+                        <h3>eBPF process tracking</h3>
+                        <p>Kernel hooks record which process opens a connection; the daemon confirms the exact socket
+                            owner via <code>/proc</code>, so even short-lived connections are attributed correctly.</p>
+                    </article>
+                    <article class="feature-card">
+                        <div class="feature-icon" aria-hidden="true">⚡</div>
+                        <h3>Rust daemon</h3>
+                        <p>Memory-safe packet handling via netfilter NFQUEUE. Only new connections are inspected;
+                            established traffic is not slowed down.</p>
+                    </article>
+                    <article class="feature-card">
+                        <div class="feature-icon" aria-hidden="true">🧭</div>
+                        <h3>Learning mode</h3>
+                        <p>Everything keeps working while Bastion asks what to remember. Switch to enforcement mode when
+                            your rules are in place.</p>
+                    </article>
+                    <article class="feature-card">
+                        <div class="feature-icon" aria-hidden="true">⏱️</div>
+                        <h3>Safe timeouts</h3>
+                        <p>In enforcement mode, a connection you don't answer within 60 seconds is blocked, so nothing
+                            gets through by accident.</p>
+                    </article>
+                    <article class="feature-card">
+                        <div class="feature-icon" aria-hidden="true">🌐</div>
+                        <h3>IPv4, IPv6 and hostnames</h3>
+                        <p>Full IPv6 support. Popups show the destination hostname from local DNS traffic instead of
+                            just an IP address.</p>
+                    </article>
+                    <article class="feature-card">
+                        <div class="feature-icon" aria-hidden="true">🛡️</div>
+                        <h3>Inbound protection</h3>
+                        <p>Blocks unsolicited incoming connections via UFW integration or standalone rules.</p>
+                    </article>
+                    <article class="feature-card">
+                        <div class="feature-icon" aria-hidden="true">🔌</div>
+                        <h3>USB device control</h3>
+                        <p>Optional: new USB devices stay blocked until you approve them, per device, model or vendor.
+                            <a href="https://github.com/shipdocs/bastion-firewall/blob/master/docs/USB_CONTROL.md"
+                                rel="noopener">Read more</a>.</p>
+                    </article>
+                    <article class="feature-card">
+                        <div class="feature-icon" aria-hidden="true">⚙️</div>
+                        <h3>Control panel</h3>
+                        <p>Search, toggle, import and export rules; filter logs and create an allow rule from a
+                            blocked entry; change settings.</p>
+                    </article>
+                    <article class="feature-card">
+                        <div class="feature-icon" aria-hidden="true">📡</div>
+                        <h3>No noise on your LAN</h3>
+                        <p>Local discovery (mDNS, <code>.local</code>) and LAN broadcasts are allowed automatically, so
+                            printers and casting just work.</p>
+                    </article>
+                    <article class="feature-card">
+                        <div class="feature-icon" aria-hidden="true">🔄</div>
+                        <h3>Updates from the tray</h3>
+                        <p>The tray icon tells you when a new version is out and installs it in one click. You can
+                            also check by hand.</p>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <!-- Architecture -->
+        <section class="architecture" aria-labelledby="how-it-works">
+            <div class="container">
+                <h2 class="section-title" id="how-it-works">How it works</h2>
+                <div class="architecture-diagram">
+                    <div class="arch-box daemon">
+                        <h3>Bastion daemon (root)</h3>
+                        <ul>
+                            <li>Receives new outbound packets via NFQUEUE</li>
+                            <li>Identifies the program via /proc and eBPF</li>
+                            <li>Applies your rules and session decisions</li>
+                            <li>Stores rules in /etc/bastion/rules.json</li>
+                        </ul>
+                    </div>
+                    <div class="arch-arrow" aria-hidden="true">⬍</div>
+                    <div class="arch-box gui">
+                        <h3>Tray app (your user)</h3>
+                        <ul>
+                            <li>Shows the allow/block popup</li>
+                            <li>Tray menu with status and updates</li>
+                            <li>Control panel for rules, logs and settings</li>
+                            <li>Talks to the daemon over a protected local socket</li>
+                        </ul>
+                    </div>
+                </div>
+                <ol class="arch-flow">
+                    <li class="flow-step"><span class="step-number">1</span>
+                        <p>A program opens a connection</p>
+                    </li>
+                    <li class="flow-step"><span class="step-number">2</span>
+                        <p>The first packet is queued</p>
+                    </li>
+                    <li class="flow-step"><span class="step-number">3</span>
+                        <p>The daemon identifies the program</p>
+                    </li>
+                    <li class="flow-step"><span class="step-number">4</span>
+                        <p>A saved rule decides, or you get a popup</p>
+                    </li>
+                    <li class="flow-step"><span class="step-number">5</span>
+                        <p>Allowed or blocked</p>
+                    </li>
+                </ol>
+            </div>
+        </section>
+
+        <!-- Installation -->
+        <section id="installation" class="installation">
+            <div class="container">
+                <h2 class="section-title">Installation</h2>
+                <div class="install-methods">
+                    <div class="install-card recommended">
+                        <div class="install-badge">Recommended</div>
+                        <h3>Ubuntu, Debian, Mint, Pop!_OS, Zorin (.deb)</h3>
+                        <div class="code-block">
+                            <pre><code># Download the .deb from the latest release, then:
+sudo apt install ./bastion-firewall_*_amd64.deb</code></pre>
+                        </div>
+                        <h3>Fedora and compatible (.rpm)</h3>
+                        <div class="code-block">
+                            <pre><code># Download the .rpm from the latest release, then:
+sudo dnf install ./bastion-firewall-*.x86_64.rpm</code></pre>
+                        </div>
+                        <p class="install-links">
+                            <a href="https://github.com/shipdocs/bastion-firewall/releases/latest"
+                                class="btn btn-primary" rel="noopener">Latest release</a>
+                            <a href="https://github.com/shipdocs/bastion-firewall/releases" class="btn btn-secondary"
+                                rel="noopener">All releases</a>
+                        </p>
+                    </div>
+                    <div class="install-card">
+                        <h3>Build from source</h3>
+                        <div class="code-block">
+                            <pre><code>git clone https://github.com/shipdocs/bastion-firewall.git
 cd bastion-firewall
-
-# Build the package
 ./build_deb.sh
-
-# Install the generated .deb
-sudo dpkg -i bastion-firewall_*.deb
-
-# Fix dependencies if needed
-sudo apt-get install -f</code></pre>
+sudo apt install ./bastion-firewall_*_amd64.deb</code></pre>
+                        </div>
+                        <p>Building needs a Rust toolchain. See the
+                            <a href="https://github.com/shipdocs/bastion-firewall/blob/master/README.md"
+                                rel="noopener">README</a> for details.</p>
                     </div>
                 </div>
-            </div>
-            <div class="requirements">
-                <h3>System Requirements</h3>
-                <div class="req-grid">
-                    <div class="req-item">
-                        <strong>OS:</strong> Ubuntu 22.04+, Debian 12+, or compatible
-                    </div>
-                    <div class="req-item">
-                        <strong>Kernel:</strong> Linux 6.0+ with BTF support (for eBPF)
-                    </div>
-                    <div class="req-item">
-                        <strong>Architecture:</strong> amd64 (x86_64)
-                    </div>
-                    <div class="req-item">
-                        <strong>RAM:</strong> 2GB minimum (4GB recommended)
-                    </div>
-                    <div class="req-item">
-                        <strong>Display:</strong> X11 or Wayland
-                    </div>
-                    <div class="req-item">
-                        <strong>Privileges:</strong> Root/sudo access
-                    </div>
+                <div class="requirements">
+                    <h3>System requirements</h3>
+                    <ul class="req-grid">
+                        <li class="req-item"><strong>OS:</strong> Ubuntu 22.04+, Debian 12+, Fedora, or a derivative
+                        </li>
+                        <li class="req-item"><strong>Kernel:</strong> Linux 6.0+ with BTF (check
+                            <code>/sys/kernel/btf/vmlinux</code>)</li>
+                        <li class="req-item"><strong>Architecture:</strong> x86_64 (amd64)</li>
+                        <li class="req-item"><strong>Desktop:</strong> X11 or Wayland</li>
+                        <li class="req-item"><strong>Privileges:</strong> sudo to install; the daemon runs as a
+                            systemd service</li>
+                    </ul>
                 </div>
             </div>
-        </div>
-    </section>
+        </section>
 
-    <!-- Usage Section -->
-    <section class="usage">
-        <div class="container">
-            <h2 class="section-title">How to Use</h2>
-            <div class="usage-steps">
-                <div class="usage-step">
-                    <div class="step-icon">1️⃣</div>
-                    <h3>Start the Firewall</h3>
-                    <p>Search for "Bastion Firewall" in your application menu and click to launch. The tray icon will
-                        appear automatically.</p>
-                </div>
-                <div class="usage-step">
-                    <div class="step-icon">2️⃣</div>
-                    <h3>See Connection Requests</h3>
-                    <p>When an app tries to connect, a popup appears showing the application name, destination, and risk
-                        level.</p>
-                </div>
-                <div class="usage-step">
-                    <div class="step-icon">3️⃣</div>
-                    <h3>Make Your Decision</h3>
-                    <p>Choose "Allow Once", "Allow Always", or "Deny". Your decision is saved and applied instantly.</p>
-                </div>
-                <div class="usage-step">
-                    <div class="step-icon">4️⃣</div>
-                    <h3>Manage Rules</h3>
-                    <p>Open the Control Panel to view, edit, or delete saved rules. Monitor logs and adjust settings.
-                    </p>
+        <!-- Usage -->
+        <section class="usage" aria-labelledby="how-to-use">
+            <div class="container">
+                <h2 class="section-title" id="how-to-use">How to use</h2>
+                <ol class="usage-steps">
+                    <li class="usage-step">
+                        <div class="step-icon" aria-hidden="true">1️⃣</div>
+                        <h3>Install</h3>
+                        <p>After installing, the firewall starts in learning mode and the Bastion icon appears in your
+                            tray.</p>
+                    </li>
+                    <li class="usage-step">
+                        <div class="step-icon" aria-hidden="true">2️⃣</div>
+                        <h3>Answer the popups</h3>
+                        <p>A popup shows the program, its path and the destination. Choose Allow or Block and how long
+                            the decision lasts.</p>
+                    </li>
+                    <li class="usage-step">
+                        <div class="step-icon" aria-hidden="true">3️⃣</div>
+                        <h3>Review your rules</h3>
+                        <p>Open the Control Panel from the tray to view, change or delete rules and to read the logs.
+                        </p>
+                    </li>
+                    <li class="usage-step">
+                        <div class="step-icon" aria-hidden="true">4️⃣</div>
+                        <h3>Enforce</h3>
+                        <p>When your rules are in place, switch to enforcement mode in the settings. Unknown
+                            connections now wait for your answer.</p>
+                    </li>
+                </ol>
+            </div>
+        </section>
+
+        <!-- Screenshots -->
+        <section id="screenshots" class="screenshots">
+            <div class="container">
+                <h2 class="section-title">Screenshots</h2>
+                <div class="screenshots-grid">
+                    <figure class="screenshot-card">
+                        <img src="screenshots/status.png" width="1107" height="784" loading="lazy" decoding="async"
+                            alt="Control panel status page with outbound and inbound protection and connection statistics">
+                        <figcaption>
+                            <h3>Status</h3>
+                            <p>Outbound and inbound protection at a glance, with live statistics.</p>
+                        </figcaption>
+                    </figure>
+                    <figure class="screenshot-card">
+                        <img src="screenshots/rules.png" width="1107" height="784" loading="lazy" decoding="async"
+                            alt="Rules table listing applications with allow and deny decisions per port">
+                        <figcaption>
+                            <h3>Rules</h3>
+                            <p>Per-application allow and deny rules, searchable.</p>
+                        </figcaption>
+                    </figure>
+                    <figure class="screenshot-card">
+                        <img src="screenshots/logs.png" width="1107" height="784" loading="lazy" decoding="async"
+                            alt="Connection log with time, application, destination, action and reason columns">
+                        <figcaption>
+                            <h3>Logs</h3>
+                            <p>Recent connections with filters; turn a blocked entry into a rule.</p>
+                        </figcaption>
+                    </figure>
+                    <figure class="screenshot-card">
+                        <img src="screenshots/settings.png" width="1107" height="784" loading="lazy" decoding="async"
+                            alt="Settings page with learning mode, startup and inbound firewall options">
+                        <figcaption>
+                            <h3>Settings</h3>
+                            <p>Learning or enforcement mode, startup and inbound protection.</p>
+                        </figcaption>
+                    </figure>
                 </div>
             </div>
-        </div>
-    </section>
+        </section>
 
-    <!-- Screenshots Section -->
-    <section id="screenshots" class="screenshots">
-        <div class="container">
-            <h2 class="section-title">Screenshots</h2>
-            <div class="screenshots-grid">
-                <div class="screenshot-card">
-                    <img src="screenshots/status.png" alt="System Status" loading="lazy">
-                    <h4>System Status</h4>
-                    <p>Live overview of outbound and inbound protection with real-time statistics</p>
-                </div>
-                <div class="screenshot-card">
-                    <img src="screenshots/rules.png" alt="Firewall Rules" loading="lazy">
-                    <h4>Firewall Rules</h4>
-                    <p>Manage per-application rules with allow/deny actions</p>
-                </div>
-                <div class="screenshot-card">
-                    <img src="screenshots/logs.png" alt="Connection Logs" loading="lazy">
-                    <h4>Connection Logs</h4>
-                    <p>View recent connection activity and daemon events</p>
-                </div>
-                <div class="screenshot-card">
-                    <img src="screenshots/settings.png" alt="Settings" loading="lazy">
-                    <h4>Settings</h4>
-                    <p>Configure learning mode, startup behavior, and UFW integration</p>
+        <!-- FAQ (mirrors the FAQPage structured data above) -->
+        <section id="faq" class="documentation">
+            <div class="container">
+                <h2 class="section-title">Frequently asked questions</h2>
+                <div class="faq-list">
+                    <details class="faq-item" open>
+                        <summary>What does Bastion Firewall do?</summary>
+                        <p>Linux allows every program to connect to the internet by default. Bastion intercepts each
+                            new outbound connection, finds out which program makes it, and asks you whether to allow or
+                            block it. Your answer can apply once, for the session, or always.</p>
+                    </details>
+                    <details class="faq-item">
+                        <summary>Is Bastion a Little Snitch or OpenSnitch alternative for Linux?</summary>
+                        <p>It works in a similar way: an outbound application firewall that asks per program before a
+                            connection is allowed. Bastion is free and open source (GPL-3.0) and uses a Rust daemon with
+                            eBPF to identify programs.</p>
+                    </details>
+                    <details class="faq-item">
+                        <summary>Which Linux distributions are supported?</summary>
+                        <p>A .deb package is provided for Ubuntu 22.04+, Debian 12+ and derivatives such as Linux Mint,
+                            Pop!_OS and Zorin OS, and an .rpm package for Fedora-based systems. It needs an x86_64
+                            machine with Linux kernel 6.0+ and BTF support.</p>
+                    </details>
+                    <details class="faq-item">
+                        <summary>What is the difference between learning mode and enforcement mode?</summary>
+                        <p>In learning mode every connection is let through and Bastion only asks you what to remember,
+                            so nothing breaks while you build your rules. In enforcement mode a connection waits for
+                            your answer and is blocked if you deny it or do not answer within 60 seconds.</p>
+                    </details>
+                    <details class="faq-item">
+                        <summary>Does Bastion send data to third parties?</summary>
+                        <p>Process identification and DNS hostname matching happen locally. For a destination IP
+                            without a hostname, the popup looks up the organisation of that IP address at ip-api.com.
+                            Update checks read the version number from GitHub.</p>
+                    </details>
+                    <details class="faq-item">
+                        <summary>Is Bastion Firewall free?</summary>
+                        <p>Yes. Bastion Firewall is free and open-source software under the GNU General Public License
+                            v3.0.</p>
+                    </details>
                 </div>
             </div>
-        </div>
-    </section>
+        </section>
 
-    <!-- Documentation Section -->
-    <section id="docs" class="documentation">
-        <div class="container">
-            <h2 class="section-title">Documentation</h2>
-            <div class="docs-grid">
-                <a href="https://github.com/shipdocs/bastion-firewall/blob/master/README.md" class="doc-card"
-                    target="_blank">
-                    <div class="doc-icon">📖</div>
-                    <h3>README</h3>
-                    <p>Complete overview and getting started guide</p>
-                </a>
-                <a href="https://github.com/shipdocs/bastion-firewall/blob/master/CONTRIBUTING.md" class="doc-card"
-                    target="_blank">
-                    <div class="doc-icon">🔧</div>
-                    <h3>Contributing</h3>
-                    <p>Development setup and guidelines</p>
-                </a>
-                <a href="https://github.com/shipdocs/bastion-firewall/blob/master/SECURITY.md" class="doc-card"
-                    target="_blank">
-                    <div class="doc-icon">🔒</div>
-                    <h3>Security</h3>
-                    <p>Security model and reporting</p>
-                </a>
-                <a href="https://github.com/shipdocs/bastion-firewall/releases" class="doc-card" target="_blank">
-                    <div class="doc-icon">📦</div>
-                    <h3>Releases</h3>
-                    <p>Download packages and changelog</p>
-                </a>
-                <a href="https://github.com/shipdocs/bastion-firewall/releases" class="doc-card" target="_blank">
-                    <div class="doc-icon">📦</div>
-                    <h3>Releases</h3>
-                    <p>Download stable and pre-release versions</p>
-                </a>
-                <a href="https://github.com/shipdocs/bastion-firewall/issues" class="doc-card" target="_blank">
-                    <div class="doc-icon">🐛</div>
-                    <h3>Issues</h3>
-                    <p>Report bugs or request features</p>
-                </a>
+        <!-- Documentation -->
+        <section id="docs" class="documentation" aria-labelledby="docs-title">
+            <div class="container">
+                <h2 class="section-title" id="docs-title">Documentation</h2>
+                <div class="docs-grid">
+                    <a href="https://github.com/shipdocs/bastion-firewall/blob/master/README.md" class="doc-card"
+                        rel="noopener">
+                        <div class="doc-icon" aria-hidden="true">📖</div>
+                        <h3>README</h3>
+                        <p>Overview, configuration and architecture</p>
+                    </a>
+                    <a href="https://github.com/shipdocs/bastion-firewall/blob/master/CHANGELOG.md" class="doc-card"
+                        rel="noopener">
+                        <div class="doc-icon" aria-hidden="true">📝</div>
+                        <h3>Changelog</h3>
+                        <p>What changed in each release</p>
+                    </a>
+                    <a href="https://github.com/shipdocs/bastion-firewall/blob/master/docs/USB_CONTROL.md"
+                        class="doc-card" rel="noopener">
+                        <div class="doc-icon" aria-hidden="true">🔌</div>
+                        <h3>USB control</h3>
+                        <p>Approve new USB devices before they work</p>
+                    </a>
+                    <a href="https://github.com/shipdocs/bastion-firewall/blob/master/SECURITY.md" class="doc-card"
+                        rel="noopener">
+                        <div class="doc-icon" aria-hidden="true">🔒</div>
+                        <h3>Security</h3>
+                        <p>Security model and how to report issues</p>
+                    </a>
+                    <a href="https://github.com/shipdocs/bastion-firewall/blob/master/CONTRIBUTING.md"
+                        class="doc-card" rel="noopener">
+                        <div class="doc-icon" aria-hidden="true">🔧</div>
+                        <h3>Contributing</h3>
+                        <p>Development setup and guidelines</p>
+                    </a>
+                    <a href="https://github.com/shipdocs/bastion-firewall/issues" class="doc-card" rel="noopener">
+                        <div class="doc-icon" aria-hidden="true">🐛</div>
+                        <h3>Issues</h3>
+                        <p>Report a bug or request a feature</p>
+                    </a>
+                </div>
             </div>
-        </div>
-    </section>
+        </section>
 
-    <!-- Tested On Section -->
-    <section class="tested">
-        <div class="container">
-            <h2 class="section-title">Built For</h2>
-            <div class="distro-badges">
-                <span class="badge"
-                    style="background: linear-gradient(135deg, #0066cc 0%, #0099ff 100%); font-weight: 600;">🎯 Ubuntu
-                    22.04+</span>
-                <span class="badge">Debian 12+</span>
-                <span class="badge">Linux Mint 21+</span>
-                <span class="badge">Pop!_OS 22.04+</span>
-                <span class="badge">Zorin OS 17+</span>
-                <span class="badge">Elementary OS 7+</span>
+        <!-- Distributions -->
+        <section class="tested" aria-labelledby="built-for">
+            <div class="container">
+                <h2 class="section-title" id="built-for">Built for</h2>
+                <ul class="distro-badges">
+                    <li class="badge">Ubuntu 22.04+</li>
+                    <li class="badge">Debian 12+</li>
+                    <li class="badge">Linux Mint 21+</li>
+                    <li class="badge">Pop!_OS 22.04+</li>
+                    <li class="badge">Zorin OS 17+</li>
+                    <li class="badge">elementary OS 7+</li>
+                    <li class="badge">Fedora (.rpm)</li>
+                </ul>
             </div>
-        </div>
-    </section>
+        </section>
 
-    <!-- CTA Section -->
-    <section class="cta">
-        <div class="container">
-            <h2>🏰 Ready to Defend Your System?</h2>
-            <p>Start protecting your Linux system with Bastion - Your Last Line of Defense.</p>
-            <div class="cta-buttons">
-                <a href="https://github.com/shipdocs/bastion-firewall" class="btn btn-primary btn-large"
-                    target="_blank">Get Started on GitHub</a>
-                <a href="https://github.com/shipdocs/bastion-firewall/releases/latest"
-                    class="btn btn-secondary btn-large" target="_blank">Download Latest</a>
+        <!-- CTA -->
+        <section class="cta">
+            <div class="container">
+                <h2>Take control of your outbound traffic</h2>
+                <p>Install Bastion Firewall and decide which programs may go online.</p>
+                <div class="cta-buttons">
+                    <a href="https://github.com/shipdocs/bastion-firewall/releases/latest"
+                        class="btn btn-primary btn-large" rel="noopener">Download latest release</a>
+                    <a href="https://github.com/shipdocs/bastion-firewall" class="btn btn-secondary btn-large"
+                        rel="noopener">View on GitHub</a>
+                </div>
             </div>
-        </div>
-    </section>
+        </section>
+    </main>
 
-    <!-- Footer -->
     <footer class="footer">
         <div class="container">
             <div class="footer-content">
                 <div class="footer-section">
-                    <h4>🏰 Bastion Firewall</h4>
-                    <p>Your Last Line of Defense - Rust + eBPF v2.0.33</p>
+                    <h2>Bastion Firewall</h2>
+                    <p>Outbound application firewall for Linux. Latest release
+                        <span id="footer-version">v2.0.42</span>. GPL-3.0.</p>
                 </div>
                 <div class="footer-section">
-                    <h4>Links</h4>
+                    <h2>Links</h2>
                     <ul>
-                        <li><a href="https://github.com/shipdocs/bastion-firewall" target="_blank">GitHub</a></li>
-                        <li><a href="https://github.com/shipdocs/bastion-firewall/issues" target="_blank">Issues</a>
+                        <li><a href="https://github.com/shipdocs/bastion-firewall" rel="noopener">GitHub</a></li>
+                        <li><a href="https://github.com/shipdocs/bastion-firewall/releases" rel="noopener">Releases</a>
                         </li>
-                        <li><a href="https://github.com/shipdocs/bastion-firewall/releases" target="_blank">Releases</a>
-                        </li>
+                        <li><a href="https://github.com/shipdocs/bastion-firewall/issues" rel="noopener">Issues</a></li>
                     </ul>
                 </div>
                 <div class="footer-section">
-                    <h4>Documentation</h4>
+                    <h2>Documentation</h2>
                     <ul>
                         <li><a href="https://github.com/shipdocs/bastion-firewall/blob/master/README.md"
-                                target="_blank">README</a></li>
-                        <li><a href="https://github.com/shipdocs/bastion-firewall/blob/master/CONTRIBUTING.md"
-                                target="_blank">Contributing</a></li>
-                        <li><a href="https://github.com/shipdocs/bastion-firewall/blob/master/SECURITY.md"
-                                target="_blank">Security</a></li>
+                                rel="noopener">README</a></li>
+                        <li><a href="https://github.com/shipdocs/bastion-firewall/blob/master/CHANGELOG.md"
+                                rel="noopener">Changelog</a></li>
+                        <li><a href="llms.txt">llms.txt</a></li>
                     </ul>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>🏰 Built with ❤️ and Rust - Your Last Line of Defense</p>
+                <p>Built with Rust and eBPF.</p>
             </div>
         </div>
     </footer>
 
     <script src="script.js"></script>
     <script>
-        // Fetch and display dynamic release information
-        async function fetchReleases() {
+        // Keep the visible release info current between site updates. The static
+        // values above (written by release_tool.sh) are what crawlers and agents see.
+        async function fetchLatestRelease() {
             try {
-                const response = await fetch('https://api.github.com/repos/shipdocs/bastion-firewall/releases');
-                const releases = await response.json();
-
-                // Find latest stable and prerelease
-                let stable = null;
-                let prerelease = null;
-
-                for (const release of releases) {
-                    if (!release.prerelease && !stable) {
-                        stable = release;
-                    }
-                    if (release.prerelease && !prerelease) {
-                        prerelease = release;
-                    }
-                    if (stable && prerelease) break;
-                }
-
-                // Update stable release card
-                if (stable) {
-                    document.getElementById('stable-version').textContent = stable.tag_name;
-                    document.getElementById('stable-name').textContent = stable.name || 'Stable Release';
-                }
-
-                // Update prerelease card
-                if (prerelease) {
-                    document.getElementById('prerelease-version').textContent = prerelease.tag_name;
-                    document.getElementById('prerelease-name').textContent = prerelease.name || 'Pre-release';
-                    document.getElementById('prerelease-link').href = prerelease.html_url;
-                    document.getElementById('prerelease-card').style.display = 'block';
-                } else {
-                    // Hide prerelease card if none exists
-                    document.getElementById('prerelease-card').style.display = 'none';
+                const response = await fetch('https://api.github.com/repos/shipdocs/bastion-firewall/releases/latest');
+                if (!response.ok) return;
+                const release = await response.json();
+                if (!release.tag_name) return;
+                document.getElementById('stable-version').textContent = release.tag_name;
+                document.getElementById('footer-version').textContent = release.tag_name;
+                document.getElementById('latest-release-link').href = release.html_url;
+                if (release.published_at) {
+                    const date = release.published_at.slice(0, 10);
+                    const dateEl = document.getElementById('latest-release-date');
+                    dateEl.firstChild.textContent = 'Released ' + date + ' · ';
                 }
             } catch (error) {
-                console.log('Could not fetch releases:', error);
+                console.log('Could not fetch latest release:', error);
             }
         }
-
-        // Fetch releases on page load
-        fetchReleases();
+        fetchLatestRelease();
     </script>
 </body>
 

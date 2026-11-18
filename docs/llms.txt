@@ -1,0 +1,33 @@
+# Bastion Firewall
+
+> Bastion Firewall is a free, open-source (GPL-3.0) outbound application firewall for Linux. It intercepts each new outbound connection, identifies the program that makes it, and asks the user whether to allow or block it — once, for the session, or always. A Rust daemon with eBPF process tracking does the filtering; a Qt tray app shows the prompts and a control panel.
+
+Latest release: v2.0.42 (2026-11-18)
+
+Key facts:
+
+- Platforms: x86_64 Linux with kernel 6.0+ and BTF. Packages: .deb (Ubuntu 22.04+, Debian 12+, Linux Mint, Pop!_OS, Zorin OS, elementary OS) and .rpm (Fedora-based).
+- Install: download the package from the latest GitHub release, then `sudo apt install ./bastion-firewall_*_amd64.deb` or `sudo dnf install ./bastion-firewall-*.x86_64.rpm`.
+- Modes: learning mode lets every connection through and only asks what to remember; enforcement mode blocks a connection that is denied or not answered within 60 seconds.
+- Rules: stored per program (executable path) and port in /etc/bastion/rules.json; a rule can cover all ports of a program.
+- How it works: iptables NFQUEUE sends the first packet of each new outbound connection to the daemon; the daemon finds the socket owner via /proc, helped by eBPF kprobes on connect/sendmsg.
+- Also: IPv6, hostnames from local DNS traffic in prompts, inbound protection via UFW or standalone rules, optional USB device approval, updates from the tray menu.
+- Privacy: identification and DNS matching are local. For a destination IP without a hostname the prompt looks up the IP's organisation at ip-api.com. Update checks fetch the version number from GitHub.
+- Comparable tools: similar in purpose to OpenSnitch on Linux and Little Snitch on macOS.
+
+## Docs
+
+- [README](https://github.com/shipdocs/bastion-firewall/blob/master/README.md): overview, configuration, architecture
+- [Changelog](https://github.com/shipdocs/bastion-firewall/blob/master/CHANGELOG.md): changes per release
+- [USB device control](https://github.com/shipdocs/bastion-firewall/blob/master/docs/USB_CONTROL.md): approving new USB devices
+- [Security policy](https://github.com/shipdocs/bastion-firewall/blob/master/SECURITY.md): security model and reporting
+
+## Downloads
+
+- [Latest release](https://github.com/shipdocs/bastion-firewall/releases/latest): .deb and .rpm packages
+- [All releases](https://github.com/shipdocs/bastion-firewall/releases)
+
+## Optional
+
+- [Source code](https://github.com/shipdocs/bastion-firewall): Rust daemon (bastion-rs/), Python/Qt GUI (bastion/)
+- [Issues](https://github.com/shipdocs/bastion-firewall/issues): bug reports and feature requests
