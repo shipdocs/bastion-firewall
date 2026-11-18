@@ -9,7 +9,7 @@ import socket
 import threading
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                             QPushButton, QFrame, QProgressBar, QCheckBox, QComboBox)
-from PyQt6.QtCore import Qt, QTimer, QMetaObject, Q_ARG
+from PyQt6.QtCore import Qt, QTimer, QMetaObject, Q_ARG, pyqtSignal
 from PyQt6.QtGui import QGuiApplication
 
 from ..platform import is_wayland
@@ -24,6 +24,9 @@ class FirewallDialog(QDialog):
     Stays on top but doesn't steal focus or disappear on click-away.
     """
 
+    # Emitted from the lookup thread; Qt delivers it on the GUI thread.
+    dest_info_ready = pyqtSignal(str)
+
     def __init__(self, conn_info, timeout=60, learning_mode=False):
         super().__init__()
         self.conn_info = conn_info
@@ -34,7 +37,8 @@ class FirewallDialog(QDialog):
         self.all_ports = False  # Wildcard port support (issue #13)
         self.duration = "once"  # Duration: "once", "session", "always"
         self.time_remaining = timeout
-        
+        self.dest_info_ready.connect(self._update_dest_label)
+
         self.init_ui()
         self.start_timer()
         
@@ -411,12 +415,17 @@ class FirewallDialog(QDialog):
             return result
 
         def on_lookup_complete():
-            """Thread-safe UI update using QTimer"""
-            # Start background thread
+            """Run the lookup off the GUI thread and hand the result back via a signal.
+
+            (QTimer.singleShot from a plain Python thread never fires: that thread
+            has no Qt event loop, so the label was never updated.)
+            """
             def run_thread():
                 result = lookup_worker()
-                # Schedule UI update on main thread
-                QTimer.singleShot(0, lambda: self._update_dest_label(result))
+                try:
+                    self.dest_info_ready.emit(result)
+                except RuntimeError:
+                    pass  # dialog already closed and deleted
 
             thread = threading.Thread(target=run_thread, daemon=True)
             thread.start()

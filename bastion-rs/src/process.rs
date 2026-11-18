@@ -4,7 +4,7 @@
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::fs;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -125,6 +125,127 @@ impl Default for DnsCache {
 #[cfg(test)]
 mod tests {
     use super::{DnsCache, MAX_DNS_CACHE_ENTRIES, MAX_DNS_CACHE_TTL_SECS};
+    use super::{pick_socket_inode, pid_owns_inode};
+    use crate::proc_parser::NetEntry;
+    use std::net::IpAddr;
+
+    fn entry(local_port: u16, remote: &str, remote_port: u16, inode: u64) -> NetEntry {
+        NetEntry { local_port, remote_addr: remote.parse().unwrap(), remote_port, inode }
+    }
+
+    #[test]
+    fn socket_is_chosen_by_source_port_and_destination() {
+        let dest: IpAddr = "104.18.25.232".parse().unwrap();
+        let entries = vec![
+            // Another program, same destination, other source port.
+            entry(40000, "104.18.25.232", 443, 11),
+            // Our connection.
+            entry(40001, "104.18.25.232", 443, 22),
+            // Same source port on another protocol family/host.
+            entry(40001, "1.1.1.1", 443, 33),
+        ];
+        assert_eq!(pick_socket_inode(&entries, 40001, dest, 443), Some(22));
+        assert_eq!(pick_socket_inode(&entries, 40002, dest, 443), None);
+    }
+
+    #[test]
+    fn ipv4_mapped_ipv6_socket_matches_ipv4_destination() {
+        let dest: IpAddr = "104.18.25.232".parse().unwrap();
+        let entries = vec![entry(40001, "::ffff:104.18.25.232", 443, 44)];
+        assert_eq!(pick_socket_inode(&entries, 40001, dest, 443), Some(44));
+    }
+
+    #[test]
+    fn exact_match_wins_over_unconnected_udp_socket() {
+        let dest: IpAddr = "9.9.9.9".parse().unwrap();
+        let entries = vec![entry(5353, "0.0.0.0", 0, 55), entry(5353, "9.9.9.9", 53, 66)];
+        assert_eq!(pick_socket_inode(&entries, 5353, dest, 53), Some(66));
+        let only_unconnected = vec![entry(5353, "0.0.0.0", 0, 55)];
+        assert_eq!(pick_socket_inode(&only_unconnected, 5353, dest, 53), Some(55));
+    }
+
+    /// Reproduces the reported misattribution: two different programs connect to the
+    /// same IP:port right after each other. Each must be resolved to itself.
+    #[test]
+    fn two_programs_same_destination_are_told_apart() {
+        use std::io::Read;
+        use std::net::{TcpListener, TcpStream};
+        use std::process::{Command, Stdio};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // Program 1: a python3 child that connects and reports its source port.
+        let script = format!(
+            "import socket,sys,time\ns=socket.create_connection(('127.0.0.1',{}))\n\
+             print(s.getsockname()[1]);sys.stdout.flush();time.sleep(5)",
+            port
+        );
+        let mut child = match Command::new("python3").arg("-c").arg(&script).stdout(Stdio::piped()).spawn() {
+            Ok(c) => c,
+            Err(_) => return, // no python3: nothing to compare against
+        };
+        let mut out = [0u8; 16];
+        let n = child.stdout.as_mut().unwrap().read(&mut out).unwrap();
+        let child_port: u16 = std::str::from_utf8(&out[..n]).unwrap().trim().parse().unwrap();
+
+        // Program 2: this test binary, same destination.
+        let own = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let own_port = own.local_addr().unwrap().port();
+
+        let mut cache = super::ProcessCache::new(120);
+        let child_info = cache
+            .find_process_by_socket("127.0.0.1", child_port, "127.0.0.1", port, "TCP")
+            .expect("child resolved");
+        let own_info = cache
+            .find_process_by_socket("127.0.0.1", own_port, "127.0.0.1", port, "TCP")
+            .expect("own process resolved");
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(child_info.exe_path.contains("python3"), "child: {:?}", child_info.exe_path);
+        assert_eq!(
+            own_info.exe_path,
+            std::env::current_exe().unwrap().to_string_lossy(),
+            "own process resolved to {:?}",
+            own_info.exe_path
+        );
+    }
+
+    /// The process that resolved a host via DNS must not become the owner of an
+    /// unidentified connection to that host (it would get that program's rules).
+    #[test]
+    fn dns_record_does_not_lend_its_identity() {
+        let mut cache = super::ProcessCache::new(120);
+        // This test binary "resolved" 192.0.2.10 (TEST-NET-1, never really used).
+        cache.dns_cache.lock().insert_ip_mapping(
+            "192.0.2.10".to_string(),
+            std::process::id(),
+            "bastion-test".to_string(),
+            "example.test.".to_string(),
+            300,
+        );
+        // A connection nobody owns (no such socket exists).
+        let info = cache
+            .find_process_by_socket("10.0.0.1", 1, "192.0.2.10", 443, "TCP")
+            .expect("domain hint kept");
+        assert_eq!(info.name, "unknown");
+        assert_eq!(info.exe_path, "unknown");
+        assert_eq!(info.domain_name.as_deref(), Some("example.test."));
+    }
+
+    #[test]
+    fn own_socket_is_found_in_proc_fd() {
+        let sock = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = sock.local_addr().unwrap().port();
+        let inode = crate::proc_parser::read_net_entries("udp")
+            .into_iter()
+            .find(|e| e.local_port == port)
+            .map(|e| e.inode)
+            .expect("socket listed in /proc/net/udp");
+        assert!(pid_owns_inode(std::process::id(), inode));
+        assert!(!pid_owns_inode(std::process::id(), inode + 1_000_000_000));
+    }
 
     #[test]
     fn dns_cache_clamps_untrusted_ttl() {
@@ -160,26 +281,65 @@ mod tests {
 }
 
 
-/// Cache key for eBPF connection lookups
-/// Uses destination IP and port to match connections
+/// Inode of the local socket with this source port talking to `dest_ip:dest_port`.
+/// An exact remote match wins; an unconnected UDP socket (remote 0.0.0.0:0) on the
+/// same source port is accepted as a fallback.
+fn find_socket_inode(protocol: &str, src_port: u16, dest_ip: &str, dest_port: u16) -> Option<u64> {
+    let dest: IpAddr = dest_ip.parse().ok()?;
+    pick_socket_inode(&proc_parser::read_net_entries(protocol), src_port, dest, dest_port)
+}
+
+fn pick_socket_inode(entries: &[proc_parser::NetEntry], src_port: u16, dest: IpAddr, dest_port: u16) -> Option<u64> {
+    let dest = dest.to_canonical();
+    let mut unconnected = None;
+    for e in entries.iter().filter(|e| e.local_port == src_port && e.inode != 0) {
+        let remote = e.remote_addr.to_canonical();
+        if e.remote_port == dest_port && remote == dest {
+            return Some(e.inode);
+        }
+        if e.remote_port == 0 && remote.is_unspecified() && unconnected.is_none() {
+            unconnected = Some(e.inode);
+        }
+    }
+    unconnected
+}
+
+fn pid_owns_inode(pid: u32, inode: u64) -> bool {
+    let target = format!("socket:[{}]", inode);
+    match fs::read_dir(format!("/proc/{}/fd", pid)) {
+        Ok(fds) => fds
+            .flatten()
+            .any(|fd| fs::read_link(fd.path()).map(|l| l.to_string_lossy() == target).unwrap_or(false)),
+        Err(_) => false,
+    }
+}
+
+/// Cache key for resolved socket owners. Includes the source port and protocol:
+/// keyed on the destination alone, a second program connecting to the same
+/// IP:port within the cache lifetime was attributed to the first one.
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 struct ConnectionKey {
+    protocol: String,
+    src_port: u16,
     dst_ip: String,
     dst_port: u16,
 }
+
+/// How long eBPF CONN_MAP entries are kept before the daemon prunes them.
+const EBPF_CONN_MAX_AGE_NS: u64 = 5 * 60 * 1_000_000_000;
 
 /// Cached eBPF connection information
 /// Stores process name and PID captured at connect time
 #[derive(Clone)]
 struct CachedEbpfInfo {
     pid: u32,
-    comm: String,
     timestamp: Instant,
 }
 
 /// Process cache - reads /proc directly like Python's psutil
 pub struct ProcessCache {
     inode_to_process: HashMap<u64, ProcessInfo>,
+    inode_to_pid: HashMap<u64, u32>,
     last_scan: Instant,
     ebpf: Option<Arc<parking_lot::Mutex<EbpfManager>>>,
     // Cache for eBPF connection info with longer TTL than kernel map
@@ -225,6 +385,7 @@ impl ProcessCache {
 
         let mut cache = Self {
             inode_to_process: HashMap::new(),
+            inode_to_pid: HashMap::new(),
             last_scan: Instant::now(),
             ebpf: ebpf_arc,
             ebpf_connection_cache: HashMap::new(),
@@ -247,6 +408,7 @@ impl ProcessCache {
 
     fn scan_processes(&mut self) {
         self.inode_to_process.clear();
+        self.inode_to_pid.clear();
         let proc_dir = match fs::read_dir("/proc") {
             Ok(d) => d,
             Err(_) => return,
@@ -267,6 +429,7 @@ impl ProcessCache {
                             if link_str.starts_with("socket:[") {
                                 if let Ok(inode) = link_str[8..link_str.len() - 1].parse::<u64>() {
                                     self.inode_to_process.insert(inode, info.clone());
+                                    self.inode_to_pid.insert(inode, pid);
                                 }
                             }
                         }
@@ -288,6 +451,12 @@ impl ProcessCache {
         // Periodic cleanup
         if self.last_ebpf_cleanup.elapsed() > Duration::from_secs(60) {
             self.cleanup_ebpf_cache();
+            if let Some(ebpf) = &self.ebpf {
+                let removed = ebpf.lock().prune_conn_map(EBPF_CONN_MAX_AGE_NS);
+                if removed > 0 {
+                    debug!("Pruned {} stale eBPF connection entries", removed);
+                }
+            }
             self.last_ebpf_cleanup = Instant::now();
         }
         if self.dns_cache.lock().needs_cleanup() {
@@ -295,6 +464,8 @@ impl ProcessCache {
         }
 
         let cache_key = ConnectionKey {
+            protocol: protocol.to_string(),
+            src_port,
             dst_ip: dest_ip.to_string(),
             dst_port: dest_port,
         };
@@ -311,23 +482,21 @@ impl ProcessCache {
                 info.domain_name = Some(entry.domain_hint.clone());
                 debug!("Enriched process {} with domain {}", info.name, entry.domain_hint);
             } else {
-                // We don't have a live process, but we have a DNS record for this IP.
-                // Fallback to the process that made the DNS query (likely the resolver).
-                if let Some(mut info) = self.get_process_info_by_pid(entry.pid) {
-                    info.domain_name = Some(entry.domain_hint.clone());
-                    if (info.name == "systemd-resolve" || info.name == "systemd-network")
-                        && !entry.process_name.is_empty() {
-                            info.name = entry.process_name.clone();
-                        }
-                    process_info = Some(info);
-                } else if !entry.process_name.is_empty() {
-                    process_info = Some(ProcessInfo {
-                        name: entry.process_name.clone(),
-                        domain_name: Some(entry.domain_hint.clone()),
-                        exe_path: self.find_exe_by_name(&entry.process_name).unwrap_or_default(),
-                        uid: 0,
-                    });
-                }
+                // No owner found. Keep the domain as a hint only: the process that
+                // made the DNS query (often systemd-resolved, or another program that
+                // resolved the same host) says nothing about who opened this socket,
+                // and giving the connection that program's identity would apply its
+                // rules. "unknown" makes the daemon use destination (@dest) rules.
+                debug!(
+                    "No socket owner for {}:{}; DNS says {} (queried by {} pid {}), treating as unknown",
+                    dest_ip, dest_port, entry.domain_hint, entry.process_name, entry.pid
+                );
+                process_info = Some(ProcessInfo {
+                    name: "unknown".to_string(),
+                    domain_name: Some(entry.domain_hint.clone()),
+                    exe_path: "unknown".to_string(),
+                    uid: 0,
+                });
             }
         }
 
@@ -340,6 +509,17 @@ impl ProcessCache {
         process_info
     }
 
+    /// Find the process that owns the socket of this connection.
+    ///
+    /// Order, most to least reliable:
+    /// 1. /proc/net/{tcp,udp}[6]: the socket with this source port and destination,
+    ///    then the process holding that socket inode (first among the processes eBPF
+    ///    saw connecting there, then a full /proc scan).
+    /// 2. eBPF alone: the newest connect() to exactly this IP and port, if recent.
+    ///
+    /// Earlier versions tried eBPF first and took whichever entry for the destination
+    /// came up first (possibly an old, unrelated process), and finally any entry with
+    /// the same port regardless of IP.
     fn lookup_socket_owner(
         &mut self,
         src_port: u16,
@@ -348,68 +528,80 @@ impl ProcessCache {
         protocol: &str,
         cache_key: &ConnectionKey,
     ) -> Option<ProcessInfo> {
-        // 1. Check eBPF connection cache first
+        // 0. Same socket seen recently (e.g. a retransmitted SYN)
         if let Some(cached) = self.ebpf_connection_cache.get(cache_key) {
             if cached.timestamp.elapsed() < Duration::from_secs(60) {
-                if let Some(mut info) = self.get_process_info_by_pid(cached.pid) {
-                    info.name = cached.comm.clone();
+                if let Some(info) = self.get_process_info_by_pid(cached.pid) {
                     return Some(info);
                 }
-                return Some(ProcessInfo {
-                    name: cached.comm.clone(),
-                    domain_name: None,
-                    exe_path: self.find_exe_by_name(&cached.comm).unwrap_or_default(),
-                    uid: 0,
-                });
             }
         }
 
-        // 2. Query live eBPF map
-        if let Some(ebpf_arc) = &self.ebpf {
-            let mut ebpf = ebpf_arc.lock();
-            if let Some((pid, comm)) = ebpf.lookup_process_info(src_port, dest_ip, dest_port) {
-                // Cache it
-                self.ebpf_connection_cache.insert(
-                    cache_key.clone(),
-                    CachedEbpfInfo {
-                        pid,
-                        comm: comm.clone(),
-                        timestamp: Instant::now(),
-                    },
-                );
+        let candidates = match &self.ebpf {
+            Some(ebpf) => ebpf.lock().connection_candidates(dest_ip, dest_port),
+            None => Vec::new(),
+        };
 
-                if let Some(mut info) = self.get_process_info_by_pid(pid) {
-                    info.name = comm.clone();
+        // 1. Exact socket owner via /proc
+        if let Some(inode) = find_socket_inode(protocol, src_port, dest_ip, dest_port) {
+            if let Some(pid) = self.owner_of_inode(inode, &candidates) {
+                if let Some(info) = self.get_process_info_by_pid(pid) {
+                    self.remember(cache_key, pid);
                     return Some(info);
                 }
-                return Some(ProcessInfo {
-                    name: comm.clone(),
-                    domain_name: None,
-                    exe_path: self.find_exe_by_name(&comm).unwrap_or_default(),
-                    uid: 0,
-                });
             }
         }
 
-        if self.last_scan.elapsed() > Duration::from_millis(20) {
-            self.scan_processes();
-        }
-
-        let dest_addr: IpAddr = dest_ip.parse().unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
-        let entries = proc_parser::read_net_entries(protocol);
-
-        for entry in &entries {
-            if entry.local_port == src_port && 
-               (entry.remote_port == dest_port || dest_port == 0) &&
-               (entry.remote_addr == dest_addr || entry.remote_addr.is_unspecified())
-            {
-                if let Some(info) = self.inode_to_process.get(&entry.inode) {
-                    return Some(info.clone());
-                }
+        // 2. eBPF only (socket already gone or not visible in /proc).
+        //    The eBPF metrics count candidate lookups; see connection_candidates.
+        let recent = crate::ebpf_loader::pick_recent(
+            &candidates,
+            crate::ebpf_loader::get_monotonic_ns(),
+            crate::ebpf_loader::EBPF_MATCH_MAX_AGE_NS,
+        )
+        .cloned();
+        if let Some(c) = recent {
+            debug!("eBPF-only match for {}:{}: PID {} ({})", dest_ip, dest_port, c.pid, c.comm);
+            self.remember(cache_key, c.pid);
+            if let Some(info) = self.get_process_info_by_pid(c.pid) {
+                return Some(info);
             }
+            // Process already exited: name only, never a guessed path.
+            return Some(ProcessInfo {
+                name: c.comm,
+                domain_name: None,
+                exe_path: String::new(),
+                uid: 0,
+            });
         }
 
         None
+    }
+
+    fn remember(&mut self, cache_key: &ConnectionKey, pid: u32) {
+        self.ebpf_connection_cache.insert(
+            cache_key.clone(),
+            CachedEbpfInfo {
+                pid,
+                timestamp: Instant::now(),
+            },
+        );
+    }
+
+    /// PID holding socket `inode`: known sockets, then the eBPF candidates, then a full scan.
+    fn owner_of_inode(&mut self, inode: u64, candidates: &[crate::ebpf_loader::EbpfCandidate]) -> Option<u32> {
+        if let Some(pid) = self.inode_to_pid.get(&inode) {
+            if pid_owns_inode(*pid, inode) {
+                return Some(*pid);
+            }
+        }
+        for c in candidates {
+            if pid_owns_inode(c.pid, inode) {
+                return Some(c.pid);
+            }
+        }
+        self.scan_processes();
+        self.inode_to_pid.get(&inode).copied()
     }
 
     fn get_process_info_by_pid(&self, pid: u32) -> Option<ProcessInfo> {
@@ -436,15 +628,6 @@ impl ProcessCache {
             exe_path,
             uid,
         })
-    }
-
-    fn find_exe_by_name(&self, name: &str) -> Option<String> {
-        for info in self.inode_to_process.values() {
-            if info.name == name && !info.exe_path.is_empty() {
-                return Some(info.exe_path.clone());
-            }
-        }
-        None
     }
 
     /// Clean up expired entries from the eBPF connection cache
