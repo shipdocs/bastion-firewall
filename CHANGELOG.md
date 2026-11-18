@@ -1,3 +1,13 @@
+## [2.0.43] - 2026-11-18
+
+Fixes the rule count in the control panel.
+
+### Fixed
+- **Rule count was 2 too high**: the control panel counted the `applications` and `services` fields in `rules.json` as rules. This showed on the Status page ("Active Rules"), in the "Exported N rules" message and in the "Delete ALL N rules?" question. Only real rules are counted now.
+
+### Changed
+- The website (https://shipdocs.github.io/bastion-firewall/) has new screenshots, an FAQ and up-to-date information. Its version details are now updated automatically with each release.
+
 ## [2.0.42] - 2026-11-18
 
 Adds Quit and Check for Updates to the tray menu, makes the daemon attribute connections to the right program, and fixes the destination details in the connection popup.
