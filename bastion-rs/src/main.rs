@@ -397,7 +397,7 @@ fn process_packet(
     }
 
     // No rule found - check session cache first, then ask user
-    let session_cache_key = GuiState::session_cache_key(&app_name, &app_path, dst_port);
+    let session_cache_key = GuiState::session_cache_key(&app_name, &app_path, &dst_ip_str, dst_port);
 
     let mut gui = gui_state.lock();
 

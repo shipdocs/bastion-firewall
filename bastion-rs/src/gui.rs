@@ -67,8 +67,13 @@ impl GuiState {
 
     /// Key under which a decision for this process and port is remembered for the
     /// session. Must stay identical between the packet path and the GUI handler.
-    pub fn session_cache_key(app_name: &str, app_path: &str, port: u16) -> String {
-        if app_path.is_empty() || app_path == "unknown" {
+    ///
+    /// Unidentified processes are keyed on the destination: keyed as
+    /// "@name:unknown:<port>", one answer applied to every unknown program on that port.
+    pub fn session_cache_key(app_name: &str, app_path: &str, dest_ip: &str, port: u16) -> String {
+        if app_name.is_empty() || app_name == "unknown" {
+            format!("@dest:{}:{}", dest_ip, port)
+        } else if app_path.is_empty() || app_path == "unknown" {
             format!("@name:{}:{}", app_name, port)
         } else {
             format!("{}:{}", app_path, port)
@@ -157,7 +162,7 @@ impl GuiState {
         } else {
             &request.process_name
         };
-        let cache_key = Self::session_cache_key(name, &request.app_path, request.dest_port);
+        let cache_key = Self::session_cache_key(name, &request.app_path, &request.dest_ip, request.dest_port);
 
         if let Some(time) = self.pending_cache.get(&cache_key) {
             if time.elapsed() < Duration::from_secs(30) {
@@ -646,16 +651,13 @@ fn handle_admin_connection(
 /// process and port are not asked about again until the daemon restarts.
 fn remember_session_decision(gui_state: &Arc<Mutex<GuiState>>, req: &AddRuleRequest) {
     let mut state = gui_state.lock();
-    if req.app_name == "unknown" || req.app_name.is_empty() {
-        // Unknown processes are remembered per destination, never per name.
-        if !req.dest_ip.is_empty() {
-            state.cache_unknown_decision(&req.dest_ip, req.port, req.allow);
-        }
-    } else {
-        let key = GuiState::session_cache_key(&req.app_name, &req.app_path, req.port);
-        state.cache_session_decision(&key, req.allow);
-        info!("[ASYNC:SESSION] Remembering {} for this session (allow: {})", key, req.allow);
+    if (req.app_name == "unknown" || req.app_name.is_empty()) && req.dest_ip.is_empty() {
+        // Unknown process without a destination: nothing safe to key it on.
+        return;
     }
+    let key = GuiState::session_cache_key(&req.app_name, &req.app_path, &req.dest_ip, req.port);
+    state.cache_session_decision(&key, req.allow);
+    info!("[ASYNC:SESSION] Remembering {} for this session (allow: {})", key, req.allow);
 }
 
 fn add_permanent_rule(rules: &RuleManager, req: AddRuleRequest) {
@@ -851,7 +853,7 @@ mod tests {
             r#"{"type":"add_rule","app_name":"curl","app_path":"/usr/bin/curl","port":443,"dest_ip":"1.2.3.4","allow":true,"all_ports":false,"duration":"session"}"#,
         );
         remember_session_decision(&state, &req);
-        let key = GuiState::session_cache_key("curl", "/usr/bin/curl", 443);
+        let key = GuiState::session_cache_key("curl", "/usr/bin/curl", "1.2.3.4", 443);
         assert_eq!(state.lock().get_session_decision(&key), Some(true));
     }
 
@@ -862,9 +864,19 @@ mod tests {
             r#"{"type":"add_rule","app_name":"unknown","app_path":"unknown","port":53,"dest_ip":"9.9.9.9","allow":false,"all_ports":false,"duration":"session"}"#,
         );
         remember_session_decision(&state, &req);
-        let mut s = state.lock();
+        let s = state.lock();
         assert_eq!(s.get_session_decision("@name:unknown:53"), None);
-        assert_eq!(s.check_unknown_decision("9.9.9.9", 53), Some(false));
+        assert_eq!(s.get_session_decision("@dest:9.9.9.9:53"), Some(false));
+        // Another destination on the same port is not covered.
+        assert_eq!(s.get_session_decision("@dest:1.1.1.1:53"), None);
+    }
+
+    #[test]
+    fn session_key_for_unknown_process_includes_destination() {
+        assert_eq!(GuiState::session_cache_key("unknown", "unknown", "9.9.9.9", 443), "@dest:9.9.9.9:443");
+        assert_eq!(GuiState::session_cache_key("", "", "9.9.9.9", 443), "@dest:9.9.9.9:443");
+        assert_eq!(GuiState::session_cache_key("curl", "", "9.9.9.9", 443), "@name:curl:443");
+        assert_eq!(GuiState::session_cache_key("curl", "/usr/bin/curl", "9.9.9.9", 443), "/usr/bin/curl:443");
     }
 
     #[test]

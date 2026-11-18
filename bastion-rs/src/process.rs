@@ -212,6 +212,28 @@ mod tests {
         );
     }
 
+    /// The process that resolved a host via DNS must not become the owner of an
+    /// unidentified connection to that host (it would get that program's rules).
+    #[test]
+    fn dns_record_does_not_lend_its_identity() {
+        let mut cache = super::ProcessCache::new(120);
+        // This test binary "resolved" 192.0.2.10 (TEST-NET-1, never really used).
+        cache.dns_cache.lock().insert_ip_mapping(
+            "192.0.2.10".to_string(),
+            std::process::id(),
+            "bastion-test".to_string(),
+            "example.test.".to_string(),
+            300,
+        );
+        // A connection nobody owns (no such socket exists).
+        let info = cache
+            .find_process_by_socket("10.0.0.1", 1, "192.0.2.10", 443, "TCP")
+            .expect("domain hint kept");
+        assert_eq!(info.name, "unknown");
+        assert_eq!(info.exe_path, "unknown");
+        assert_eq!(info.domain_name.as_deref(), Some("example.test."));
+    }
+
     #[test]
     fn own_socket_is_found_in_proc_fd() {
         let sock = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -460,23 +482,21 @@ impl ProcessCache {
                 info.domain_name = Some(entry.domain_hint.clone());
                 debug!("Enriched process {} with domain {}", info.name, entry.domain_hint);
             } else {
-                // We don't have a live process, but we have a DNS record for this IP.
-                // Fallback to the process that made the DNS query (likely the resolver).
-                if let Some(mut info) = self.get_process_info_by_pid(entry.pid) {
-                    info.domain_name = Some(entry.domain_hint.clone());
-                    if (info.name == "systemd-resolve" || info.name == "systemd-network")
-                        && !entry.process_name.is_empty() {
-                            info.name = entry.process_name.clone();
-                        }
-                    process_info = Some(info);
-                } else if !entry.process_name.is_empty() {
-                    process_info = Some(ProcessInfo {
-                        name: entry.process_name.clone(),
-                        domain_name: Some(entry.domain_hint.clone()),
-                        exe_path: self.find_exe_by_name(&entry.process_name).unwrap_or_default(),
-                        uid: 0,
-                    });
-                }
+                // No owner found. Keep the domain as a hint only: the process that
+                // made the DNS query (often systemd-resolved, or another program that
+                // resolved the same host) says nothing about who opened this socket,
+                // and giving the connection that program's identity would apply its
+                // rules. "unknown" makes the daemon use destination (@dest) rules.
+                debug!(
+                    "No socket owner for {}:{}; DNS says {} (queried by {} pid {}), treating as unknown",
+                    dest_ip, dest_port, entry.domain_hint, entry.process_name, entry.pid
+                );
+                process_info = Some(ProcessInfo {
+                    name: "unknown".to_string(),
+                    domain_name: Some(entry.domain_hint.clone()),
+                    exe_path: "unknown".to_string(),
+                    uid: 0,
+                });
             }
         }
 
@@ -608,15 +628,6 @@ impl ProcessCache {
             exe_path,
             uid,
         })
-    }
-
-    fn find_exe_by_name(&self, name: &str) -> Option<String> {
-        for info in self.inode_to_process.values() {
-            if info.name == name && !info.exe_path.is_empty() {
-                return Some(info.exe_path.clone());
-            }
-        }
-        None
     }
 
     /// Clean up expired entries from the eBPF connection cache
