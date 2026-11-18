@@ -493,7 +493,7 @@ class DashboardWindow(QMainWindow):
 
             self.stat_connections_label.setText(str(total))
             self.stat_blocked_label.setText(str(blocked))
-            self.stat_rules_label.setText(str(len(self.data_rules)))
+            self.stat_rules_label.setText(str(self._rule_count()))
         except Exception as e:
             logger.error(f"Error updating stats display: {e}")
 
@@ -1460,6 +1460,10 @@ X-GNOME-Autostart-enabled=true
                     except Exception:
                         pass
 
+    def _rule_count(self):
+        """Number of real rules; rules.json also holds the "applications"/"services" meta fields."""
+        return sum(1 for v in self.data_rules.values() if isinstance(v, bool))
+
     def refresh_rules_table(self):
         self.table_rules.setRowCount(0)
 
@@ -1985,7 +1989,7 @@ X-GNOME-Autostart-enabled=true
                 json.dump(self.data_rules, f, indent=2)
 
             from .notification import show_notification
-            show_notification(self, "Success", f"Exported {len(self.data_rules)} rules to {file_path}")
+            show_notification(self, "Success", f"Exported {self._rule_count()} rules to {file_path}")
         except Exception as e:
             QMessageBox.critical(self, "Export Error", f"Failed to export rules:\n{e}")
 
@@ -2085,7 +2089,7 @@ X-GNOME-Autostart-enabled=true
         reply = QMessageBox.question(
             self,
             "Confirm Delete All",
-            f"Are you sure you want to delete ALL {len(self.data_rules)} rules?\n\n"
+            f"Are you sure you want to delete ALL {self._rule_count()} rules?\n\n"
             "This action cannot be undone.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )

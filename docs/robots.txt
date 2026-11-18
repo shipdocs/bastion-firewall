@@ -1,3 +1,4 @@
+# Everything on this site is public. Search engines and AI agents are welcome.
 User-agent: *
 Allow: /
 
