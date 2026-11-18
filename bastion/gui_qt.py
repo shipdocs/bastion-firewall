@@ -378,30 +378,32 @@ class DaemonStatsClient(threading.Thread):
                     sock.connect(self.socket_path)
                     logger.info(f"Connected to daemon at {self.socket_path}")
 
-                    # Read stats updates line by line
+                    # Ask for stats every 2 s. While the tray owns the daemon's
+                    # primary connection, this one is a secondary connection that
+                    # only gets stats when it asks (get_stats); as the primary it
+                    # also gets them pushed. Either way a stats_update comes back.
+                    buf = b""
                     while self.running:
                         try:
+                            sock.sendall(b'{"type":"get_stats"}\n')
                             data = sock.recv(4096)
                             if not data:
                                 logger.warning("Daemon closed connection")
                                 break
-
-                            # Split by newlines in case multiple messages arrive
-                            messages = data.decode('utf-8').strip().split('\n')
-                            for msg in messages:
-                                if not msg:
+                            buf += data
+                            while b"\n" in buf:
+                                line, buf = buf.split(b"\n", 1)
+                                if not line.strip():
                                     continue
                                 try:
-                                    parsed = json.loads(msg)
-                                    if parsed.get('type') == 'stats_update':
-                                        stats = parsed.get('stats', {})
-                                        # Call callback with stats
-                                        self.stats_callback(stats)
+                                    parsed = json.loads(line)
                                 except json.JSONDecodeError as e:
                                     logger.warning(f"Failed to parse stats message: {e}")
-
+                                    continue
+                                if isinstance(parsed, dict) and parsed.get('type') == 'stats_update':
+                                    self.stats_callback(parsed.get('stats', {}))
+                            threading.Event().wait(2)
                         except socket.timeout:
-                            # Timeout is normal - just continue
                             continue
                         except Exception as e:
                             logger.error(f"Error receiving from daemon: {e}")
@@ -1465,6 +1467,9 @@ X-GNOME-Autostart-enabled=true
         return sum(1 for v in self.data_rules.values() if isinstance(v, bool))
 
     def refresh_rules_table(self):
+        # The rule count comes from rules.json, so it shows even without the daemon.
+        if hasattr(self, 'stat_rules_label'):
+            self.stat_rules_label.setText(str(self._rule_count()))
         self.table_rules.setRowCount(0)
 
         # self.data_rules is dict: "app_path:port": allow_bool

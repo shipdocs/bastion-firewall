@@ -41,6 +41,10 @@ pub enum GuiCommand {
     ListUsbRules,
     #[serde(rename = "delete_usb_rule")]
     DeleteUsbRule(DeleteRuleRequest),
+    /// Read-only: the daemon answers with a `stats_update`. The control panel
+    /// polls this, because only the tray's connection gets stats pushed to it.
+    #[serde(rename = "get_stats")]
+    GetStats,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
