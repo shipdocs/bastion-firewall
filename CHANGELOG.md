@@ -1,6 +1,10 @@
 ## [2.0.42] - 2026-11-18
 
-Fixes the destination details in the connection popup.
+Adds Quit and Check for Updates to the tray menu, and fixes the destination details in the connection popup.
+
+### Added
+- **Check for Updates** in the tray menu: checks right away instead of waiting for the next automatic check (every 6 hours), and also tells you when you already have the latest version or when the check failed.
+- **Quit** in the tray menu: closes the tray app after a confirmation. The firewall itself keeps running; in enforcement mode, connections from programs without a rule are blocked without asking until the tray is started again.
 
 ### Fixed
 - **Popup never showed who a destination belongs to**: the popup looks up the host name (or, failing that, the organisation) of the destination IP in the background, but handed the result back with a `QTimer.singleShot` lambda from a plain Python thread. That never runs, so the popup kept showing only the bare IP address. The result is now passed with a Qt signal.

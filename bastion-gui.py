@@ -70,6 +70,8 @@ class BastionClient(QObject):
 
     # Emitted from the update worker thread; delivered on the GUI thread.
     update_failed = pyqtSignal(str)
+    # Result of a check started from the menu: "latest", "newer" or "error:<msg>".
+    manual_check_done = pyqtSignal(str)
 
     def __init__(self, app):
         super().__init__()
@@ -83,6 +85,7 @@ class BastionClient(QObject):
         self.active_dialogs = {}  # Map request_id -> dialog
         self.latest_update_version = None # Store latest version found
         self.update_failed.connect(self._show_update_error)
+        self.manual_check_done.connect(self._show_manual_check_result)
         self._update_running = False  # a second click must not start a second apt
         self.update_check_url = "https://raw.githubusercontent.com/shipdocs/bastion-firewall/master/VERSION"
 
@@ -120,7 +123,10 @@ class BastionClient(QObject):
         
         self.action_cp = self.menu.addAction("Control Panel")
         self.action_cp.triggered.connect(self.open_control_panel)
-        
+
+        self.action_check_updates = self.menu.addAction("Check for Updates")
+        self.action_check_updates.triggered.connect(lambda: self.check_for_updates(manual=True))
+
         self.menu.addSeparator()
         
         self.action_start = self.menu.addAction("Start Firewall")
@@ -131,6 +137,10 @@ class BastionClient(QObject):
         
         self.action_restart = self.menu.addAction("Restart Firewall")
         self.action_restart.triggered.connect(lambda: self.run_service("restart"))
+
+        self.menu.addSeparator()
+        self.action_quit = self.menu.addAction("Quit")
+        self.action_quit.triggered.connect(self.quit_tray)
 
         self.tray_icon.setContextMenu(self.menu)
 
@@ -458,8 +468,12 @@ class BastionClient(QObject):
         elif action == 'stop':
             QTimer.singleShot(1000, lambda: self.update_status("Stopped", "disconnected"))
 
-    def check_for_updates(self):
-        """Fetch VERSION file and notify if update is available"""
+    def check_for_updates(self, manual=False):
+        """Fetch VERSION file and notify if update is available.
+
+        manual=True (from the menu) also reports "up to date" and failures;
+        the periodic check stays silent about those.
+        """
         print(f"[UPDATE] Checking for updates (current: {BASTION_VERSION})...")
         def _check():
             try:
@@ -471,8 +485,14 @@ class BastionClient(QObject):
                         self.latest_update_version = new_version
                         # Schedule menu update on main thread
                         QTimer.singleShot(0, self.show_update_notification)
+                        if manual:
+                            self.manual_check_done.emit("newer")
+                    elif manual:
+                        self.manual_check_done.emit("latest")
             except Exception as e:
                 print(f"[UPDATE] Check failed: {e}")
+                if manual:
+                    self.manual_check_done.emit(f"error:{e}")
 
         import threading
         threading.Thread(target=_check, daemon=True).start()
@@ -506,6 +526,44 @@ class BastionClient(QObject):
             font = self.action_update.font()
             font.setBold(True)
             self.action_update.setFont(font)
+
+    def _show_manual_check_result(self, result):
+        # "newer" is already announced by show_update_notification.
+        if result == "latest":
+            self.tray_icon.showMessage(
+                "Bastion Firewall",
+                f"You are running the latest version (v{BASTION_VERSION}).",
+                QSystemTrayIcon.MessageIcon.Information,
+                5000
+            )
+        elif result.startswith("error:"):
+            self.tray_icon.showMessage(
+                "Bastion Firewall - Update Check Failed",
+                f"Could not check for updates: {result[len('error:'):]}",
+                QSystemTrayIcon.MessageIcon.Warning,
+                8000
+            )
+
+    def quit_tray(self):
+        """Close the tray app. The firewall daemon keeps running."""
+        if self.learning_mode:
+            detail = ("The firewall keeps running in learning mode, but you will "
+                      "not be asked about new connections until you start "
+                      "Bastion Firewall again.")
+        else:
+            detail = ("The firewall keeps running. Without the tray, new connections "
+                      "from programs without a rule are BLOCKED without asking, "
+                      "until you start Bastion Firewall again.")
+        answer = QMessageBox.question(
+            None, "Quit Bastion Firewall tray?", detail,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        print("[TRAY] Quit requested from menu")
+        self.tray_icon.hide()
+        self.app.quit()
 
     def _show_update_error(self, msg):
         self._update_running = False
